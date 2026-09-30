@@ -23,13 +23,26 @@ export function stageMarkup(p, path = src => src) {
 }
 const vertex = `varying vec2 vUv; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uTorsion;
 void main(){vUv=uv;vec3 p=position; if(uEffect==1.0){p.z+=sin(p.x*5.0+uTime*2.0)*cos(p.y*3.0-uTime)*uStrength*0.15;}float a=p.y*uTorsion; p.xz=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`;
-const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uDepth; uniform vec3 uTint; uniform vec2 uCrop; uniform float uOpacity;
-void main(){vec2 uv=(vUv-0.5)*uCrop+0.5; if(uEffect==1.0)uv.x+=sin(uv.y*14.0+uTime*2.0)*uStrength*0.015;
+const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uDepth; uniform vec3 uTint; uniform vec2 uCrop; uniform float uOpacity; uniform float uCorner; uniform float uAspect; uniform float uShape;
+void main(){
+float mask=1.0;
+if(uCorner>0.0){
+  vec2 halfSize=vec2(uAspect,1.0)*0.5;
+  float radius=uCorner*min(uAspect,1.0)*0.5;
+  vec2 q=abs((vUv-0.5)*vec2(uAspect,1.0))-halfSize+radius;
+  vec2 outside=max(q,0.0);
+  float edge=uShape==1.0 ? pow(pow(outside.x,4.0)+pow(outside.y,4.0),0.25) : length(outside);
+  float distance=edge+min(max(q.x,q.y),0.0)-radius;
+  float aa=max(fwidth(distance),0.00001);
+  mask=1.0-smoothstep(-aa,aa,distance);
+  if(mask<0.001)discard;
+}
+vec2 uv=(vUv-0.5)*uCrop+0.5; if(uEffect==1.0)uv.x+=sin(uv.y*14.0+uTime*2.0)*uStrength*0.015;
 vec4 c=texture2D(uMap,uv);float lum=dot(c.rgb,vec3(0.2126,0.7152,0.0722));
 if(uEffect==2.0)c.rgb=mix(c.rgb,vec3(lum),uStrength);
 if(uEffect==3.0)c.rgb=mix(c.rgb,mix(vec3(0.02),uTint,lum),uStrength);
 if(uEffect==4.0){float s=uStrength*0.018*(0.5+0.5*sin(uTime*1.4));c.r=texture2D(uMap,uv+vec2(s,0.0)).r;c.b=texture2D(uMap,uv-vec2(s,0.0)).b;}
-if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacity);
+if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacity*mask);
 #include <tonemapping_fragment>
 #include <colorspace_fragment>
 }`;
@@ -76,8 +89,8 @@ export async function createScene(root, p, { renderMode = false } = {}) {
       const imageRatio = texture.image.width / texture.image.height;
       const cardRatio = layer.cardAspect;
       const crop = imageRatio > cardRatio ? new THREE.Vector2(cardRatio / imageRatio, 1) : new THREE.Vector2(1, imageRatio / cardRatio);
-      const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, side: THREE.DoubleSide, transparent: true,
-        uniforms: { uMap: { value: texture }, uTorsion: { value: 0 }, uOpacity: { value: 1 }, uTime: { value: 0 }, uStrength: { value: layer.intensity }, uEffect: { value: SHADERS.find(s => s.id === layer.shader).mode }, uTint: { value: new THREE.Color(layer.tint) }, uDepth: { value: 1 }, uCrop: { value: crop } }
+      const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, side: layer.backface === 'hide' ? THREE.FrontSide : layer.frontface === 'hide' ? THREE.BackSide : THREE.DoubleSide, transparent: true,
+        uniforms: { uMap: { value: texture }, uTorsion: { value: 0 }, uOpacity: { value: 1 }, uCorner: { value: layer.cornerRadius / 100 }, uAspect: { value: layer.cardAspect }, uShape: { value: layer.cardShape === 'squircle' ? 1 : 0 }, uTime: { value: 0 }, uStrength: { value: layer.intensity }, uEffect: { value: SHADERS.find(s => s.id === layer.shader).mode }, uTint: { value: new THREE.Color(layer.tint) }, uDepth: { value: 1 }, uCrop: { value: crop } }
       });
       const mesh = new THREE.Mesh(geometry, material); group.add(mesh); meshes.push(mesh);
     });
@@ -94,7 +107,7 @@ export async function createScene(root, p, { renderMode = false } = {}) {
       mesh.position.set(...state.position);
       mesh.rotation.set(...state.rotation);
       mesh.scale.setScalar(state.scale);
-      mesh.visible = layerAlpha(layer, time) > 0 && state.opacity > 0.001;
+      mesh.visible = !(layer.frontface === 'hide' && layer.backface === 'hide') && layerAlpha(layer, time) > 0 && state.opacity > 0.001;
       mesh.material.uniforms.uDepth.value = state.depth;
       mesh.material.uniforms.uOpacity.value = state.opacity;
       mesh.material.uniforms.uTorsion.value = state.torsion;

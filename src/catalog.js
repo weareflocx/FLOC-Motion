@@ -82,6 +82,10 @@ function derivePatch(entry) {
     cardAspect: aspectValue(entry),
     loopDuration: clamp(duration, 1, 60),
     radius: 0,
+    cornerRadius: clamp(numberSetting(entry, 'composition.Cards.Corner', 0), 0, 100),
+    cardShape: String(readCatalogSetting(entry, 'composition.Cards.Shape', '')).toLowerCase() === 'squircle' ? 'squircle' : 'rounded',
+    frontface: String(readCatalogSetting(entry, 'composition.Distribution.Frontface', 'Show')).toLowerCase() === 'hide' ? 'hide' : 'show',
+    backface: String(readCatalogSetting(entry, 'composition.Distribution.Backface', 'Show')).toLowerCase() === 'hide' ? 'hide' : 'show',
     yaw: clamp(distributionY, -180, 180),
     fade: clamp(numberSetting(entry, 'composition.Distribution.Fade', 0) / 100, 0, 1),
     speed: clamp(sign * (360 / duration), -90, 90),
@@ -100,6 +104,8 @@ function derivePatch(entry) {
 
 const supportedMappings = [
   'family + group model → original motion family / variant',
+  'Cards.Corner + Shape → rounded or squircle mask',
+  'Distribution.Frontface + Backface → mesh face visibility',
   'card count + aspect ratio → card geometry (media cycles deterministically)',
   'Motion.Duration + Direction → exact full loop / direction',
   'Distribution.X + Y + Z → orientation',
@@ -113,7 +119,7 @@ const supportedMappings = [
 const unsupportedMappings = [
   'card counts above 48 (capped for bounded GPU work)',
   'imported camera perspective and precise zoom calibration',
-  'surface selection and face/backface rules',
+  'surface selection and imported card alignment',
   'material deformation',
   'non-orbit fade, shadow and depth-of-field controls',
   'source-system easing and timing semantics'
