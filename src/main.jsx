@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource/geist/400.css'; import '@fontsource/geist/600.css'; import '@fontsource/geist/800.css';
 import './style.css';
 import { validateProject, resizeDuration } from './project.js';
 import { BRAND } from './brand.js';
-import { registerWebMCP } from './webmcp.js';
 import { request } from './editor/request.js';
 import { useProject } from './editor/useProject.js';
+import { useAgentBridge } from './editor/useAgentBridge.js';
+import { useExportJob } from './editor/useExportJob.js';
+import { usePlayback } from './editor/usePlayback.js';
 import { Dialogs } from './editor/components/Dialogs.jsx';
 import { CanvasPanel } from './editor/components/CanvasPanel.jsx';
 import { ErrorBanner, Header } from './editor/components/Header.jsx';
@@ -17,27 +19,19 @@ import { TimelinePanel } from './editor/components/TimelinePanel.jsx';
 function App() {
   const { project, projectRef, loaded, status, error, setError, history, change, patch, save, undo, reload } = useProject();
   const [selected, setSelected] = useState('carousel'); const [leftTab, setLeftTab] = useState('layers'); const [rightTab, setRightTab] = useState('composition');
-  const [time, setTime] = useState(0.65); const [playing, setPlaying] = useState(false); const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(false);
   const [positionPreview, setPositionPreview] = useState(null);
   const [timelineOpen, setTimelineOpen] = useState(true);
-  const [uploading, setUploading] = useState(false); const [exportOpen, setExportOpen] = useState(false); const [job, setJob] = useState(null); const jobRef = useRef(null);
-  const [agentOpen, setAgentOpen] = useState(false); const [agentState, setAgentState] = useState('Checking'); const [audit, setAudit] = useState([]); const fileInput = useRef(); const fileTarget = useRef('images'); const importInput = useRef();
+  const [uploading, setUploading] = useState(false); const [exportOpen, setExportOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false); const fileInput = useRef(); const fileTarget = useRef('images'); const importInput = useRef();
   const layer = project.layers.find(l => l.id === selected) || project.layers.find(l => l.type === 'carousel');
   const carousel = project.layers.find(l => l.type === 'carousel');
+  const { time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: project.duration });
+  const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
+  const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef });
   const showError = useCallback(message => setError(message), [setError]);
   const sceneReady = useCallback(value => setReady(value), []);
   const previewPosition = useCallback(value => { setPositionPreview(value); if (value) setPlaying(false); }, []);
-  useEffect(() => { if (!playing) return; const start = performance.now() - time * 1000; let frame; const tick = now => { const next = (now - start) / 1000; if (next >= projectRef.current.duration) { setTime(0); setPlaying(false); } else { setTime(next); frame = requestAnimationFrame(tick); } }; frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame); }, [playing]);
-  useEffect(() => { if (time > project.duration) setTime(0); }, [project.duration, time]);
-  useEffect(() => {
-    if (!loaded) return;
-    const registration = registerWebMCP({ get: () => projectRef.current, set: next => { const p = validateProject(next); change(p); }, save,
-      seek: t => { setPlaying(false); setTime(t); }, audit: name => setAudit(a => [{ name, time: new Date().toLocaleTimeString() }, ...a].slice(0, 8)), requestExport: () => { setPlaying(false); setExportOpen(true); }, exportStatus: () => jobRef.current || { state: 'idle' } });
-    setAgentState(registration.supported ? 'Connecting' : 'Unavailable');
-    registration.ready.then(() => { if (registration.supported) setAgentState('Connected'); }).catch(e => { setAgentState('Registration failed'); setError(e.message); });
-    return () => registration.dispose();
-  }, [loaded, change, save, projectRef, setError]);
-  useEffect(() => { jobRef.current = job; if (!job || ['done', 'failed'].includes(job.state)) return; const timer = setTimeout(() => request(`/api/exports/${job.id}`).then(setJob).catch(e => setError(e.message)), 1200); return () => clearTimeout(timer); }, [job, setError]);
   async function upload(files, target) {
     setUploading(true); setError('');
     try {
@@ -52,8 +46,6 @@ function App() {
   function reorderImage(index, delta) { const images = [...project.images]; const next = index + delta; if (next < 0 || next >= images.length) return; [images[index], images[next]] = [images[next], images[index]]; change({ ...project, images }); }
   function moveLayer(delta) { const layers = [...project.layers]; const i = layers.findIndex(l => l.id === selected); const to = i + delta; if (to < 0 || to >= layers.length) return; [layers[i], layers[to]] = [layers[to], layers[i]]; change({ ...project, layers }); }
   function downloadProject() { const blob = new Blob([JSON.stringify(projectRef.current, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'floc-motion-project.json'; a.click(); URL.revokeObjectURL(url); }
-  async function render() { setPlaying(false); setError(''); try { const result = await request('/api/exports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: projectRef.current }) }); setJob(result); } catch (e) { setError(e.message); } }
-  const busy = job && !['done', 'failed'].includes(job.state);
   return <main className="app-shell">
     <input ref={fileInput} hidden type="file" onChange={event => { if (event.target.files.length) upload([...event.target.files], fileTarget.current); event.target.value = ''; }}/>
     <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={async event => { const file = event.target.files[0]; if (file) { try { change(validateProject(JSON.parse(await file.text()))); } catch (importError) { setError(importError.message); } } event.target.value = ''; }}/>
