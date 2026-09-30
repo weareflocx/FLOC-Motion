@@ -1,0 +1,88 @@
+# FLOC Motion
+
+A local, internal parametric video studio. Inspired by the editing workflows of [Movo](https://movo.video/) and [Surface Motion](https://surface-motion.com/) and the public React Bits carousel examples. The WebGL layouts, shaders, example posters and editor are original implementations; no reference-site assets or proprietary source were copied. Official FLOC identifiers are downloaded from the user-supplied brand file.
+
+## FLOC brand
+
+Source: [FLOC Brand System](https://www.figma.com/design/61GRiVYnWbglilWGDN7fUq/FLOC-Brand?node-id=3608-3624). Verified sections: palette `3608:4796`, support gray `3608:4847`, identifiers `3608:4253`.
+
+- Black background, white typography and monochrome demo artwork. Neutral UI surfaces are functional contrast, not additional brand colors.
+- Pure RGB (`#FF0000`, `#00FF00`, `#0000FF`) is reserved for meaningful accents. No sage/lime palette, colored panels or RGB gradients by default.
+- The header uses the original white wordmark export (`3617:3965`). The composition uses the original white symbol SVG (`3617:4010`), without recoloring or redrawing.
+- `src/brand.js` is the shared palette/asset source; the agent catalog exposes it. Uploaded carousel images remain user-controlled and are not recolored automatically.
+- Geist remains the work/UI font. The abstract sample posters are original placeholders, not official FLOC graphic-system assets.
+
+## Run
+
+Requires Node.js 22.12+ and FFmpeg/FFprobe on PATH. Rendering uses installed Google Chrome on macOS when present. Set `HYPERFRAMES_BROWSER_PATH` to select a different working Chromium binary.
+
+```sh
+npm ci
+npm run dev
+```
+
+Open **http://127.0.0.1:4317**. The server binds only to the loopback interface. This is not a deployed or multi-user service.
+
+```sh
+npm test
+npm run build
+npm start
+```
+
+The bundlers use official WebAssembly builds to avoid native esbuild/Rollup binary loading issues. Dependencies are pinned in `package-lock.json`.
+
+## Implemented
+
+- Circular, arc, depth and horizontal carousel templates.
+- Original, liquid-wave, monochrome, duotone and chromatic-split shader presets.
+- Shared ordered image collection (up to 24 images); upload, reorder and remove.
+- Independently editable text layers; local image logo; layer visibility, stacking and timing; undo (20 edits).
+- Solid-color, image or silent video background, with cover/contain and video offset/loop controls.
+- Music upload, source offset, volume, looping and fade in/out.
+- Square, portrait and landscape output; 1–30 seconds, 24/30 fps.
+- Play, pause and seek; the same deterministic Three.js renderer drives preview and HyperFrames capture.
+- Local MP4 export using HyperFrames, followed by an FFmpeg music mix and FFprobe verification.
+- Autosave, project JSON import/download, optimistic revision checks.
+- Native WebMCP tool registration and visible capability status.
+
+## Files and privacy
+
+Uploaded assets, the saved project and rendered exports live in `.data/` (git-ignored). Rendering copies only selected resources into a self-contained local job directory. No remote assets are accepted in imported projects or agent edits. HyperFrames telemetry is disabled for app renders. Uploaded SVG/code is not accepted; bundled original examples and the known official FLOC SVG are explicitly allowed.
+
+Project JSON references local resource paths; it is **not** a portable archive. Keep `.data/assets/` when moving the installation. No project deletion or automatic asset cleanup is performed.
+
+## Agent control / WebMCP
+
+This implements the current **`document.modelContext.registerTool`** API, using AbortSignal-based cleanup. Tool execution uses the same runtime validation and autosave as human edits. See the [Chrome imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api) and [WebMCP specification](https://webmachinelearning.github.io/webmcp/).
+
+WebMCP is experimental and requires a compatible browser **and** agent. The Agent tools dialog reports actual availability; an unsupported browser is not presented as connected and no browser flags are changed. Registration is feature-detected, with no fake polyfill.
+
+Tools: `floc_get_project`, `floc_list_effects`, `floc_set_carousel`, `floc_set_shader`, `floc_update_layer`, `floc_add_text`, `floc_set_output`, `floc_seek_preview`, `floc_request_export`, `floc_get_export_status`.
+
+`floc_request_export` only opens the confirmation dialog. **A person must click Render MP4.** Agents cannot publish, run shell commands, import arbitrary shader code or delete resources through these tools.
+
+Example request: “Switch to the arc template, use monochrome at 70%, add a title at the top, and show me the frame at 3 seconds.”
+
+A local HTTP API is also available: `GET /api/catalog`, `GET /api/project`, `PUT /api/project` with `{project, revision}`, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project}`, and `GET /api/exports/:id`. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Do not expose this unauthenticated development server to a network.
+
+## Add a carousel or shader
+
+1. Add its stable ID/name to `TEMPLATES` or `SHADERS` in `src/project.js`.
+2. Implement the layout or GLSL branch in `src/scene.js`. Derive all visual state solely from the supplied time; never accumulate animation deltas.
+3. Add any relevant controls to `src/main.jsx`, and validate new parameters in `src/project.js`.
+4. Run tests and build; verify seeked frames and an MP4. Catalog selectors and WebMCP enum schemas derive from the registry automatically.
+
+Adding implementations is a source-code change, not runtime execution of pasted code.
+
+## Prototype boundaries
+
+No authentication, cloud rendering, team collaboration, arbitrary plugins, 4K/GIF/WebM output, custom fonts or video cards. Browser preview depends on local codec/WebGL support. MP4 export is a local job; keep the server running. Exports are limited to one at a time and 30 seconds. This is a functional prototype, not production acceptance or a complete replica of the references.
+
+## Verification (2026-09-30)
+
+- 9 Node tests passed; production build passed (non-blocking bundle-size advisory).
+- Chrome desktop, 768px tablet and 390px mobile layouts checked; no mobile horizontal overflow. Native dialog focus and Escape close checked.
+- Local UI export/download produced H.264 1080×1080, 12 seconds / 288 frames. A separate 2-second video/audio test confirmed looping video plus offset/loop/fade soundtrack mixing; decoded frames were inspected.
+- After applying the official FLOC assets and monochrome artwork, a new 2-second MP4 passed capture and frame inspection. Header wordmark and composition symbol loaded locally with their original aspect ratios.
+- Simultaneous saves returned 200/409 without changing project content; foreign-Origin writes returned 403 and executable uploads 400.
+- WebMCP registration/action tests pass with a test context. The user's Chrome does not expose `document.modelContext`; live native agent execution remains unverified/unavailable there.
