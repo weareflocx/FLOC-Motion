@@ -1,3 +1,4 @@
+import { carouselCard, motionVariant } from './carousel-motion.js';
 import * as THREE from 'three';
 import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime } from './project.js';
 
@@ -20,15 +21,15 @@ export function stageMarkup(p, path = src => src) {
     return '';
   }).join('');
 }
-const vertex = `varying vec2 vUv; uniform float uTime; uniform float uStrength; uniform float uEffect;
-void main(){vUv=uv;vec3 p=position; if(uEffect==1.0){p.z+=sin(p.x*5.0+uTime*2.0)*cos(p.y*3.0-uTime)*uStrength*0.15;}gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`;
-const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uDepth; uniform vec3 uTint; uniform vec2 uCrop;
+const vertex = `varying vec2 vUv; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uTorsion;
+void main(){vUv=uv;vec3 p=position; if(uEffect==1.0){p.z+=sin(p.x*5.0+uTime*2.0)*cos(p.y*3.0-uTime)*uStrength*0.15;}float a=p.y*uTorsion; p.xz=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`;
+const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uDepth; uniform vec3 uTint; uniform vec2 uCrop; uniform float uOpacity;
 void main(){vec2 uv=(vUv-0.5)*uCrop+0.5; if(uEffect==1.0)uv.x+=sin(uv.y*14.0+uTime*2.0)*uStrength*0.015;
 vec4 c=texture2D(uMap,uv);float lum=dot(c.rgb,vec3(0.2126,0.7152,0.0722));
 if(uEffect==2.0)c.rgb=mix(c.rgb,vec3(lum),uStrength);
 if(uEffect==3.0)c.rgb=mix(c.rgb,mix(vec3(0.02),uTint,lum),uStrength);
 if(uEffect==4.0){float s=uStrength*0.018*(0.5+0.5*sin(uTime*1.4));c.r=texture2D(uMap,uv+vec2(s,0.0)).r;c.b=texture2D(uMap,uv-vec2(s,0.0)).b;}
-if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a);
+if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacity);
 #include <tonemapping_fragment>
 #include <colorspace_fragment>
 }`;
@@ -44,8 +45,15 @@ export async function createScene(root, p, { renderMode = false } = {}) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
   camera.position.z = 8;
+  if (layer.template === 'wheel') {
+    const count = layer.cardCount || p.images.length;
+    const radius = layer.radius || Math.max(2.2, count * (layer.size + layer.gap) / (2 * Math.PI));
+    const extent = radius + Math.max(layer.size, layer.size / layer.cardAspect) * 0.6;
+    camera.position.z = Math.max(8, extent * 1.12 / (Math.tan(THREE.MathUtils.degToRad(19)) * Math.min(1, width / height)));
+  }
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
+  let orientation = null;
   const layerNodes = [...root.querySelectorAll('[data-floc-layer]')];
   const mediaNodes = [...root.querySelectorAll('audio,video')];
   const meshes = [];
@@ -55,21 +63,21 @@ export async function createScene(root, p, { renderMode = false } = {}) {
     const loader = new THREE.TextureLoader();
     const loaded = await Promise.all(p.images.map(img => loader.loadAsync(img.src)));
     textures.push(...loaded);
-    loaded.forEach(texture => {
+    Array.from({ length: loaded.length ? layer.cardCount || loaded.length : 0 }, (_, i) => loaded[i % loaded.length]).forEach(texture => {
       texture.colorSpace = THREE.SRGBColorSpace;
       const size = layer.size;
-      const geometry = new THREE.PlaneGeometry(size, size * 1.14, 32, 16);
-      if (layer.template === 'circular') {
-        const radius = Math.max(1.45, (p.images.length * (size + layer.gap)) / (2 * Math.PI));
+      const geometry = new THREE.PlaneGeometry(size, size / layer.cardAspect, 32, 16);
+      if (layer.template === 'circular' && ['wrapped', undefined].includes(motionVariant(layer))) {
+        const radius = layer.radius || Math.max(1.45, ((layer.cardCount || p.images.length) * (size + layer.gap)) / (2 * Math.PI));
         const pos = geometry.attributes.position;
         for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); const a = x / radius; pos.setX(i, x * (1 - layer.curve) + Math.sin(a) * radius * layer.curve); pos.setZ(i, (Math.cos(a) - 1) * radius * layer.curve); }
         geometry.computeVertexNormals();
       }
       const imageRatio = texture.image.width / texture.image.height;
-      const cardRatio = 1 / 1.14;
+      const cardRatio = layer.cardAspect;
       const crop = imageRatio > cardRatio ? new THREE.Vector2(cardRatio / imageRatio, 1) : new THREE.Vector2(1, imageRatio / cardRatio);
-      const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, side: THREE.DoubleSide,
-        uniforms: { uMap: { value: texture }, uTime: { value: 0 }, uStrength: { value: layer.intensity }, uEffect: { value: SHADERS.find(s => s.id === layer.shader).mode }, uTint: { value: new THREE.Color(layer.tint) }, uDepth: { value: 1 }, uCrop: { value: crop } }
+      const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, side: THREE.DoubleSide, transparent: true,
+        uniforms: { uMap: { value: texture }, uTorsion: { value: 0 }, uOpacity: { value: 1 }, uTime: { value: 0 }, uStrength: { value: layer.intensity }, uEffect: { value: SHADERS.find(s => s.id === layer.shader).mode }, uTint: { value: new THREE.Color(layer.tint) }, uDepth: { value: 1 }, uCrop: { value: crop } }
       });
       const mesh = new THREE.Mesh(geometry, material); group.add(mesh); meshes.push(mesh);
     });
@@ -78,37 +86,18 @@ export async function createScene(root, p, { renderMode = false } = {}) {
   function seek(time, playing = false) {
     if (disposed) return;
     const local = Math.max(0, time - layer.start);
-    group.rotation.set(THREE.MathUtils.degToRad(layer.tilt), 0, THREE.MathUtils.degToRad(layer.roll));
-    const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(19)) * 8;
+    group.rotation.set(THREE.MathUtils.degToRad(orientation?.tilt ?? layer.tilt), THREE.MathUtils.degToRad(orientation?.yaw ?? layer.yaw ?? 0), THREE.MathUtils.degToRad(orientation?.roll ?? layer.roll));
+    const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(19)) * camera.position.z;
     group.position.set((layer.x / 100 - 0.5) * viewHeight * width / height, (0.5 - layer.y / 100) * viewHeight, 0);
-    const radius = Math.max(1.45, (p.images.length * (layer.size + layer.gap)) / (2 * Math.PI));
-    const angle = THREE.MathUtils.degToRad(local * layer.speed);
     meshes.forEach((mesh, i) => {
-      const n = meshes.length;
-      mesh.visible = layerAlpha(layer, time) > 0;
-      mesh.scale.setScalar(1);
-      if (layer.template === 'circular') {
-        const theta = i / n * Math.PI * 2 + angle;
-        mesh.position.set(Math.sin(theta) * radius, 0, Math.cos(theta) * radius);
-        mesh.rotation.set(0, theta, 0);
-        mesh.material.uniforms.uDepth.value = 0.65 + (Math.cos(theta) + 1) * 0.175;
-      } else if (layer.template === 'arc') {
-        const cycle = local * layer.speed / 60;
-        const n = meshes.length;
-        const d = ((i - cycle + n / 2) % n + n) % n - n / 2;
-        const a = d * (0.34 + layer.gap * 0.2);
-        mesh.position.set(Math.sin(a) * 3.6, Math.cos(a) * 3.6 - 2.1, -Math.abs(d) * 0.06);
-        mesh.rotation.set(0, 0, -a);
-        mesh.visible &&= Math.abs(a) < 1.7;
-        mesh.material.uniforms.uDepth.value = 1;
-      } else {
-        const focus = local * layer.speed / 35;
-        let d = ((i - focus + n / 2) % n + n) % n - n / 2;
-        mesh.visible &&= Math.abs(d) < 3.2;
-        if (layer.template === 'depth') { mesh.position.set(d * (0.65 + layer.gap), d * 0.18, -Math.abs(d) * 0.85); mesh.rotation.set(0, d * 0.2, 0); }
-        else { mesh.position.set(d * (layer.size + layer.gap), 0, -Math.abs(d) * 0.35); mesh.rotation.set(0, -d * 0.18, 0); }
-        mesh.material.uniforms.uDepth.value = Math.max(0.45, 1 - Math.abs(d) * 0.14);
-      }
+      const state = carouselCard(layer, i, meshes.length, time);
+      mesh.position.set(...state.position);
+      mesh.rotation.set(...state.rotation);
+      mesh.scale.setScalar(state.scale);
+      mesh.visible = layerAlpha(layer, time) > 0 && state.opacity > 0.001;
+      mesh.material.uniforms.uDepth.value = state.depth;
+      mesh.material.uniforms.uOpacity.value = state.opacity;
+      mesh.material.uniforms.uTorsion.value = state.torsion;
       mesh.material.uniforms.uTime.value = local;
     });
     renderer.render(scene, camera);
@@ -127,5 +116,5 @@ export async function createScene(root, p, { renderMode = false } = {}) {
     });
   }
   seek(0);
-  return { seek, dispose() { disposed = true; mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); textures.forEach(t => t.dispose()); renderer.dispose(); } };
+  return { seek, setOrientation(value) { orientation = value; }, dispose() { disposed = true; mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); textures.forEach(t => t.dispose()); renderer.dispose(); } };
 }

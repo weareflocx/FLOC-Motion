@@ -41,6 +41,8 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
   useEffect(() => { engine.current?.seek(time, playing); }, [time, playing]);
 
   useEffect(() => {
+    engine.current?.setOrientation(positionPreview?.id === project.layers.find(l => l.type === 'carousel').id ? positionPreview : null);
+    engine.current?.seek(timeRef.current.time, timeRef.current.playing);
     // Editor-only positioning preview; the project and GPU scene change once per gesture.
     for (const layer of project.layers.filter(layer => ['text', 'logo'].includes(layer.type))) {
       const node = [...root.current.querySelectorAll('[data-floc-layer]')].find(n => n.dataset.flocLayer === layer.id);

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { createServer as createViteServer } from 'vite';
 import { root } from './build-scene.mjs';
 import { demoProject, validateProject, TEMPLATES, SHADERS } from '../src/project.js';
+import { catalogSummary } from '../src/catalog.js';
 import { startExport, jobs } from './export.mjs';
 const port = Number(process.env.PORT || 4317);
 const data = path.join(root, '.data');
@@ -42,7 +43,7 @@ const server = http.createServer(async (req, res) => {
         project = next; revision++; return json(res, { revision });
       } finally { writing = false; }
     }
-    if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS });
+    if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/health') return json(res, { ok: true, localOnly: true, version: '0.1.0' });
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);

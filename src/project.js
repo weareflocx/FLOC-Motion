@@ -1,10 +1,12 @@
+import { MOTION_VARIANTS } from './carousel-motion.js';
 import { BRAND } from './brand.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080] };
 export const TEMPLATES = [
   { id: 'circular', name: 'Circular', description: 'Curved cards around a rotating ring', kind: 'ring' },
   { id: 'depth', name: 'Depth', description: 'A layered stack moving through space', kind: 'stack' },
   { id: 'arc', name: 'Arc', description: 'An open arc of front-facing cards', kind: 'arc' },
-  { id: 'horizontal', name: 'Horizontal', description: 'A continuous perspective gallery', kind: 'strip' }
+  { id: 'horizontal', name: 'Horizontal', description: 'A continuous perspective gallery', kind: 'strip' },
+  ...['showcase', 'sphere', 'spinner', 'stack', 'stickers', 'twist', 'wheel'].map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), description: MOTION_VARIANTS[id].map(v => v[1]).join(' / '), kind: id }))
 ];
 export const SHADERS = [
   { id: 'none', name: 'Original', mode: 0 }, { id: 'wave', name: 'Liquid wave', mode: 1 },
@@ -16,7 +18,7 @@ export function demoProject() {
     images: Array.from({ length: 6 }, (_, i) => ({ id: `demo-${i}`, src: `/demo/poster-${i + 1}.svg`, name: `Studio study ${String(i + 1).padStart(2, '0')}` })),
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
-      { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, tilt: -12, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, shader: 'none', intensity: 0.35, tint: BRAND.colors.blue },
+      { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, cardCount: 0, cardAspect: 1 / 1.14, radius: 0, loopDuration: 0, motionVariant: 'default', fade: 0, tilt: -12, yaw: 0, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, shader: 'none', intensity: 0.35, tint: BRAND.colors.blue },
       { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 66, color: BRAND.colors.white, weight: 800, width: 55, animation: 'fade' },
       { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, weight: 600, width: 22, animation: 'none' },
       { id: 'logo', type: 'logo', name: 'Studio mark', visible: true, start: 0, end: 12, src: BRAND.assets.symbolWhite, x: 87, y: 6, size: 7 },
@@ -52,7 +54,12 @@ export function validateProject(input) {
       if (![400, 600, 800].includes(l.weight) || !['none', 'fade', 'rise'].includes(l.animation)) fail('Unknown text style.');
     } else if (l.type === 'carousel') {
       if (!TEMPLATES.some(t => t.id === l.template) || !SHADERS.some(s => s.id === l.shader)) fail('Unknown carousel or shader.');
-      finite(l.speed, -90, 90, 'Speed'); finite(l.tilt, -65, 65, 'Tilt'); finite(l.roll, -90, 90, 'Rotation'); finite(l.size, 0.5, 2.5, 'Card size'); finite(l.gap, 0, 1, 'Gap'); finite(l.curve, 0, 1, 'Curve'); finite(l.x, 10, 90, 'X'); finite(l.y, 10, 90, 'Y'); finite(l.intensity, 0, 1, 'Shader intensity'); color(l.tint);
+      l.yaw ??= 0;
+      l.cardCount ??= 0; l.cardAspect ??= 1 / 1.14; l.radius ??= 0; l.loopDuration ??= 0; l.motionVariant ??= 'default'; l.fade ??= 0;
+      if (!Number.isInteger(l.cardCount)) fail('Card count must be an integer.');
+      finite(l.cardCount, 0, 48, 'Card count'); finite(l.cardAspect, 0.25, 4, 'Card aspect'); finite(l.radius, 0, 6, 'Radius'); finite(l.loopDuration, 0, 60, 'Loop duration'); finite(l.fade, 0, 1, 'Rear fade');
+      if (l.motionVariant !== 'default' && !MOTION_VARIANTS[l.template].some(v => v[0] === l.motionVariant)) fail('Unknown motion variant for this family.');
+      finite(l.yaw, -180, 180, 'Orientation Y'); finite(l.speed, -90, 90, 'Speed'); finite(l.tilt, -65, 65, 'Tilt'); finite(l.roll, -180, 180, 'Rotation'); finite(l.size, 0.5, 2.5, 'Card size'); finite(l.gap, 0, 1, 'Gap'); finite(l.curve, 0, 1, 'Curve'); finite(l.x, 10, 90, 'X'); finite(l.y, 10, 90, 'Y'); finite(l.intensity, 0, 1, 'Shader intensity'); color(l.tint);
     } else if (l.type === 'background') {
       if (!['color', 'image', 'video'].includes(l.mode) || !['cover', 'contain'].includes(l.fit)) fail('Unknown background setting.');
       color(l.color); asset(l.src); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
@@ -72,7 +79,7 @@ export function patchLayer(project, id, patch) {
   const layer = project.layers.find(l => l.id === id);
   if (Object.keys(patch).some(key => !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
-  return validateProject({ ...project, layers: project.layers.map(l => l.id === id ? { ...l, ...patch } : l) });
+  return validateProject({ ...project, layers: project.layers.map(l => l.id === id ? { ...l, ...(patch.template && patch.template !== l.template ? { motionVariant: 'default' } : {}), ...patch } : l) });
 }
 export function layerAlpha(layer, time) {
   if (!layer.visible || time < layer.start || time >= layer.end) return 0;

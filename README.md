@@ -1,6 +1,6 @@
 # FLOC Motion
 
-A local, internal parametric video studio. Inspired by the editing workflows of [Movo](https://movo.video/) and [Surface Motion](https://surface-motion.com/) and the public React Bits carousel examples. The WebGL layouts, shaders, example posters and editor are original implementations; no reference-site assets or proprietary source were copied. Official FLOC identifiers are downloaded from the user-supplied brand file.
+A local, internal parametric video studio. Inspired by modern parametric motion editors and public carousel examples. The WebGL layouts, shaders, example posters and editor are original implementations. Official FLOC identifiers are downloaded from the user-supplied brand file.
 
 ## FLOC brand
 
@@ -44,6 +44,7 @@ The bundlers use official WebAssembly builds to avoid native esbuild/Rollup bina
 - Local MP4 export using HyperFrames, followed by an FFmpeg music mix and FFprobe verification.
 - Autosave, project JSON import/download, optimistic revision checks.
 - Native WebMCP tool registration and visible capability status.
+- A local catalog of 108 reconstructed carousel recipes, with visual contact sheets and a validated adapter into the canonical FLOC carousel model.
 
 ## Files and privacy
 
@@ -57,13 +58,15 @@ This implements the current **`document.modelContext.registerTool`** API, using 
 
 WebMCP is experimental and requires a compatible browser **and** agent. The Agent tools dialog reports actual availability; an unsupported browser is not presented as connected and no browser flags are changed. Registration is feature-detected, with no fake polyfill.
 
-Tools: `floc_get_project`, `floc_list_effects`, `floc_set_carousel`, `floc_set_shader`, `floc_update_layer`, `floc_add_text`, `floc_set_output`, `floc_seek_preview`, `floc_request_export`, `floc_get_export_status`.
+Tools: `floc_get_project`, `floc_list_effects`, `floc_list_catalog`, `floc_get_preset`, `floc_apply_preset`, `floc_set_carousel`, `floc_set_shader`, `floc_update_layer`, `floc_add_text`, `floc_set_output`, `floc_seek_preview`, `floc_request_export`, `floc_get_export_status`.
+
+The bundled catalog is a local reconstructed recipe dataset. `floc_apply_preset` maps only supported fields into the canonical project schema and reports the fields that still need native FLOC implementations. The raw catalog is available at `/catalog/presets.json`; the editor shows its visual contact sheets in the carousel inspector.
 
 `floc_request_export` only opens the confirmation dialog. **A person must click Render MP4.** Agents cannot publish, run shell commands, import arbitrary shader code or delete resources through these tools.
 
 Example request: “Switch to the arc template, use monochrome at 70%, add a title at the top, and show me the frame at 3 seconds.”
 
-A local HTTP API is also available: `GET /api/catalog`, `GET /api/project`, `PUT /api/project` with `{project, revision}`, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project}`, and `GET /api/exports/:id`. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Do not expose this unauthenticated development server to a network.
+A local HTTP API is also available: `GET /api/catalog` (templates, catalog metadata and the raw catalog URL), `GET /api/project`, `PUT /api/project` with `{project, revision}`, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project}`, and `GET /api/exports/:id`. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Do not expose this unauthenticated development server to a network.
 
 ## Add a carousel or shader
 
@@ -86,3 +89,11 @@ No authentication, cloud rendering, team collaboration, arbitrary plugins, 4K/GI
 - After applying the official FLOC assets and monochrome artwork, a new 2-second MP4 passed capture and frame inspection. Header wordmark and composition symbol loaded locally with their original aspect ratios.
 - Simultaneous saves returned 200/409 without changing project content; foreign-Origin writes returned 403 and executable uploads 400.
 - WebMCP registration/action tests pass with a test context. The user's Chrome does not expose `document.modelContext`; live native agent execution remains unverified/unavailable there.
+
+## Original family motion engine
+
+The local catalog drives nine original families and 24 motion variants, not 108 separately implemented animations. Orbit and Sliders use Circular and Horizontal; Showcase, Sphere, Spinner, Stack, Stickers, Twist and Wheel now have their own evaluated transforms. Depth and Arc remain available for old projects.
+
+`src/carousel-motion.js` evaluates each card from absolute time and is consumed by the shared preview/export scene. Controls include motion variant, card count (0 uses the media count; maximum 48), aspect ratio, radius for radial families, orbit rear fade, XYZ orientation and explicit loop duration. Media repeat in their original order when more cards than images are requested. With a positive loop duration, speed selects direction or pauses at zero; with zero duration, legacy speed-based motion is preserved. Shader effects have their own time cycles and are not guaranteed to close with the motion loop.
+
+Catalog composition settings are applied where supported. Camera perspective, corners, surface/face selection, imported material semantics, shadows and depth of field remain unimplemented. Reference contact sheets are documentation, not screenshots generated by the current engine.

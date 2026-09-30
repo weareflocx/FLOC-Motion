@@ -4,6 +4,7 @@ import { demoProject, validateProject, patchLayer, resizeDuration, audioTime, es
 import { createTools, registerWebMCP } from '../src/webmcp.js';
 import { stageMarkup } from '../src/scene.js';
 import { BRAND } from '../src/brand.js';
+import { CATALOG, getCatalogEntry, listCatalog } from '../src/catalog.js';
 import { stat, readFile } from 'node:fs/promises';
 
 test('FLOC defaults use verified monochrome identifiers and reject unknown brand assets', async () => {
@@ -22,6 +23,17 @@ test('FLOC defaults use verified monochrome identifiers and reject unknown brand
 test('demo project validates and all presets are selectable without losing assets', () => {
   const p = demoProject(); assert.equal(validateProject(p).images.length, 6);
   for (const t of TEMPLATES) for (const s of SHADERS) { const next = patchLayer(p, 'carousel', { template: t.id, shader: s.id }); assert.deepEqual(next.images, p.images); assert.equal(next.layers.find(l => l.id === 'headline').text, p.layers[2].text); }
+});
+test('local catalog normalizes all source recipes into safe FLOC patches', () => {
+  assert.equal(CATALOG.length, 108);
+  assert.equal(new Set(CATALOG.map(entry => entry.id)).size, 108);
+  const orbit = getCatalogEntry('orbit-pure-01');
+  assert.equal(orbit.carouselPatch.template, 'circular');
+  assert.equal(orbit.carouselPatch.shader, 'none');
+  assert.equal(orbit.support.kind, 'reconstructed_recipe');
+  assert(orbit.thumbnail.startsWith('/catalog/visuals/'));
+  assert.equal(listCatalog({ family: 'Orbit', limit: 200 }).length, 24);
+  assert.equal(listCatalog({ query: 'lightroom' }).length, 8);
 });
 test('reject external, traversal and executable asset sources', () => {
   for (const src of ['https://example.com/a.png', '/assets/../../secret', 'javascript:alert(1)', '/demo/unknown.svg']) { const p = demoProject(); p.images[0].src = src; assert.throws(() => validateProject(p)); }
@@ -57,8 +69,21 @@ test('WebMCP uses shared validation, persists mutations and gates rendering', as
   const result = JSON.parse(await call('floc_request_export')); assert.equal(result.state, 'awaiting_user_confirmation'); assert.equal(requested, 1);
   assert.equal(tools.find(t => t.name === 'floc_get_project').annotations.readOnlyHint, true);
 });
+test('WebMCP exposes and applies local catalog recipes through project validation', async () => {
+  let p = demoProject(); let saves = 0;
+  const tools = createTools({ get: () => p, set: n => { p = n; }, save: async () => saves++, seek: () => {}, audit: () => {}, requestExport: () => {}, exportStatus: () => ({ state: 'idle' }) });
+  const call = (name, args = {}) => tools.find(t => t.name === name).execute(args);
+  const listed = JSON.parse(await call('floc_list_catalog', { family: 'Orbit', limit: 2 }));
+  assert.equal(listed.templates.length, 2);
+  const preset = JSON.parse(await call('floc_get_preset', { id: 'orbit-pure-01' }));
+  assert.equal(preset.id, 'orbit-pure-01');
+  const applied = JSON.parse(await call('floc_apply_preset', { id: 'orbit-pure-01' }));
+  assert.equal(applied.preset.id, 'orbit-pure-01');
+  assert.equal(p.layers[1].template, 'circular');
+  assert.equal(saves, 1);
+});
 test('native WebMCP registers with AbortSignal and cleans up; unsupported is explicit', async () => {
   const calls = []; const context = { registerTool: async (tool, options) => calls.push({ tool, options }) };
-  const r = registerWebMCP({}, context); await r.ready; assert.equal(calls.length, 10); assert(!calls[0].options.signal.aborted); r.dispose(); assert(calls[0].options.signal.aborted);
+  const r = registerWebMCP({}, context); await r.ready; assert.equal(calls.length, 13); assert(!calls[0].options.signal.aborted); r.dispose(); assert(calls[0].options.signal.aborted);
   assert.equal(registerWebMCP({}, {}).supported, false);
 });
