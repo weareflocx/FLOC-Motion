@@ -44,7 +44,7 @@ const server = http.createServer(async (req, res) => {
       } finally { writing = false; }
     }
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
-    if (route === '/api/health') return json(res, { ok: true, localOnly: true, version: '0.1.0' });
+    if (route === '/api/health') return json(res, { ok: true, localOnly: !config.publicOrigin, version: '0.1.0' });
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'svg', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
