@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { FORMATS } from '../project.js';
 import { createScene, stageMarkup } from '../scene.js';
+import { createPreviewSession } from './preview-session.js';
 
 export function Stage({ project, time, playing, onError, onReady, positionPreview }) {
   const holder = useRef();
@@ -9,38 +10,71 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
   const timeRef = useRef({ time, playing });
   timeRef.current = { time, playing };
 
+  const session = useRef();
+  const callbacks = useRef();
+  callbacks.current = { onReady, onError };
+  const previewRef = useRef(positionPreview);
+  previewRef.current = positionPreview;
+
   useEffect(() => {
-    const [w, h] = FORMATS[project.format];
-    let cancelled = false;
-    let loaded;
-    root.current.innerHTML = stageMarkup(project);
     const fit = () => {
-      if (!holder.current || !root.current) return;
+      const active = session.current?.current;
+      if (!holder.current || !root.current || !active) return;
+      const [w, h] = FORMATS[active.project.format];
       const box = holder.current.getBoundingClientRect();
-      const scale = Math.min((box.width - 24) / w, (box.height - 24) / h);
+      const scale = Math.max(0.05, Math.min((box.width - 24) / w, (box.height - 24) / h));
       root.current.style.width = `${w}px`;
       root.current.style.height = `${h}px`;
-      root.current.style.transform = `translate(-50%,-50%) scale(${Math.max(0.05, scale)})`;
+      root.current.style.transform = `translate(-50%,-50%) scale(${scale})`;
+      const resolution = Math.min(1, scale * Math.min(window.devicePixelRatio || 1, 2));
+      active.scene.setResolution(Math.max(1, Math.round(w * resolution)), Math.max(1, Math.round(h * resolution)));
+      active.scene.seek(timeRef.current.time, timeRef.current.playing);
     };
+    const manager = createPreviewSession({
+      async prepare(project) {
+        const node = document.createElement('div');
+        node.style.cssText = 'position:absolute;inset:0';
+        node.innerHTML = stageMarkup(project);
+        const grid = document.createElement('div');
+        grid.className = 'position-grid-overlay'; grid.hidden = true; grid.setAttribute('aria-hidden', 'true');
+        grid.append(document.createElement('i')); node.append(grid);
+        const scene = await createScene(node, project, { onMediaError: error => callbacks.current.onError(error.message) });
+        return { node, scene, project };
+      },
+      activate(next) {
+        next.scene.setOrientation(previewRef.current?.id === next.project.layers.find(l => l.type === 'carousel').id ? previewRef.current : null);
+        next.scene.seek(timeRef.current.time, timeRef.current.playing);
+        root.current.replaceChildren(next.node);
+        engine.current = next.scene;
+        callbacks.current.onReady(true);
+        // The manager publishes current after activation.
+        queueMicrotask(fit);
+      },
+      onError(error) { callbacks.current.onError(error.message); }
+    });
+    session.current = manager;
+    callbacks.current.onReady(false);
     const observer = new ResizeObserver(fit);
     observer.observe(holder.current);
-    fit();
-    onReady(false);
-    createScene(root.current, project).then(scene => {
-      loaded = scene;
-      if (cancelled) scene.dispose();
-      else {
-        engine.current = scene;
-        scene.seek(timeRef.current.time, timeRef.current.playing);
-        onReady(true);
-      }
-    }).catch(error => { if (!cancelled) onError(error.message); });
-    return () => { cancelled = true; observer.disconnect(); engine.current = null; loaded?.dispose(); };
-  }, [project, onError, onReady]);
+    return () => { observer.disconnect(); manager.dispose(); session.current = null; engine.current = null; };
+  }, []);
+
+  useEffect(() => { session.current?.request(project); }, [project]);
 
   useEffect(() => { engine.current?.seek(time, playing); }, [time, playing]);
 
   useEffect(() => {
+    const grid = root.current?.querySelector('.position-grid-overlay');
+    if (grid) {
+      const index = positionPreview?.gridIndex;
+      grid.hidden = index === undefined;
+      if (index !== undefined) {
+        const marker = grid.firstElementChild;
+        marker.className = index === 36 ? 'center' : '';
+        marker.style.left = `${index === 36 ? 50 : index % 6 * 100 / 6}%`;
+        marker.style.top = `${index === 36 ? 50 : Math.floor(index / 6) * 100 / 6}%`;
+      }
+    }
     engine.current?.setOrientation(positionPreview?.id === project.layers.find(l => l.type === 'carousel').id ? positionPreview : null);
     engine.current?.seek(timeRef.current.time, timeRef.current.playing);
     // Editor-only positioning preview; the project and GPU scene change once per gesture.

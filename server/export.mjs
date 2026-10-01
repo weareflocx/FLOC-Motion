@@ -6,6 +6,8 @@ import { existsSync } from 'node:fs';
 import { stripVTControlCharacters } from 'node:util';
 import { root, buildScene } from './build-scene.mjs';
 import { FORMATS, validateProject, escapeHtml } from '../src/project.js';
+import { ensureGifVideo } from './card-media.mjs';
+import { cardMediaKind } from '../src/card-media.js';
 import { stageMarkup } from '../src/scene.js';
 export const jobs = new Map();
 let running = false;
@@ -30,8 +32,12 @@ export async function prepareComposition(input, folder) {
   const copied = new Set();
   for (const item of sources) {
     const src = item.src;
-    const dest = `assets/${path.basename(src)}`;
-    if (!copied.has(src)) { await copyFile(path.join(root, src.startsWith('/assets/') ? `.data${src}` : `public${src}`), path.join(folder, dest)); copied.add(src); }
+    let local = path.join(root, src.startsWith('/assets/') ? `.data${src}` : `public${src}`);
+    // Normalize GIF cards, including GIFs in projects saved before video support.
+    const gifCard = p.images.includes(item) && cardMediaKind(src) === 'gif';
+    if (gifCard) { const video = local.replace(/\.gif$/i, '.webm'); await ensureGifVideo(local, video, run); local = video; }
+    const dest = `assets/${path.basename(local)}`;
+    if (!copied.has(local)) { await copyFile(local, path.join(folder, dest)); copied.add(local); }
     item.src = dest;
   }
   await copyFile(path.join(root, '.data/engine/scene.js'), path.join(folder, 'scene.js'));

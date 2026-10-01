@@ -5,7 +5,7 @@ export function TimelineTracks({ project, selected, time, icons, onSelect, onSee
   const gesture = useRef(null); const scrub = useRef(false);
   const [draft, setDraft] = useState(null);
   function begin(e, layer, kind) {
-    if (e.button !== 0 || gesture.current) return;
+    if (layer.locked || e.button !== 0 || gesture.current) return;
     e.preventDefault(); e.stopPropagation(); e.currentTarget.focus({ preventScroll: true }); onSelect(layer.id);
     const lane = e.currentTarget.closest('.track-lane').getBoundingClientRect();
     gesture.current = { pointerId: e.pointerId, x: e.clientX, layer, kind, width: lane.width, latest: { start: layer.start, end: layer.end } };
@@ -29,13 +29,14 @@ export function TimelineTracks({ project, selected, time, icons, onSelect, onSee
       if (e.currentTarget.hasPointerCapture(id)) e.currentTarget.releasePointerCapture(id);
       e.preventDefault(); return;
     }
+    if (layer.locked) return;
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) || gesture.current) return;
     e.preventDefault(); onSelect(layer.id);
     const delta = e.key === 'Home' ? -project.duration : e.key === 'End' ? project.duration : (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps;
     const next = editClip(layer, kind, delta, project.duration, project.fps);
     if (next.start !== layer.start || next.end !== layer.end) onCommit(layer.id, next);
   }
-  const pointerProps = (l, kind) => ({ onPointerDown: e => begin(e, l, kind), onPointerMove: move, onPointerUp: e => finish(e), onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: e => keys(e, l, kind) });
+  const pointerProps = (l, kind) => ({ disabled: l.locked, onPointerDown: e => begin(e, l, kind), onPointerMove: move, onPointerUp: e => finish(e), onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: e => keys(e, l, kind) });
   const seek = e => onSeek(timeAtPointer(e.clientX, e.currentTarget.getBoundingClientRect(), project.duration, project.fps));
   return <>
     <div className="timeline-instructions" role="status">{draft ? `${project.layers.find(l => l.id === draft.id)?.name}: ${draft.start.toFixed(2)}s — ${draft.end.toFixed(2)}s` : 'Drag a block to move it. Drag its edges to trim. ← / →: 1 frame · Shift: 10 frames · Esc: cancel.'}</div>

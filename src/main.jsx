@@ -30,7 +30,7 @@ function App() {
   const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
   const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef });
   const { uploading, fileInput, importInput, pick, handleFileChange, handleImportChange, downloadProject } = useProjectFiles({ projectRef, change, patch, setError });
-  const { addText, reorderImage, moveLayer, removeImage, removeText } = useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change });
+  const { addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText } = useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change });
   const showError = useCallback(message => setError(message), [setError]);
   const sceneReady = useCallback(value => setReady(value), []);
   const previewPosition = useCallback(value => { setPositionPreview(value); if (value) setPlaying(false); }, []);
@@ -40,7 +40,7 @@ function App() {
     <Header status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onReload={() => reload().catch(reloadError => setError(reloadError.message))} onDismiss={() => setError('')}/>
     <div className="workspace">
-      <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onAddText={addText} onMoveLayer={moveLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onPick={pick} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
+      <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onAddText={addText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onPick={pick} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
       <CanvasPanel project={project} carousel={carousel} history={history} ready={ready} positionPreview={positionPreview} time={time} playing={playing} onError={showError} onReady={sceneReady} onChangeName={name => change({ ...project, name })} onUndo={undo}/>
       <InspectorPanel project={project} layer={layer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={patch} onPick={pick} onPreview={previewPosition} onRemoveText={removeText}/>
     </div>

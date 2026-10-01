@@ -37,7 +37,3 @@ export function Modal({ children, onClose, labelledBy }) {
   useEffect(() => { const dialog = ref.current; dialog.showModal(); return () => dialog.close(); }, []);
   return <dialog ref={ref} className="modal-backdrop" aria-labelledby={labelledBy} onCancel={e => { e.preventDefault(); onClose(); }}>{children}</dialog>;
 }
-
-export function TemplateMini({ template }) {
-  return <div className={`template-mini ${template}`} aria-hidden="true">{[0, 1, 2, 3, 4].map(i => <span key={i} style={{ '--i': i }}/>)}</div>;
-}

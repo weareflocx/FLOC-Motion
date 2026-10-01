@@ -7,7 +7,8 @@ import { createServer as createViteServer } from 'vite';
 import { root } from './build-scene.mjs';
 import { demoProject, validateProject, TEMPLATES, SHADERS } from '../src/project.js';
 import { catalogSummary } from '../src/catalog.js';
-import { startExport, jobs } from './export.mjs';
+import { startExport, jobs, run } from './export.mjs';
+import { ensureGifVideo } from './card-media.mjs';
 const port = Number(process.env.PORT || 4317);
 const data = path.join(root, '.data');
 await mkdir(path.join(data, 'assets'), { recursive: true });
@@ -50,13 +51,24 @@ const server = http.createServer(async (req, res) => {
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'svg', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
       const bytes = await body(req, 75e6); if (!bytes.length) throw new Error('Empty upload.');
       const id = randomUUID(); await writeFile(path.join(data, 'assets', `${id}.${ext}`), bytes);
+      if (ext === 'gif') await ensureGifVideo(path.join(data, 'assets', `${id}.gif`), path.join(data, 'assets', `${id}.webm`), run);
       return json(res, { id, src: `/assets/${id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
     }
     if (route === '/api/exports' && req.method === 'POST') { const input = JSON.parse(await body(req)); return json(res, await startExport(input.project, { draft: input.draft === true }), 202); }
     const jobMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})$/);
     if (jobMatch) { let job = jobs.get(jobMatch[1]); if (!job) { try { job = JSON.parse(await readFile(path.join(data, 'renders', jobMatch[1], 'job.json'), 'utf8')); } catch {} } return json(res, job || { error: 'Export not found.' }, job ? 200 : 404); }
     const assetMatch = route.match(/^\/assets\/([a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg))$/);
-    if (assetMatch) return await file(req, res, path.join(data, 'assets', assetMatch[1]));
+    if (assetMatch) {
+      const filename = path.join(data, 'assets', assetMatch[1]);
+      if (filename.endsWith('.webm')) {
+        try { await stat(filename); } catch {
+          const gif = filename.replace(/\.webm$/, '.gif');
+          try { await stat(gif); } catch { return json(res, { error: 'Asset not found.' }, 404); }
+          await ensureGifVideo(gif, filename, run);
+        }
+      }
+      return await file(req, res, filename);
+    }
     const exportMatch = route.match(/^\/exports\/([a-f0-9-]{36})\/video\.mp4$/);
     if (exportMatch) return await file(req, res, path.join(data, 'renders', exportMatch[1], 'video.mp4'));
     if (route.startsWith('/api/') || route.startsWith('/assets/') || route.startsWith('/exports/')) return json(res, { error: 'Not found.' }, 404);

@@ -9,6 +9,7 @@ export const MOTION_VARIANTS = {
   stickers: [['peel', 'Peeling posters'], ['scatter', 'Sticker field']],
   twist: [['single', 'Single torsion'], ['ribbon', 'Torsion ribbon']],
   wheel: [['rock', 'Rocking arc'], ['ring', 'Radial wheel']],
+  flip: [['step', 'Step and turn']],
   depth: [], arc: []
 };
 const TAU = Math.PI * 2;
@@ -51,6 +52,16 @@ export function carouselCard(layer, index, count, time) {
       state.opacity = layer.loopDuration > 0 ? fadeEdge(offset, Math.min(count / 2, 3.2)) : Math.abs(offset) < 3.2 ? 1 : 0;
       if (variant === 'focus') state.scale = 0.65 + 0.55 * Math.exp(-offset * offset * 1.2);
     }
+  } else if (layer.template === 'flip') {
+    const step = phase * count;
+    const progress = (step % 1 - 0.6) / 0.4;
+    const t = clamp(progress);
+    const advance = Math.floor(step) + t * t * (3 - 2 * t);
+    const offset = mod(index - advance + count / 2, count) - count / 2;
+    state.position = [offset * (size + gap + 0.25), 0, -Math.abs(offset) * 0.08];
+    const turn = clamp(Math.abs(offset));
+    state.rotation[1] = Math.sign(offset) * (layer.transitionTurn ?? 360) * Math.PI / 180 * turn * turn * (3 - 2 * turn);
+    state.opacity = fadeEdge(offset, Math.min(count / 2, 2));
   } else if (layer.template === 'showcase') {
     state.position = [d * (size * 0.6 + gap), -d * 0.6, -Math.abs(d) * 0.65];
     state.rotation = [0.18, -0.32, -0.12];
@@ -117,4 +128,15 @@ export function carouselCard(layer, index, count, time) {
     if (variant === 'rock') state.opacity = fadeEdge(a, 1.55);
   }
   return state;
+}
+
+export function elasticState(layer, card) {
+  const distance = Math.abs(card.position[0]) / (layer.size + layer.gap + 0.25);
+  const influence = clamp(distance);
+  const weight = influence * influence * (3 - 2 * influence);
+  const facing = Math.cos(card.rotation[1]);
+  return {
+    strength: layer.shader === 'elastic' ? layer.intensity * weight * Math.abs(facing) : 0,
+    side: Math.sign(card.position[0]) * (facing < 0 ? -1 : 1)
+  };
 }

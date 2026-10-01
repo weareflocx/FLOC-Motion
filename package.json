@@ -7,7 +7,9 @@
     "dev": "node server/index.mjs",
     "build": "vite build && node server/build-scene.mjs",
     "start": "NODE_ENV=production node server/index.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "previews:templates": "node scripts/generate-motion-previews.mjs",
+    "previews:presets": "node scripts/generate-motion-previews.mjs --presets"
   },
   "dependencies": {
     "@fontsource/geist": "latest",
