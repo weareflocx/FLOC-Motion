@@ -1,11 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useCanvasInteraction } from './useCanvasInteraction.jsx';
 import { FORMATS } from '../project.js';
 import { createScene, stageMarkup } from '../scene.js';
 import { createPreviewSession } from './preview-session.js';
 
-export function Stage({ project, time, playing, onError, onReady, positionPreview }) {
+export function Stage({ project, time, playing, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview }) {
+  const [activeProject, setActiveProject] = useState(project);
   const holder = useRef();
   const root = useRef();
+  const ringRoot = useRef();
   const engine = useRef();
   const timeRef = useRef({ time, playing });
   timeRef.current = { time, playing };
@@ -26,6 +29,7 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
       root.current.style.width = `${w}px`;
       root.current.style.height = `${h}px`;
       root.current.style.transform = `translate(-50%,-50%) scale(${scale})`;
+      if (ringRoot.current) { ringRoot.current.style.width = `${w}px`; ringRoot.current.style.height = `${h}px`; ringRoot.current.style.transform = root.current.style.transform; }
       const resolution = Math.min(1, scale * Math.min(window.devicePixelRatio || 1, 2));
       active.scene.setResolution(Math.max(1, Math.round(w * resolution)), Math.max(1, Math.round(h * resolution)));
       active.scene.seek(timeRef.current.time, timeRef.current.playing);
@@ -46,6 +50,7 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
         next.scene.seek(timeRef.current.time, timeRef.current.playing);
         root.current.replaceChildren(next.node);
         engine.current = next.scene;
+        setActiveProject(next.project);
         callbacks.current.onReady(true);
         // The manager publishes current after activation.
         queueMicrotask(fit);
@@ -84,8 +89,11 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
       const position = positionPreview?.id === layer.id ? positionPreview : layer;
       node.style.left = `${position.x}%`;
       node.style.top = `${position.y}%`;
+      if (layer.type === 'text') node.style.fontSize = `${(position.size ?? layer.size) * FORMATS[project.format][0] / 1080}px`;
+      if (layer.type === 'logo') node.style.width = `${position.size ?? layer.size}%`;
     }
   }, [positionPreview, project]);
 
-  return <div ref={holder} className="stage-holder"><div ref={root} className="stage" aria-label="Video composition preview"/></div>;
+  const { ring, handlers } = useCanvasInteraction({ root, engine, project, sceneKey: activeProject, selected, time, onSelect, onPatch, onPreview });
+  return <div ref={holder} className="stage-holder"><div ref={root} className="stage" aria-label="Video composition preview" {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{ring}</div></div>;
 }

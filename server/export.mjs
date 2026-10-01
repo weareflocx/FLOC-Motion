@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { stripVTControlCharacters } from 'node:util';
+import { FONT_FILES, fontFaceCss } from '../src/fonts.js';
 import { runtimeConfig } from './runtime-config.mjs';
 import { root, buildScene } from './build-scene.mjs';
 import { FORMATS, validateProject, escapeHtml } from '../src/project.js';
@@ -43,12 +44,12 @@ export async function prepareComposition(input, folder) {
   }
   await copyFile(path.join(root, '.data/engine/scene.js'), path.join(folder, 'scene.js'));
   await copyFile(path.join(root, 'node_modules/gsap/dist/gsap.min.js'), path.join(folder, 'gsap.min.js'));
-  for (const weight of [400, 600, 800]) await copyFile(path.join(root, `.data/engine/geist-${weight}.woff2`), path.join(folder, `geist-${weight}.woff2`));
+  for (const font of FONT_FILES) await copyFile(path.join(root, '.data/engine', font.file), path.join(folder, font.file));
   const [w, h] = FORMATS[p.format];
   // Music is mixed by FFmpeg after capture to support source offsets, looping and fades.
   const markup = stageMarkup({ ...p, layers: p.layers.filter(l => l.type !== 'music') });
   const serialized = JSON.stringify(p).replace(/</g, '\\u003c');
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(p.name)}</title><style>${[400, 600, 800].map(weight => `@font-face{font-family:Geist;font-weight:${weight};src:url('./geist-${weight}.woff2')}`).join('')}*{box-sizing:border-box}body{margin:0;font-family:Geist,Arial,sans-serif}.composition{position:relative;width:${w}px;height:${h}px;overflow:hidden}</style></head><body><div class="composition" data-composition-id="main" data-floc-project="${escapeHtml(serialized)}" data-start="0" data-duration="${p.duration}" data-width="${w}" data-height="${h}">${markup}</div><script src="gsap.min.js"></script><script>window.__timelines=window.__timelines||{};const clock={time:0};const tl=gsap.timeline({paused:true});tl.to(clock,{time:${p.duration},duration:${p.duration},ease:"none",onUpdate:()=>window.dispatchEvent(new CustomEvent("hf-seek",{detail:{time:clock.time}}))},0);window.__timelines["main"]=tl;</script><script src="scene.js"></script></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(p.name)}</title><style>${fontFaceCss('./')}*{box-sizing:border-box}body{margin:0;font-family:Geist,Arial,sans-serif}.composition{position:relative;width:${w}px;height:${h}px;overflow:hidden}</style></head><body><div class="composition" data-composition-id="main" data-floc-project="${escapeHtml(serialized)}" data-start="0" data-duration="${p.duration}" data-width="${w}" data-height="${h}">${markup}</div><script src="gsap.min.js"></script><script>window.__timelines=window.__timelines||{};const clock={time:0};const tl=gsap.timeline({paused:true});tl.to(clock,{time:${p.duration},duration:${p.duration},ease:"none",onUpdate:()=>window.dispatchEvent(new CustomEvent("hf-seek",{detail:{time:clock.time}}))},0);window.__timelines["main"]=tl;</script><script src="scene.js"></script></body></html>`;
   await writeFile(path.join(folder, 'index.html'), html);
   await writeFile(path.join(folder, 'hyperframes.json'), JSON.stringify({ name: 'motion-export', entry: 'index.html', fps: p.fps, width: w, height: h }));
   return original;

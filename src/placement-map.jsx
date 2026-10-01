@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { fontDefinition } from './fonts.js';
 import { FORMATS } from './project.js';
 import { GRID_POINTS, gridPlacement, nearestGridPoint, stepGridPoint } from './editor-controls.js';
 
@@ -78,7 +79,7 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
       <div className={`map-center-anchor ${selected === 36 ? 'active' : ''}`} aria-hidden="true"/>
       {project.layers.filter(l => ['text', 'logo'].includes(l.type) && (l.visible || l.id === layer.id)).map(l => {
         const active = l.id === layer.id; const pos = active && draft ? draft : l;
-        return <div key={l.id} ref={active ? element : null} className={`map-node ${active ? 'selected' : 'ghost'}`} role={active ? 'button' : undefined} tabIndex={active ? 0 : undefined} aria-label={active ? `Move ${l.name} between grid positions with arrow keys` : undefined} onKeyDown={active ? e => keys(e) : undefined} style={{ left: `${pos.x}%`, top: `${pos.y}%`, width: `${l.type === 'text' ? l.width : l.size}%`, fontSize: `${l.type === 'text' ? l.size * width / 1080 : 8}px`, fontWeight: l.weight, opacity: active ? 1 : 0.25 }}>
+        return <div key={l.id} ref={active ? element : null} className={`map-node ${active ? 'selected' : 'ghost'}`} role={active ? 'button' : undefined} tabIndex={active ? 0 : undefined} aria-label={active ? `Move ${l.name} between grid positions with arrow keys` : undefined} onKeyDown={active ? e => keys(e) : undefined} style={{ left: `${pos.x}%`, top: `${pos.y}%`, width: `${l.type === 'text' ? l.width : l.size}%`, fontSize: `${l.type === 'text' ? l.size * width / 1080 : 8}px`, fontWeight: l.weight, fontFamily: l.type === 'text' ? fontDefinition(l.font).family : undefined, opacity: active ? 1 : 0.25 }}>
           {l.type === 'logo' ? l.src ? <img src={l.src} alt="" draggable={false}/> : <span>Logo</span> : l.text}
         </div>;
       })}

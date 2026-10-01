@@ -1,0 +1,115 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { canvasWheelSize, gridPlacement, nearestGridPoint, stepGridPoint } from '../editor-controls.js';
+import { dragOrientation, wrapDegrees } from '../orientation.js';
+
+// Editor-only interaction: previews never mutate project data until release.
+export function useCanvasInteraction({ root, engine, project, sceneKey, selected, time, onSelect, onPatch, onPreview }) {
+  const gesture = useRef(null);
+  const wheelDraft = useRef(null);
+  const playhead = useRef(time); playhead.current = time;
+  const [draft, setDraft] = useState(null);
+  const layer = project.layers.find(l => l.id === selected);
+  const nodeFor = id => [...(root.current?.querySelectorAll('[data-floc-layer]') || [])].find(n => n.dataset.flocLayer === id);
+  function cancel() { gesture.current = null; clearTimeout(wheelDraft.current?.timer); wheelDraft.current = null; setDraft(null); onPreview(null); }
+  useEffect(() => { if (gesture.current && (gesture.current.layer.id !== selected || gesture.current.project !== project)) cancel(); }, [selected, project]);
+  useEffect(() => () => onPreview(null), [onPreview]);
+  useEffect(() => {
+    const node = root.current;
+    function wheel(event) {
+      if (event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
+      event.preventDefault();
+      onSelect(layer.id);
+      const size = canvasWheelSize(layer, event.deltaY, wheelDraft.current?.size ?? layer.size);
+      clearTimeout(wheelDraft.current?.timer);
+      onPreview({ id: layer.id, x: layer.x, y: layer.y, size });
+      wheelDraft.current = { size, timer: setTimeout(() => { wheelDraft.current = null; onPreview(null); if (size !== layer.size) onPatch(layer.id, { size }); }, 250) };
+    }
+    node?.addEventListener('wheel', wheel, { passive: false });
+    return () => { node?.removeEventListener('wheel', wheel); if (wheelDraft.current) { clearTimeout(wheelDraft.current.timer); wheelDraft.current = null; onPreview(null); } };
+  }, [project, selected, onPatch, onPreview, onSelect]);
+  useEffect(() => {
+    for (const l of project.layers) {
+      const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel'].includes(l.type)) continue;
+      node.classList.toggle('canvas-selected', l.id === selected && l.type !== 'carousel');
+      const visible = l.visible && time >= l.start && time < l.end;
+      node.tabIndex = visible ? 0 : -1; node.setAttribute('role', 'button');
+      node.setAttribute('aria-hidden', String(!visible));
+      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : ''}`);
+      node.style.pointerEvents = 'auto';
+    }
+  }, [project, selected, time, sceneKey]);
+  function pick(x, y) {
+    const box = root.current.getBoundingClientRect();
+    for (const l of [...project.layers].reverse()) {
+      if (!l.visible || playhead.current < l.start || playhead.current >= l.end || l.type === 'music') continue;
+      const node = nodeFor(l.id); if (!node || Number(node.style.opacity) <= 0) continue;
+      const b = node.getBoundingClientRect();
+      if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
+      if (['text', 'logo'].includes(l.type)) return l;
+      if (l.type === 'carousel' && engine.current?.hitTest((x - box.left) / box.width, (y - box.top) / box.height)) return l;
+      if (l.type === 'background') return null;
+    }
+    return null;
+  }
+  function begin(event) {
+    if (event.button !== 0 || gesture.current || wheelDraft.current) return;
+    const ring = event.target.closest('[data-canvas-ring]');
+    const l = ring ? project.layers.find(l => l.type === 'carousel') : pick(event.clientX, event.clientY);
+    if (!l) return;
+    event.preventDefault(); onSelect(l.id);
+    nodeFor(l.id)?.focus({ preventScroll: true });
+    if (l.locked) return;
+    const box = root.current.getBoundingClientRect();
+    const b = nodeFor(l.id).getBoundingClientRect();
+    const initial = l.type === 'carousel' ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { x: l.x, y: l.y };
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, latest: initial, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - (box.top + box.height * l.y / 100), event.clientX - (box.left + box.width * l.x / 100)), delta: 0, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function move(event) {
+    const g = gesture.current; if (!g || g.id !== event.pointerId) return;
+    const dx = event.clientX - g.x, dy = event.clientY - g.y;
+    if (!g.moved && Math.hypot(dx, dy) < 3) return;
+    g.moved = true;
+    if (g.layer.type === 'carousel') {
+      const angle = Math.atan2(event.clientY - (g.box.top + g.box.height * g.layer.y / 100), event.clientX - (g.box.left + g.box.width * g.layer.x / 100));
+      g.delta += wrapDegrees((angle - g.angle) * 180 / Math.PI); g.angle = angle;
+      g.latest = dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, g.ring ? g.delta : null);
+    } else {
+      const index = nearestGridPoint(g.initial.x + g.width / 2 + dx / g.box.width * 100, g.initial.y + g.height / 2 + dy / g.box.height * 100);
+      g.latest = gridPlacement(index, g.width, g.height);
+    }
+    setDraft(g.latest); onPreview({ id: g.layer.id, ...g.latest });
+  }
+  function finish(event, aborted = false) {
+    const g = gesture.current; if (!g || g.id !== event.pointerId) return;
+    cancel();
+    if (event.currentTarget.hasPointerCapture(g.id)) event.currentTarget.releasePointerCapture(g.id);
+    if (!aborted && g.moved) {
+      const { gridIndex, ...patch } = g.latest;
+      if (Object.keys(patch).some(key => patch[key] !== g.initial[key])) onPatch(g.layer.id, patch);
+    }
+  }
+  function keys(event) {
+    if (event.key === 'Escape') { event.preventDefault(); cancel(); return; }
+    const target = event.target.closest('[data-floc-layer]');
+    const l = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : layer;
+    if (!l || !l.visible || playhead.current < l.start || playhead.current >= l.end) return;
+    if (['Enter', ' '].includes(event.key)) { event.preventDefault(); onSelect(l.id); return; }
+    if (l.locked || gesture.current || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    event.preventDefault(); onSelect(l.id);
+    const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+    const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+    if (l.type === 'carousel') {
+      const step = event.shiftKey ? 5 : 1;
+      onPatch(l.id, dragOrientation({ tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll }, dx * step / 180, dy * step / 180, event.altKey || event.target.closest('[data-canvas-ring]') ? (dx || dy) * step : null));
+    } else if (['text', 'logo'].includes(l.type)) {
+      const box = root.current.getBoundingClientRect(), b = nodeFor(l.id).getBoundingClientRect();
+      const w = b.width / box.width * 100, h = b.height / box.height * 100;
+      const { gridIndex, ...patch } = gridPlacement(stepGridPoint(nearestGridPoint(l.x + w / 2, l.y + h / 2), dx, dy), w, h);
+      onPatch(l.id, patch);
+    }
+  }
+  const carousel = layer?.type === 'carousel' && layer.visible && time >= layer.start && time < layer.end ? layer : null;
+  const ring = carousel && !carousel.locked ? <svg className="canvas-orientation-ring" style={{ left: `${carousel.x}%`, top: `${carousel.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label="Rotate carousel Z: drag ring or use arrow keys; Escape cancels"><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos((draft?.roll ?? carousel.roll) * Math.PI / 180)} cy={50 + 45 * Math.sin((draft?.roll ?? carousel.roll) * Math.PI / 180)} r="2"/></svg> : null;
+  return { ring, handlers: { onPointerDown: begin, onPointerMove: move, onPointerUp: finish, onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: keys } };
+}

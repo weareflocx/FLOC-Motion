@@ -1,6 +1,13 @@
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const rounded = n => Math.round(n * 1e6) / 1e6;
 
+export function canvasWheelSize(layer, deltaY, size = layer.size) {
+  const limits = { text: [12, 180, 2], logo: [2, 35, 1], carousel: [0.5, 2.5, 0.05] };
+  if (!limits[layer.type] || !Number.isFinite(deltaY) || !Number.isFinite(size)) throw new Error('Invalid canvas size gesture.');
+  const [min, max, step] = limits[layer.type];
+  return rounded(clamp(size + (deltaY < 0 ? step : deltaY > 0 ? -step : 0), min, max));
+}
+
 export const GRID_POINTS = Object.freeze([
   ...Array.from({ length: 36 }, (_, index) => Object.freeze({ row: Math.floor(index / 6), column: index % 6, x: 5 + (index % 6 + 0.5) * 15, y: 5 + (Math.floor(index / 6) + 0.5) * 15 })),
   Object.freeze({ row: null, column: null, x: 50, y: 50 })

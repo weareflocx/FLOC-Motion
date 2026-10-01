@@ -59,7 +59,7 @@ Regenerate the committed 480×270 MP4 clips and JPEG posters with `npm run previ
 - Independently editable text layers; local image logo; layer visibility, stacking and timing; undo (20 edits).
 - Solid-color, image or silent video background, with cover/contain and video offset/loop controls.
 - Music upload, source offset, volume, looping and fade in/out.
-- Square, portrait and landscape output; 1–30 seconds, 24/30 fps.
+- Canvas formats: 1:1 (1080×1080), 9:16 (1080×1920), 16:9 (1920×1080), 3:4 (1080×1440) and 4:3 (1440×1080); 1–30 seconds, 24/30 fps.
 - Play, pause and seek; the same deterministic Three.js renderer drives preview and HyperFrames capture.
 - Local MP4 export using HyperFrames, followed by an FFmpeg music mix and FFprobe verification.
 - Autosave, project JSON import/download, optimistic revision checks.
@@ -67,6 +67,12 @@ Regenerate the committed 480×270 MP4 clips and JPEG posters with `npm run previ
 - A local catalog of 108 reconstructed carousel recipes, with visual contact sheets and a validated adapter into the canonical FLOC carousel model.
 
 ## Files and privacy
+
+### Studio typography
+
+Text layers support Druk Wide Heavy (900), Geist Regular/Bold (400/700), and Geist Mono Medium/Bold (500/700). Geist 600/800 remain available for existing compositions. The same bundled WOFF2 registry drives the font selector, placement map, preview and self-contained MP4 jobs; fonts are not fetched from a CDN at runtime. Existing text without a font ID keeps Geist and its original weight. New demo headlines use Druk Wide, with Geist Mono for the signature; saved projects are not restyled automatically.
+
+Geist Mono assets come from `@fontsource/geist-mono@5.3.0`; Geist assets come from the existing Fontsource package. Their OFL licenses are included in `public/fonts/`. Druk Wide was supplied by the studio; its commercial web/embedding permissions must be confirmed before publishing it.
 
 Uploaded assets, the saved project and rendered exports live in `.data/` (git-ignored). Rendering copies only selected resources into a self-contained local job directory. No remote assets are accepted in imported projects or agent edits. HyperFrames telemetry is disabled for app renders. Uploaded SVG/code is not accepted; bundled original examples and the known official FLOC SVG are explicitly allowed.
 
@@ -133,6 +139,12 @@ The composition displays a matching non-interactive guide during map dragging on
 ### Preview continuity
 
 The editor retains the active animation while preparing a replacement scene. Rapid edits are coalesced to the latest project, with one replacement loading at a time; failed loads preserve the previous preview and report an error. The displayed scene resumes at the current playhead rather than restarting. Preview rendering follows the visible frame size (up to 2× display pixel density); exports retain the full composition resolution. Replaced scenes release their media, GPU resources and WebGL context.
+
+### Direct canvas editing
+
+Click visible text, a logo or a carousel card to select its layer and synchronize the inspector. Drag text/logo between the existing 6×6 grid anchors. Drag a carousel card for X/Y orientation, or its visible ring for Z, using the same orientation math as the sidebar (not a new camera). Arrow keys provide grid movement or orientation; Alt adjusts Z and Shift increases the rotation step. Escape cancels the draft; pointer release commits one undoable edit. Locked layers can be selected but cannot be manipulated.
+
+Wheel over the selected element to resize: font size for text, logo size, or card size for the carousel. A wheel burst commits one edit after 250 ms, using existing validated bounds. Ctrl+wheel is left to the browser. Outlines, guides and the rotation ring are editor-only and are never exported.
 
 ### Layers
 

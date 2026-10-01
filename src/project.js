@@ -1,6 +1,8 @@
 import { MOTION_VARIANTS } from './carousel-motion.js';
 import { BRAND } from './brand.js';
-export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080] };
+import { fontDefinition } from './fonts.js';
+export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
+export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
 export const TEMPLATES = [
   { id: 'circular', name: 'Circular', description: 'Curved cards around a rotating ring', kind: 'ring' },
   { id: 'depth', name: 'Depth', description: 'A layered stack moving through space', kind: 'stack' },
@@ -20,8 +22,8 @@ export function demoProject() {
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
       { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, cardCount: 0, cardAspect: 1 / 1.14, radius: 0, loopDuration: 0, motionVariant: 'default', fade: 0, transitionTurn: 360, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', tilt: -12, yaw: 0, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, shader: 'none', intensity: 0.35, tint: BRAND.colors.blue },
-      { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 66, color: BRAND.colors.white, weight: 800, width: 55, animation: 'fade' },
-      { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, weight: 600, width: 22, animation: 'none' },
+      { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 48, color: BRAND.colors.white, font: 'druk-wide', weight: 900, width: 80, animation: 'fade' },
+      { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, font: 'geist-mono', weight: 500, width: 22, animation: 'none' },
       { id: 'logo', type: 'logo', name: 'Studio mark', visible: true, start: 0, end: 12, src: BRAND.assets.symbolWhite, x: 87, y: 6, size: 7 },
       { id: 'music', type: 'music', name: 'Music', visible: true, start: 0, end: 12, src: '', volume: 0.6, offset: 0, fade: 0.5, loop: false }
     ] };
@@ -54,7 +56,8 @@ export function validateProject(input) {
     finite(l.start, 0, p.duration, 'Layer start'); finite(l.end, l.start + 0.01, p.duration, 'Layer end');
     if (l.type === 'text') {
       str(l.text, 500, 'text'); finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 12, 180, 'Font size'); finite(l.width, 5, 100, 'Text width'); color(l.color);
-      if (![400, 600, 800].includes(l.weight) || !['none', 'fade', 'rise'].includes(l.animation)) fail('Unknown text style.');
+      l.font ??= 'geist';
+      if (!fontDefinition(l.font)?.weights.includes(l.weight) || !['none', 'fade', 'rise'].includes(l.animation)) fail('Unknown text style.');
     } else if (l.type === 'carousel') {
       if (!TEMPLATES.some(t => t.id === l.template) || !SHADERS.some(s => s.id === l.shader)) fail('Unknown carousel or shader.');
       l.yaw ??= 0; l.transitionTurn ??= 360;
@@ -85,7 +88,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'font' && layer.type === 'text') && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => l.id === id ? { ...l, ...(patch.template && patch.template !== l.template ? { motionVariant: 'default' } : {}), ...patch } : l) });

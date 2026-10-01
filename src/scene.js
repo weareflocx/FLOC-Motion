@@ -1,6 +1,7 @@
 import { cardMediaKind, cardVideoSource, cardMediaTime, waitForVideo, seekCardVideo } from './card-media.js';
 import { carouselCard, motionVariant, elasticState } from './carousel-motion.js';
 import * as THREE from 'three';
+import { fontDefinition } from './fonts.js';
 import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime } from './project.js';
 
 export function stageMarkup(p, path = src => src) {
@@ -16,7 +17,7 @@ export function stageMarkup(p, path = src => src) {
       return fill + (l.mode === 'video' ? `<video id="media-${esc(l.id)}" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(l.src))}" ${style}</video>` : `<img alt="" src="${esc(path(l.src))}" ${style}`);
     }
     if (l.type === 'carousel') return `<canvas id="carousel-canvas" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
-    if (l.type === 'text') return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:0.98;letter-spacing:-0.035em;font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
+    if (l.type === 'text') return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:0.98;letter-spacing:-0.035em;font-family:${esc(fontDefinition(l.font).family)};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
     if (l.type === 'logo' && l.src) return `<img alt="Studio mark" src="${esc(path(l.src))}" ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
     if (l.type === 'music' && l.src) return `<audio id="media-${esc(l.id)}" data-floc-layer="${esc(l.id)}" preload="auto" src="${esc(path(l.src))}"></audio>`;
     return '';
@@ -124,7 +125,7 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(19)) * camera.position.z;
     group.position.set((layer.x / 100 - 0.5) * viewHeight * width / height, (0.5 - layer.y / 100) * viewHeight, 0);
     meshes.forEach((mesh, i) => {
-      const state = carouselCard(layer, i, meshes.length, time);
+      const state = carouselCard(orientation?.size === undefined ? layer : { ...layer, size: orientation.size }, i, meshes.length, time);
       const optical = elasticState(layer, state);
       mesh.material.uniforms.uElastic.value = optical.strength;
       mesh.material.uniforms.uSide.value = optical.side;
@@ -177,5 +178,5 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
     return ready.catch(error => { if (!disposed) onMediaError(error); });
   }
   await seek(0);
-  return { seek, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) renderer.setSize(w, h, false); }, setOrientation(value) { orientation = value; }, dispose() { disposed = true; cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); }); mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); textures.forEach(t => t.dispose()); renderer.dispose(); renderer.forceContextLoss(); } };
+  return { seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) renderer.setSize(w, h, false); }, setOrientation(value) { orientation = value; }, dispose() { disposed = true; cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); }); mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); textures.forEach(t => t.dispose()); renderer.dispose(); renderer.forceContextLoss(); } };
 }
