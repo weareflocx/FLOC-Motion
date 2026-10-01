@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for floc-motion on 2026-10-01T04:53:45Z
+# fly.toml app configuration file generated for floc-motion on 2026-10-01T07:25:26+02:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -7,6 +7,16 @@ app = 'floc-motion'
 primary_region = 'ams'
 
 [build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  PORT = '8080'
+  FLOC_PUBLIC_ORIGIN = 'https://floc-motion.fly.dev'
+  FLOC_DATA_DIR = '/data/floc-motion'
+
+[[mounts]]
+  source = 'floc_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
@@ -17,7 +27,6 @@ primary_region = 'ams'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
+  memory = '2gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 2048

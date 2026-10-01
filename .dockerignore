@@ -1,5 +1,7 @@
-node_modules/
-dist/
-.data/
-.atl/
+.git
+node_modules
+dist
+.data
+.atl
 .DS_Store
+*.log

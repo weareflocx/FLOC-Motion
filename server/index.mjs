@@ -3,19 +3,18 @@ import { readFile, writeFile, mkdir, stat, rename } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createServer as createViteServer } from 'vite';
-import { root } from './build-scene.mjs';
+import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
 import { demoProject, validateProject, TEMPLATES, SHADERS } from '../src/project.js';
 import { catalogSummary } from '../src/catalog.js';
 import { startExport, jobs, run } from './export.mjs';
 import { ensureGifVideo } from './card-media.mjs';
-const port = Number(process.env.PORT || 4317);
-const data = path.join(root, '.data');
+const config = runtimeConfig();
+const { port, data } = config;
 await mkdir(path.join(data, 'assets'), { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
 let project = demoProject(); let revision = 0; let writing = false;
 try { const saved = JSON.parse(await readFile(path.join(data, 'project.json'), 'utf8')); project = validateProject(saved.project); revision = saved.revision; } catch (e) { if (e.code !== 'ENOENT') console.warn('Saved project is invalid; the demo is loaded.'); }
-const vite = process.env.NODE_ENV === 'production' ? null : await createViteServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] } }, appType: 'spa' });
+const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = async (req, limit = 2e6) => { let size = 0; const chunks = []; for await (const chunk of req) { size += chunk.length; if (size > limit) throw new Error('File is too large. Maximum upload size is 75 MB.'); chunks.push(chunk); } return Buffer.concat(chunks); };
 const json = (res, value, code = 200) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
@@ -28,8 +27,8 @@ async function file(req, res, filename) {
 }
 const server = http.createServer(async (req, res) => {
   try {
-    const origin = `http://${req.headers.host}`;
-    if (!['127.0.0.1', 'localhost'].includes(req.headers.host?.split(':')[0])) return json(res, { error: 'Local access only.' }, 403);
+    const origin = requestOrigin(req.headers.host, config);
+    if (!origin) return json(res, { error: config.publicOrigin ? 'Host not allowed.' : 'Local access only.' }, 403);
     if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== origin) return json(res, { error: 'Cross-origin mutations are not allowed.' }, 403);
     const url = new URL(req.url, origin); const route = url.pathname;
     if (route === '/api/project' && req.method === 'GET') return json(res, { project, revision });
@@ -79,5 +78,5 @@ const server = http.createServer(async (req, res) => {
     try { await file(req, res, filename); } catch { await file(req, res, path.join(root, 'dist/index.html')); }
   } catch (error) { if (!res.headersSent) json(res, { error: error.code === 'ENOENT' ? 'File not found.' : error.message }, error.code === 'ENOENT' ? 404 : 400); else res.destroy(); }
 });
-server.listen(port, '127.0.0.1', () => console.log(`FLOC Motion: http://127.0.0.1:${port}`));
+server.listen(port, config.host, () => console.log(`FLOC Motion: ${config.publicOrigin || `http://127.0.0.1:${port}`}`));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { server.close(); vite?.close(); process.exit(0); });

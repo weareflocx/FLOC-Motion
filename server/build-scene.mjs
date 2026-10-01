@@ -2,7 +2,8 @@ import { build } from 'esbuild';
 import { mkdir, copyFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { root } from './runtime-config.mjs';
+export { root } from './runtime-config.mjs';
 export async function buildScene() {
   await mkdir(path.join(root, '.data', 'engine'), { recursive: true });
   await build({ entryPoints: [path.join(root, 'src/render-entry.js')], bundle: true, format: 'iife', platform: 'browser', outfile: path.join(root, '.data/engine/scene.js'), minify: true });

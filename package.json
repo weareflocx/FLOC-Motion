@@ -18,11 +18,11 @@
     "hyperframes": "0.8.96",
     "react": "latest",
     "react-dom": "latest",
-    "three": "0.186.1"
+    "three": "0.186.1",
+    "esbuild": "npm:esbuild-wasm@0.27.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "5.1.4",
-    "esbuild": "npm:esbuild-wasm@0.27.5",
     "vite": "7.3.1"
   },
   "engines": {

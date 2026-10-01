@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { stripVTControlCharacters } from 'node:util';
+import { runtimeConfig } from './runtime-config.mjs';
 import { root, buildScene } from './build-scene.mjs';
 import { FORMATS, validateProject, escapeHtml } from '../src/project.js';
 import { ensureGifVideo } from './card-media.mjs';
@@ -32,7 +33,7 @@ export async function prepareComposition(input, folder) {
   const copied = new Set();
   for (const item of sources) {
     const src = item.src;
-    let local = path.join(root, src.startsWith('/assets/') ? `.data${src}` : `public${src}`);
+    let local = src.startsWith('/assets/') ? path.join(runtimeConfig().data, src.slice(1)) : path.join(root, `public${src}`);
     // Normalize GIF cards, including GIFs in projects saved before video support.
     const gifCard = p.images.includes(item) && cardMediaKind(src) === 'gif';
     if (gifCard) { const video = local.replace(/\.gif$/i, '.webm'); await ensureGifVideo(local, video, run); local = video; }
@@ -57,7 +58,7 @@ export async function startExport(input, { draft = false } = {}) {
   const p = validateProject(input);
   if (!p.images.length) throw new Error('Add at least one carousel image before exporting.');
   const id = randomUUID();
-  const folder = path.join(root, '.data/renders', id);
+  const folder = path.join(runtimeConfig().data, 'renders', id);
   const job = { id, state: 'queued', progress: 0, message: 'Preparing local assets', name: p.name, createdAt: new Date().toISOString() };
   jobs.set(id, job); running = true;
   void (async () => {

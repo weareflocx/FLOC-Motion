@@ -21,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:4317**. The server binds only to the loopback interface. This is not a deployed or multi-user service.
+Open **http://127.0.0.1:4317**. By default, the server binds only to the loopback interface. Public hosting requires the explicit configuration below; it does not add multi-user collaboration.
 
 ```sh
 npm test
@@ -30,6 +30,20 @@ npm start
 ```
 
 The bundlers use official WebAssembly builds to avoid native esbuild/Rollup binary loading issues. Dependencies are pinned in `package-lock.json`.
+
+## Public hosting (explicit opt-in)
+
+After building, production startup does not load Vite. Set `FLOC_PUBLIC_ORIGIN` to the exact HTTP(S) origin to bind to `0.0.0.0` and permit that host. HTTPS mutation checks use this configured origin behind the proxy. Without it, production remains loopback-only.
+
+```sh
+NODE_ENV=production PORT=8080 FLOC_PUBLIC_ORIGIN=https://floc-motion.fly.dev npm start
+```
+
+This mode deliberately has **no authentication**: anyone with access can read and edit the project, upload media and request exports. Host/Origin checks are not access control. The public editor is enabled by the owner's explicit choice, not by URL secrecy.
+
+The Dockerfile builds the frontend and scene bundle, installs only production Node dependencies, and includes Chromium and FFmpeg. `fly.toml` selects this image, port 8080 and the public origin. Local project data is excluded from the image. These files do not deploy the app by themselves.
+
+`FLOC_DATA_DIR` selects writable storage for the saved project, uploads and exports (default `.data/`). Fly mounts the `floc_data` volume at `/data` and stores application data in `/data/floc-motion`. The container initializes ownership of this directory, then runs Node without root privileges. Hosting uses one machine: data persists across deployments, but there is no machine redundancy or multi-user collaboration. Separate machines do not share projects or uploads; do not scale this file-backed editor horizontally. The volume must exist before deployment.
 
 ## Motion library previews
 
