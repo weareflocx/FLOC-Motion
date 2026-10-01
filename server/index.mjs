@@ -70,6 +70,13 @@ const server = http.createServer(async (req, res) => {
     }
     const exportMatch = route.match(/^\/exports\/([a-f0-9-]{36})\/video\.mp4$/);
     if (exportMatch) return await file(req, res, path.join(data, 'renders', exportMatch[1], 'video.mp4'));
+    // Vite's production bundles share /assets/ with uploaded media.
+    if (!vite && route.startsWith('/assets/')) {
+      const directory = path.join(root, 'dist', 'assets');
+      const filename = path.resolve(directory, decodeURIComponent(route.slice('/assets/'.length)));
+      if (!filename.startsWith(directory + path.sep)) return json(res, { error: 'Not found.' }, 404);
+      return await file(req, res, filename);
+    }
     if (route.startsWith('/api/') || route.startsWith('/assets/') || route.startsWith('/exports/')) return json(res, { error: 'Not found.' }, 404);
     if (vite) return vite.middlewares(req, res);
     const safe = decodeURIComponent(route).replace(/^\/+/, '');
