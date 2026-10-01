@@ -8,8 +8,10 @@ import { demoProject, validateProject, TEMPLATES, SHADERS } from '../src/project
 import { catalogSummary } from '../src/catalog.js';
 import { startExport, jobs, run } from './export.mjs';
 import { ensureGifVideo } from './card-media.mjs';
+import { createTemplateStore } from './template-store.mjs';
 const config = runtimeConfig();
 const { port, data } = config;
+const templates = createTemplateStore(data);
 await mkdir(path.join(data, 'assets'), { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
 let project = demoProject(); let revision = 0; let writing = false;
@@ -43,6 +45,11 @@ const server = http.createServer(async (req, res) => {
         project = next; revision++; return json(res, { revision });
       } finally { writing = false; }
     }
+    if (route === '/api/templates' && req.method === 'GET') return json(res, { templates: await templates.list() });
+    if (route === '/api/templates' && req.method === 'POST') return json(res, await templates.create(JSON.parse(await body(req))), 201);
+    const templateMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})$/);
+    if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], JSON.parse(await body(req))));
+    if (templateMatch && req.method === 'DELETE') { await templates.remove(templateMatch[1]); return json(res, { deleted: true }); }
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/health') return json(res, { ok: true, localOnly: !config.publicOrigin, version: '0.1.0' });
     if (route === '/api/assets' && req.method === 'POST') {

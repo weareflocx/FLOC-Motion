@@ -12,6 +12,7 @@ import { useProjectFiles } from './editor/useProjectFiles.js';
 import { useAgentBridge } from './editor/useAgentBridge.js';
 import { useExportJob } from './editor/useExportJob.js';
 import { usePlayback } from './editor/usePlayback.js';
+import { SavedTemplates } from './editor/components/SavedTemplates.jsx';
 import { Dialogs } from './editor/components/Dialogs.jsx';
 import { CanvasPanel } from './editor/components/CanvasPanel.jsx';
 import { ErrorBanner, Header } from './editor/components/Header.jsx';
@@ -27,6 +28,7 @@ function App() {
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const layer = project.layers.find(l => l.id === selected) || project.layers.find(l => l.type === 'carousel');
   const carousel = project.layers.find(l => l.type === 'carousel');
   const { time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: project.duration });
@@ -41,7 +43,7 @@ function App() {
   return <main className="app-shell">
     <input ref={fileInput} hidden type="file" onChange={handleFileChange}/>
     <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={handleImportChange}/>
-    <Header status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
+    <Header onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onReload={() => reload().catch(reloadError => setError(reloadError.message))} onDismiss={() => setError('')}/>
     <div className="workspace">
       <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onAddText={addText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onPick={pick} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
@@ -49,6 +51,7 @@ function App() {
       <InspectorPanel project={project} layer={layer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={patch} onPick={pick} onPreview={previewPosition} onRemoveText={removeText}/>
     </div>
     <TimelinePanel project={project} selected={selected} time={time} playing={playing} ready={ready} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={value => { setTime(value); setPlaying(false); }} onPatch={patch}/>
+    {templatesOpen && <SavedTemplates project={project} onClose={() => setTemplatesOpen(false)} onApply={next => { const valid = change(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.layers.find(l => l.type === 'carousel').id); } return valid; }}/>}
     <Dialogs project={project} exportOpen={exportOpen} agentOpen={agentOpen} job={job} busy={busy} agentState={agentState} audit={audit} onCloseExport={() => setExportOpen(false)} onCloseAgent={() => setAgentOpen(false)} onRender={render}/>
   </main>;
 }
