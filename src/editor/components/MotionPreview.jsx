@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 export function MotionPreview({ item, collection, playing }) {
   const ref = useRef(null);
   const warning = collection === 'catalog' ? visibility[item.id] : '';
-  const folder = collection === 'catalog' ? 'preset-previews' : 'motion-previews';
+  const folder = collection === 'catalog' ? 'preset-previews' : 'template-previews';
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     const video = ref.current;
