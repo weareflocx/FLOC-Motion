@@ -1,9 +1,11 @@
+import { createModelScene } from './model-scene.js';
 import { cardMediaKind, cardVideoSource, cardMediaTime, waitForVideo, seekCardVideo } from './card-media.js';
 import { carouselCard, motionVariant, elasticState } from './carousel-motion.js';
 import * as THREE from 'three';
 import { fontDefinition } from './fonts.js';
-import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime } from './project.js';
+import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages } from './project.js';
 import { constrainPlacement, fitsSafeArea, safeArea } from './layout.js';
+import { createCarouselEffect } from './carousel-effects.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -17,9 +19,14 @@ export function stageMarkup(p, path = src => src) {
       const style = `${common}inset:0;width:100%;height:100%;object-fit:${l.fit}">`;
       return fill + (l.mode === 'video' ? `<video id="media-${esc(l.id)}" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(l.src))}" ${style}</video>` : `<img alt="" src="${esc(path(l.src))}" ${style}`);
     }
-    if (l.type === 'carousel') return `<canvas id="carousel-canvas" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
+    if (l.type === 'carousel') return `<canvas id="carousel-${esc(l.id)}" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'text') return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:0.98;letter-spacing:-0.035em;font-family:${esc(fontDefinition(l.font).family)};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
     if (l.type === 'logo' && l.src) return `<img alt="Studio mark" src="${esc(path(l.src))}" ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
+    if (l.type === 'model') return `<canvas id="model-${esc(l.id)}" class="clip" ${timing} ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;aspect-ratio:1" width="${w}" height="${w}"></canvas>`;
+    if (l.type === 'media') {
+      const style = `${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
+      return cardMediaKind(l.src) === 'image' ? `<img alt="${esc(l.name)}" src="${esc(path(l.src))}" ${style}` : `<video id="media-${esc(l.id)}" class="clip" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(cardVideoSource(l.src)))}" ${style}</video>`;
+    }
     if (l.type === 'music' && l.src) return `<audio id="media-${esc(l.id)}" data-floc-layer="${esc(l.id)}" preload="auto" src="${esc(path(l.src))}"></audio>`;
     return '';
   }).join('');
@@ -51,10 +58,11 @@ if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacit
 #include <colorspace_fragment>
 }`;
 
-export async function createScene(root, p, { renderMode = false, onMediaError = () => {} } = {}) {
+async function createLayerScene(root, p, { renderMode = false, onMediaError = () => {} } = {}) {
   const [width, height] = FORMATS[p.format];
-  const layer = p.layers.find(l => l.type === 'carousel');
-  const canvas = root.querySelector('canvas');
+  const carousel = p.layers.find(l => l.type === 'carousel');
+  const layer = carousel || { ...demoProject().layers.find(l => l.type === 'carousel'), visible: false };
+  const canvas = (carousel ? root.querySelector(`[id="carousel-${CSS.escape(carousel.id)}"]`) : null) || document.createElement('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(1); renderer.setSize(width, height, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -70,26 +78,29 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
   }
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
+  let carouselEffect = null;
   let orientation = null;
   let placement = null;
-  const layerNodes = [...root.querySelectorAll('[data-floc-layer]')];
-  const mediaNodes = [...root.querySelectorAll('audio,video')];
-  const imageNodes = [...root.querySelectorAll('img')];
+  const layerNodes = [...root.querySelectorAll('[data-floc-layer]')].filter(node => p.layers.some(l => l.id === node.dataset.flocLayer));
+  const mediaNodes = layerNodes.filter(node => ['AUDIO', 'VIDEO'].includes(node.tagName));
+  const imageNodes = layerNodes.filter(node => node.tagName === 'IMG');
+  const models = [];
   const meshes = [];
   const textures = [];
   const cardVideos = [];
   const placementBounds = new Map();
   let requestedTime = 0;
   function placeLayers(time) {
-    const frame = p.layout?.enabled ? canvas.getBoundingClientRect() : null;
-    for (const l of p.layers.filter(l => ['text', 'logo'].includes(l.type))) {
+    const frame = p.layout?.enabled ? (carousel ? canvas : root).getBoundingClientRect() : null;
+    for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model'].includes(l.type))) {
       const el = layerNodes.find(node => node.dataset.flocLayer === l.id); if (!el) continue;
       const pos = placement?.id === l.id ? { ...l, ...placement } : l;
       const sizeProperty = l.type === 'text' ? 'fontSize' : 'width';
       const sizeValue = l.type === 'text' ? `${pos.size * width / 1080}px` : `${pos.size}%`;
       if (el.style[sizeProperty] !== sizeValue) el.style[sizeProperty] = sizeValue;
+      if (l.type === 'model') el.style.height = `${pos.size * width / 100}px`;
       let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha(l, time)) * 24 : 0;
-      if (p.layout?.enabled) {
+      if (p.layout?.enabled && ['text', 'logo'].includes(l.type)) {
         if (frame.width && frame.height) {
           const key = `${sizeValue}:${frame.width}:${frame.height}`;
           let bounds = placementBounds.get(el);
@@ -111,8 +122,9 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
   try {
     await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontDefinition(l.font).family}"`)));
     await document.fonts.ready;
+    for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, width, width));
     const loader = new THREE.TextureLoader();
-    const results = await Promise.allSettled(p.images.map(async img => {
+    const results = await Promise.allSettled((carousel ? p.images : []).map(async img => {
       if (cardMediaKind(img.src) === 'image') return loader.loadAsync(img.src);
       const video = document.createElement('video');
       video.muted = true; video.playsInline = true; video.preload = 'auto';
@@ -151,10 +163,23 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
     });
     await Promise.all(imageNodes.map(img => img.decode().catch(() => { throw new Error('An image could not be decoded.'); })));
     placeLayers(0);
-  } catch (error) { cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); }); mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); renderer.dispose(); renderer.forceContextLoss(); textures.forEach(t => t.dispose()); throw error; }
+    carouselEffect = createCarouselEffect(renderer, width, height, layer);
+  } catch (error) { dispose(); throw error; }
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    carouselEffect?.dispose();
+    models.forEach(model => model.dispose());
+    cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); });
+    mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); });
+    meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); });
+    textures.forEach(t => t.dispose());
+    renderer.dispose(); renderer.forceContextLoss();
+  }
   function draw(time, playing = false) {
     if (disposed) return;
     placeLayers(time);
+    models.forEach(model => model.draw(time));
     const local = Math.max(0, time - layer.start);
     group.rotation.set(THREE.MathUtils.degToRad(orientation?.tilt ?? layer.tilt), THREE.MathUtils.degToRad(orientation?.yaw ?? layer.yaw ?? 0), THREE.MathUtils.degToRad(orientation?.roll ?? layer.roll));
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(19)) * camera.position.z;
@@ -174,7 +199,8 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
       mesh.material.uniforms.uTime.value = local;
     });
     cardVideos.forEach(({ video, texture }) => { if (video.readyState >= 2) texture.needsUpdate = true; });
-    renderer.render(scene, camera);
+    if (carouselEffect) carouselEffect.render(scene, camera);
+    else renderer.render(scene, camera);
     p.layers.forEach(l => {
       const alpha = layerAlpha(l, time);
       layerNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) el.style.opacity = alpha; });
@@ -203,15 +229,42 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
       draw(time, playing);
       return Promise.resolve();
     }
+    const standalone = renderMode ? [] : mediaNodes.filter(video => video.tagName === 'VIDEO').map(async video => {
+      const l = p.layers.find(l => l.id === video.dataset.flocLayer);
+      if (video.readyState < 2) await waitForVideo(video, 'loadeddata', () => video.load(), () => video.readyState >= 2);
+      video.pause();
+      await seekCardVideo(video, audioTime(l, time, video.duration));
+    });
     const frames = cardVideos.map(({ video }) => {
       video.pause();
       return seekCardVideo(video, cardMediaTime(time, layer.start, video.duration));
     });
+    frames.push(...standalone);
     if (!frames.length) { draw(time, playing); return Promise.resolve(); }
     const ready = Promise.all(frames).then(() => { if (!disposed && requestedTime === time) draw(time, playing); });
     if (renderMode) return ready;
     return ready.catch(error => { if (!disposed) onMediaError(error); });
   }
-  await seek(0);
-  return { seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) renderer.setSize(w, h, false); }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose() { disposed = true; cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); }); mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); textures.forEach(t => t.dispose()); renderer.dispose(); renderer.forceContextLoss(); } };
+  try { await seek(0); } catch (error) { dispose(); throw error; }
+  return { seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); carouselEffect?.setResolution(w, h); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
+}
+
+export async function createScene(root, project, options = {}) {
+  const carousels = project.layers.filter(layer => layer.type === 'carousel');
+  const engines = [];
+  try {
+    const first = carousels[0];
+    engines.push({ id: first?.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, first), layers: project.layers.filter(layer => layer.type !== 'carousel' || layer.id === first?.id) }, options) });
+    for (const layer of carousels.slice(1)) {
+      engines.push({ id: layer.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, layer), layers: [layer] }, options) });
+    }
+  } catch (error) { engines.forEach(engine => engine.scene.dispose()); throw error; }
+  return {
+    seek: (time, playing) => Promise.all(engines.map(engine => engine.scene.seek(time, playing))),
+    hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,
+    setResolution: (w, h) => engines.forEach(engine => engine.scene.setResolution(w, h)),
+    setOrientation: value => engines.forEach(engine => engine.scene.setOrientation(value?.id === engine.id ? value : null)),
+    setPlacement: value => engines.forEach(engine => engine.scene.setPlacement(value)),
+    dispose: () => engines.forEach(engine => engine.scene.dispose())
+  };
 }

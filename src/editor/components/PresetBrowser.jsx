@@ -2,6 +2,7 @@ import React, { useEffect, useId, useMemo, useState } from 'react';
 import { Check, MagnifyingGlass, X } from '@phosphor-icons/react';
 import { CATALOG, listCatalog } from '../../catalog.js';
 import { TEMPLATES } from '../../project.js';
+import { DEFAULT_MOTION, motionBaseline } from '../../motion-timing.js';
 import { MotionPreview } from './MotionPreview.jsx';
 import { IconButton, Modal } from '../controls.jsx';
 
@@ -37,7 +38,7 @@ export function PresetBrowser({ layer, onApply, onClose }) {
   }
   function apply() {
     if (!selected) return;
-    const patch = kind === 'catalog' ? selected.carouselPatch : { template: selected.id, ...(['arc', 'flip'].includes(selected.id) ? { tilt: 0, yaw: 0, roll: 0 } : {}) };
+    const patch = kind === 'catalog' ? selected.carouselPatch : { template: selected.id, motion: { ...DEFAULT_MOTION }, motionBaseline: motionBaseline({ ...layer, motion: DEFAULT_MOTION }, selected.name), ...(['arc', 'flip'].includes(selected.id) ? { tilt: 0, yaw: 0, roll: 0 } : {}) };
     onApply(patch);
     onClose();
   }

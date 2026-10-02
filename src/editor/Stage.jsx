@@ -51,7 +51,7 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
       },
       activate(next) {
         const focused = root.current.contains(document.activeElement) ? document.activeElement.dataset.flocLayer : null;
-        next.scene.setOrientation(previewRef.current?.id === next.project.layers.find(l => l.type === 'carousel').id ? previewRef.current : null);
+        next.scene.setOrientation(previewRef.current?.id === next.project.layers.find(l => l.id === previewRef.current?.id && l.type === 'carousel')?.id ? previewRef.current : null);
         next.scene.setPlacement(previewRef.current);
         next.scene.seek(timeRef.current.time, timeRef.current.playing);
         root.current.replaceChildren(next.node);
@@ -90,7 +90,7 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
         marker.style.top = `${index === 36 ? 50 : Math.floor(index / 6) * 100 / 6}%`;
       }
     }
-    engine.current?.setOrientation(positionPreview?.id === project.layers.find(l => l.type === 'carousel').id ? positionPreview : null);
+    engine.current?.setOrientation(positionPreview?.id === project.layers.find(l => l.id === positionPreview?.id && l.type === 'carousel')?.id ? positionPreview : null);
     engine.current?.setPlacement(positionPreview);
     const ready = engine.current?.seek(time, playing);
     Promise.resolve(ready).then(() => {

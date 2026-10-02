@@ -19,7 +19,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   useEffect(() => {
     const node = root.current;
     function wheel(event) {
-      if (event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
+      if (event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
       event.preventDefault();
       onSelect(layer.id);
       const size = canvasWheelSize(layer, event.deltaY, wheelDraft.current?.size ?? layer.size);
@@ -32,7 +32,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   }, [project, selected, onPatch, onPreview, onSelect]);
   useEffect(() => {
     for (const l of project.layers) {
-      const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel'].includes(l.type)) continue;
+      const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model'].includes(l.type)) continue;
       node.classList.toggle('canvas-selected', l.id === selected && l.type !== 'carousel');
       const visible = l.visible && time >= l.start && time < l.end;
       node.tabIndex = visible ? 0 : -1; node.setAttribute('role', 'button');
@@ -48,8 +48,8 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
       const node = nodeFor(l.id); if (!node || Number(node.style.opacity) <= 0) continue;
       const b = node.getBoundingClientRect();
       if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
-      if (['text', 'logo'].includes(l.type)) return l;
-      if (l.type === 'carousel' && engine.current?.hitTest((x - box.left) / box.width, (y - box.top) / box.height)) return l;
+      if (['text', 'logo', 'media', 'model'].includes(l.type)) return l;
+      if (l.type === 'carousel' && engine.current?.hitTest((x - box.left) / box.width, (y - box.top) / box.height, l.id)) return l;
       if (l.type === 'background') return null;
     }
     return null;
@@ -57,7 +57,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   function begin(event) {
     if (event.button !== 0 || gesture.current || wheelDraft.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
-    const l = ring ? project.layers.find(l => l.type === 'carousel') : pick(event.clientX, event.clientY);
+    const l = ring ? project.layers.find(l => l.id === selected && l.type === 'carousel') : pick(event.clientX, event.clientY);
     if (!l) return;
     event.preventDefault(); onSelect(l.id);
     nodeFor(l.id)?.focus({ preventScroll: true });
@@ -67,7 +67,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     const initial = l.type === 'carousel' ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top) };
     const targets = project.layers.filter(other => other.id !== l.id && other.visible && playhead.current >= other.start && playhead.current < other.end).flatMap(other => {
       if (other.type === 'carousel') return [{ x: other.x, y: other.y, width: 0, height: 0 }];
-      const node = nodeFor(other.id); if (!node || !['text', 'logo'].includes(other.type)) return [];
+      const node = nodeFor(other.id); if (!node || !['text', 'logo', 'media', 'model'].includes(other.type)) return [];
       const rect = node.getBoundingClientRect();
       return [{ x: (rect.left - box.left) / box.width * 100, y: (rect.top - box.top) / box.height * 100, width: rect.width / box.width * 100, height: rect.height / box.height * 100 }];
     });
@@ -113,7 +113,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     if (l.type === 'carousel') {
       const step = event.shiftKey ? 5 : 1;
       onPatch(l.id, dragOrientation({ tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll }, dx * step / 180, dy * step / 180, event.altKey || event.target.closest('[data-canvas-ring]') ? (dx || dy) * step : null));
-    } else if (['text', 'logo'].includes(l.type)) {
+    } else if (['text', 'logo', 'media', 'model'].includes(l.type)) {
       const box = root.current.getBoundingClientRect(), b = nodeFor(l.id).getBoundingClientRect();
       const w = b.width / box.width * 100, h = b.height / box.height * 100;
       const node = nodeFor(l.id), position = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };

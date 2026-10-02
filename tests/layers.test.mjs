@@ -32,13 +32,15 @@ test('drag order matches front-to-back list while preserving identities and sour
   assert.throws(() => reorderLayer(patchLayer(p, 'headline', { locked: true }), 'headline', 'logo'), /Unlock/);
   assert.throws(() => reorderLayer(p, 'missing', 'logo'), /not found/);
 });
-test('duplication preserves media and timing, inserts above the source, respects singleton and layer limits', () => {
+test('duplication preserves media and timing, inserts above the source, supports multiple carousels and respects layer limits', () => {
   const p = validateProject(demoProject());
   const copied = duplicateLayer(p, 'headline', 'headline-copy');
   const index = copied.layers.findIndex(l => l.id === 'headline');
   const copy = copied.layers[index + 1]; assert.equal(copy.id, 'headline-copy'); assert.equal(copy.name, 'Headline copy'); assert.equal(copy.text, p.layers[index].text); assert.equal(copy.start, p.layers[index].start);
   assert.equal(p.layers.length, 6); assert.equal(duplicateLayer(p, 'logo', 'logo-copy').layers.find(l => l.id === 'logo-copy').src, p.layers.find(l => l.id === 'logo').src);
-  for (const id of ['carousel', 'background', 'music']) assert.throws(() => duplicateLayer(p, id, `${id}-copy`), /Only text and logo/);
+  const carouselCopy = duplicateLayer(p, 'carousel', 'carousel-copy');
+  assert.deepEqual(carouselCopy.layers.find(l => l.id === 'carousel-copy').images, p.images);
+  for (const id of ['background', 'music']) assert.equal(duplicateLayer(p, id, `${id}-copy`).layers.filter(l => l.type === id).length, 2);
   assert.throws(() => duplicateLayer(p, 'headline', 'logo'), /unique/);
   let full = p; for (let i = 0; i < 14; i++) full = duplicateLayer(full, 'headline', `copy-${i}`);
   assert.throws(() => duplicateLayer(full, 'headline', 'over-limit'), /20 layers/);

@@ -1,14 +1,13 @@
 import React, { useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, DotsSixVertical, Eye, EyeSlash, LockSimple, LockSimpleOpen, PencilSimple } from '@phosphor-icons/react';
+import { Copy, DotsSixVertical, Eye, EyeSlash, LockSimple, LockSimpleOpen, PencilSimple, Trash } from '@phosphor-icons/react';
 import { TEMPLATES } from '../../project.js';
 import { IconButton } from '../controls.jsx';
 
-export function LayerList({ project, selected, icons, onSelect, onPatch, onMove, onDrop, onDuplicate }) {
+export function LayerList({ project, selected, icons, onSelect, onPatch, onMove, onDrop, onDuplicate, onRemove }) {
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState('');
   const [drop, setDrop] = useState(null);
   const dragging = useRef(null);
-  const layer = project.layers.find(l => l.id === selected);
   function rename(item) { if (item.locked) return; onSelect(item.id); setEditing(item.id); setName(item.name); }
   function commit(item) {
     if (editing !== item.id) return;
@@ -26,18 +25,17 @@ export function LayerList({ project, selected, icons, onSelect, onPatch, onMove,
         onDragEnd={() => { dragging.current = null; setDrop(null); }}>
         <span className="layer-grip" aria-hidden="true"><DotsSixVertical size={12}/></span>
         {editing === item.id ? <input autoFocus className="layer-name-input" aria-label={`Rename ${item.name}`} maxLength={100} value={name} onChange={event => setName(event.target.value)} onBlur={() => commit(item)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(item); } if (event.key === 'Escape') { event.preventDefault(); setEditing(null); } }}/>
-          : <button className="layer-select" aria-pressed={selected === item.id} onClick={() => onSelect(item.id)} onDoubleClick={() => rename(item)} onKeyDown={event => { if (event.key === 'F2') { event.preventDefault(); rename(item); } if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !item.locked) { event.preventDefault(); onMove(event.key === 'ArrowUp' ? 1 : -1, item.id); } }}><Icon size={17}/><span>{item.name}<small>{item.type === 'carousel' ? TEMPLATES.find(t => t.id === item.template).name : item.type === 'music' && !item.src ? 'No track added' : null}</small></span></button>}
-        <IconButton label={`${item.locked ? 'Unlock' : 'Lock'} ${item.name}`} onClick={() => onPatch(item.id, { locked: !item.locked })}>{item.locked ? <LockSimple size={14}/> : <LockSimpleOpen size={14}/>}</IconButton>
-        <IconButton label={`${item.visible ? 'Hide' : 'Show'} ${item.name}`} onClick={() => onPatch(item.id, { visible: !item.visible })}>{item.visible ? <Eye size={14}/> : <EyeSlash size={14}/>}</IconButton>
+          : <button className="layer-select" title={item.name} aria-pressed={selected === item.id} onClick={() => onSelect(item.id)} onDoubleClick={() => rename(item)} onKeyDown={event => { if (event.key === 'F2') { event.preventDefault(); rename(item); } if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !item.locked) { event.preventDefault(); onMove(event.key === 'ArrowUp' ? 1 : -1, item.id); } }}><Icon size={17}/><span>{item.name}<small>{item.type === 'carousel' ? TEMPLATES.find(t => t.id === item.template).name : item.type === 'music' && !item.src ? 'No track added' : null}</small></span></button>}
+        <div className="layer-row-actions" aria-label={`Actions for ${item.name}`} onDragStart={event => event.preventDefault()}>
+          <IconButton label={`${item.visible ? 'Hide' : 'Show'} ${item.name}`} onClick={() => onPatch(item.id, { visible: !item.visible })}>{item.visible ? <Eye size={14}/> : <EyeSlash size={14}/>}</IconButton>
+          <IconButton label={`${item.locked ? 'Unlock' : 'Lock'} ${item.name}`} onClick={() => onPatch(item.id, { locked: !item.locked })}>{item.locked ? <LockSimple size={14}/> : <LockSimpleOpen size={14}/>}</IconButton>
+          <IconButton label={`Rename ${item.name}`} disabled={item.locked} onClick={() => rename(item)}><PencilSimple size={14}/></IconButton>
+          <IconButton label={`Duplicate ${item.name}`} disabled={item.locked || project.layers.length >= 20} onClick={() => onDuplicate(item.id)}><Copy size={14}/></IconButton>
+          <IconButton label={`Delete ${item.name}`} disabled={item.locked} onClick={() => onRemove(item.id)}><Trash size={14}/></IconButton>
+        </div>
       </div>;
     })}</div>
-    <div className="layer-actions" aria-label="Selected layer actions">
-      <IconButton label="Rename selected layer" disabled={!layer || layer.locked} onClick={() => rename(layer)}><PencilSimple size={15}/></IconButton>
-      <IconButton label="Duplicate selected layer" disabled={!layer || layer.locked || !['text', 'logo'].includes(layer.type) || project.layers.length >= 20} onClick={() => onDuplicate(layer.id)}><Copy size={15}/></IconButton>
-      <span/>
-      <IconButton label="Move layer forward" onClick={() => onMove(1)} disabled={!layer || layer.locked || project.layers.at(-1)?.id === selected}><ArrowUp size={15}/></IconButton>
-      <IconButton label="Move layer backward" onClick={() => onMove(-1)} disabled={!layer || layer.locked || project.layers[0]?.id === selected}><ArrowDown size={15}/></IconButton>
-    </div>
+
 
   </>;
 }

@@ -1,3 +1,4 @@
+import { DEFAULT_MOTION, motionClock, motionEase, smoothProgress } from './motion-timing.js';
 // Original, absolute-time motion models shared by preview and export.
 export const MOTION_VARIANTS = {
   circular: [['wrapped', 'Wrapped ring'], ['billboard', 'Upright orbit'], ['inward', 'Inner corridor'], ['bloom', 'Splayed orbit']],
@@ -20,9 +21,9 @@ export function motionVariant(layer) {
   return layer.motionVariant && layer.motionVariant !== 'default' ? layer.motionVariant : MOTION_VARIANTS[layer.template]?.[0]?.[0];
 }
 export function carouselCard(layer, index, count, time) {
-  const local = Math.max(0, time - layer.start);
-  const cycle = layer.loopDuration > 0 ? (layer.speed === 0 ? 0 : local / layer.loopDuration * Math.sign(layer.speed)) : local * layer.speed / 360;
-  const phase = mod(cycle, 1);
+  const motion = layer.motion ?? DEFAULT_MOTION;
+  const clock = motionClock(layer, count, time);
+  const phase = clock.phase;
   const angle = phase * TAU;
   const size = layer.size, gap = layer.gap;
   const radius = layer.radius > 0 ? layer.radius : Math.max(1.45, count * (size + gap) / TAU);
@@ -38,25 +39,26 @@ export function carouselCard(layer, index, count, time) {
     state.opacity = 1 - (layer.fade || 0) * (1 - Math.cos(theta)) / 2;
   } else if (layer.template === 'horizontal' || layer.template === 'depth' || layer.template === 'arc') {
     // Preserve legacy speed semantics unless an explicit loop duration is set.
-    const advance = layer.loopDuration > 0 ? phase * count : local * layer.speed / (layer.template === 'arc' ? 60 : 35);
+    const advance = clock.advance;
+    const timed = layer.loopDuration > 0 || clock.stepped;
     const offset = mod(index - advance + count / 2, count) - count / 2;
     if (layer.template === 'arc') {
       const a = offset * (0.34 + gap * 0.2);
       state.position = [Math.sin(a) * 3.6, Math.cos(a) * 3.6 - 2.1, -Math.abs(offset) * 0.06];
       state.rotation[2] = -a;
-      state.opacity = layer.loopDuration > 0 ? fadeEdge(offset, Math.min(count / 2, 1.7 / (0.34 + gap * 0.2))) : Math.abs(a) < 1.7 ? 1 : 0;
+      state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 1.7 / (0.34 + gap * 0.2))) : Math.abs(a) < 1.7 ? 1 : 0;
     } else {
       state.position = layer.template === 'depth' ? [offset * (0.65 + gap), offset * 0.18, -Math.abs(offset) * 0.85] : [offset * (size + gap), 0, -Math.abs(offset) * 0.35];
       state.rotation[1] = offset * (layer.template === 'depth' ? 0.2 : -0.18);
       state.depth = Math.max(0.45, 1 - Math.abs(offset) * 0.14);
-      state.opacity = layer.loopDuration > 0 ? fadeEdge(offset, Math.min(count / 2, 3.2)) : Math.abs(offset) < 3.2 ? 1 : 0;
+      state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 3.2)) : Math.abs(offset) < 3.2 ? 1 : 0;
       if (variant === 'focus') state.scale = 0.65 + 0.55 * Math.exp(-offset * offset * 1.2);
     }
   } else if (layer.template === 'flip') {
     const step = phase * count;
     const progress = (step % 1 - 0.6) / 0.4;
     const t = clamp(progress);
-    const advance = Math.floor(step) + t * t * (3 - 2 * t);
+    const advance = clock.stepped ? step : Math.floor(step) + motionEase(t, motion, smoothProgress(t));
     const offset = mod(index - advance + count / 2, count) - count / 2;
     state.position = [offset * (size + gap + 0.25), 0, -Math.abs(offset) * 0.08];
     const turn = clamp(Math.abs(offset));
@@ -100,7 +102,8 @@ export function carouselCard(layer, index, count, time) {
     if (variant === 'radial') { state.rotation[2] = slot * TAU / limit; state.position = [Math.sin(state.rotation[2]) * 0.5, Math.cos(state.rotation[2]) * 0.5, -slot * 0.1]; }
     if (variant === 'infinite') state.position = [0, slot * 0.5 - 1, -slot * 0.85];
   } else if (layer.template === 'stickers') {
-    const progress = mod(phase - index / count, 1);
+    const rawProgress = mod(phase - index / count, 1);
+    const progress = clock.stepped ? rawProgress : motionEase(rawProgress, motion);
     const envelope = clamp(progress * count * 2) * clamp((1 - progress) * count * 2);
     state.opacity = index === 0 && variant === 'scatter' ? 1 : envelope;
     if (variant === 'peel') {

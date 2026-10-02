@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { demoProject, FORMATS, validateProject } from '../src/project.js';
+import { demoProject, FORMATS, CAROUSEL_EFFECTS, patchLayer, validateProject } from '../src/project.js';
 import { exportDimensions, validateExportSettings } from '../src/export-settings.js';
 import { prepareComposition, startExport, jobs } from '../server/export.mjs';
 import { createTools } from '../src/webmcp.js';
@@ -48,4 +48,27 @@ test('60 fps validates, round-trips and is available to agents', async () => {
   await tool.execute({ fps: 24 });
   await tool.execute({ fps: 60 });
   assert.equal(p.fps, 60);
+});
+
+test('standalone exports keep Paper notices and saved layer-effect settings', async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), 'floc-paper-export-'));
+  try {
+    for (const { id: layerEffect } of CAROUSEL_EFFECTS) {
+      const project = patchLayer(demoProject(), 'carousel', { shader: 'elastic', layerEffect, layerEffectIntensity: 0.6, halftoneSize: 0.4, ditheringSize: 0.5, ditheringSteps: 3, glassSize: 0.6, glassDistortion: 0.7 });
+      await prepareComposition(project, folder);
+      assert.match(await readFile(path.join(folder, 'licenses/paper-shaders/LICENSE'), 'utf8'), /Apache License/);
+      assert.match(await readFile(path.join(folder, 'licenses/paper-shaders/NOTICE'), 'utf8'), /Powered by Paper Shaders/);
+      const html = await readFile(path.join(folder, 'index.html'), 'utf8');
+      const serialized = html.match(/data-floc-project="([^"]+)"/)[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+      const carousel = JSON.parse(serialized).layers.find(layer => layer.type === 'carousel');
+      assert.equal(carousel.shader, 'elastic');
+      assert.equal(carousel.layerEffect, layerEffect);
+      assert.equal(carousel.layerEffectIntensity, 0.6);
+      assert.equal(carousel.halftoneSize, 0.4);
+      assert.equal(carousel.ditheringSize, 0.5);
+      assert.equal(carousel.ditheringSteps, 3);
+      assert.equal(carousel.glassSize, 0.6);
+      assert.equal(carousel.glassDistortion, 0.7);
+    }
+  } finally { await rm(folder, { recursive: true, force: true }); }
 });

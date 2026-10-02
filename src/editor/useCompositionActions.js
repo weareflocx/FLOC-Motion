@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { duplicateLayer, reorderLayer } from '../project.js';
+import { duplicateLayer, reorderLayer, demoProject, carouselImages } from '../project.js';
 import { BRAND } from '../brand.js';
 
 export function useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change }) {
@@ -13,12 +13,14 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
   }, [change, projectRef, setLeftTab, setSelected]);
 
   const reorderImage = useCallback((index, delta) => {
-    const images = [...project.images];
+    const layer = project.layers.find(l => l.id === selected && l.type === 'carousel') || project.layers.find(l => l.type === 'carousel');
+    if (!layer || layer.locked) return;
+    const images = [...carouselImages(project, layer)];
     const next = index + delta;
     if (next < 0 || next >= images.length) return;
     [images[index], images[next]] = [images[next], images[index]];
-    change({ ...project, images });
-  }, [change, project]);
+    change({ ...project, layers: project.layers.map(l => l.id === layer.id ? { ...l, images } : l) });
+  }, [change, project, selected]);
 
   const moveLayer = useCallback((delta, id = selected) => {
     const current = projectRef.current;
@@ -44,14 +46,26 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
   }, [change, projectRef, setSelected]);
 
   const removeImage = useCallback(index => {
-    change({ ...project, images: project.images.filter((_, imageIndex) => imageIndex !== index) });
-  }, [change, project]);
+    const layer = project.layers.find(l => l.id === selected && l.type === 'carousel') || project.layers.find(l => l.type === 'carousel');
+    if (!layer || layer.locked) return;
+    const images = carouselImages(project, layer).filter((_, imageIndex) => imageIndex !== index);
+    change({ ...project, layers: project.layers.map(l => l.id === layer.id ? { ...l, images } : l) });
+  }, [change, project, selected]);
 
   const removeText = useCallback(id => {
     if (project.layers.find(layer => layer.id === id)?.locked) return;
     change({ ...project, layers: project.layers.filter(layer => layer.id !== id) });
-    setSelected(project.layers.find(layer => layer.type === 'carousel').id);
+    setSelected(project.layers.find(layer => layer.id !== id)?.id ?? null);
   }, [change, project, setSelected]);
 
-  return { addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText };
+  const addLayer = useCallback(type => {
+    const current = projectRef.current;
+    if (current.layers.length >= 20) return;
+    const source = demoProject().layers.find(l => l.type === type);
+    if (!source) return;
+    const layer = { ...source, id: crypto.randomUUID(), end: current.duration, ...(type === 'carousel' ? { images: [], name: `Carousel ${current.layers.filter(l => l.type === type).length + 1}` } : {}) };
+    if (change({ ...current, layers: [...current.layers, layer] })) { setSelected(layer.id); setLeftTab('layers'); }
+  }, [change, projectRef, setSelected, setLeftTab]);
+
+  return { addLayer, addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText };
 }

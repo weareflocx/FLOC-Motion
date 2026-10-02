@@ -1,4 +1,5 @@
-import React, { useCallback, useState } from 'react';
+import { AddLayerDialog } from './editor/components/AddLayerDialog.jsx';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { fontFaceCss } from './fonts.js';
 const fontStyles = document.createElement('style');
@@ -28,14 +29,16 @@ function App() {
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [addTarget, setAddTarget] = useState(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const layer = project.layers.find(l => l.id === selected) || project.layers.find(l => l.type === 'carousel');
+  const layer = project.layers.find(l => l.id === selected) || project.layers[0];
   const carousel = project.layers.find(l => l.type === 'carousel');
+  useEffect(() => { if (!project.layers.some(layer => layer.id === selected)) setSelected(project.layers[0]?.id ?? null); }, [project.layers, selected]);
   const { time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: project.duration });
   const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
   const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef });
-  const { uploading, fileInput, importInput, pick, handleFileChange, handleImportChange, downloadProject } = useProjectFiles({ projectRef, change, patch, setError });
-  const { addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText } = useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change });
+  const { uploading, fileInput, importInput, pick, handleFileChange, handleImportChange, downloadProject } = useProjectFiles({ projectRef, change, patch, setError, setSelected, setLeftTab });
+  const { addLayer, addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText } = useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change });
   const selectCanvasLayer = useCallback(id => { setSelected(id); setPlaying(false); }, [setPlaying]);
   const showError = useCallback(message => setError(message), [setError]);
   const sceneReady = useCallback(value => setReady(value), []);
@@ -46,12 +49,13 @@ function App() {
     <Header onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onReload={() => reload().catch(reloadError => setError(reloadError.message))} onDismiss={() => setError('')}/>
     <div className="workspace">
-      <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onAddText={addText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onPick={pick} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
+      <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
       <CanvasPanel selected={selected} onSelect={selectCanvasLayer} onPatch={patch} onPreview={previewPosition} project={project} carousel={carousel} history={history} ready={ready} positionPreview={positionPreview} time={time} playing={playing} onError={showError} onReady={sceneReady} onChangeName={name => change({ ...project, name })} onUndo={undo}/>
-      <InspectorPanel project={project} layer={layer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={patch} onPick={pick} onPreview={previewPosition} onRemoveText={removeText}/>
+      <InspectorPanel project={project} layer={layer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={patch} onPick={target => setAddTarget(target)} onPreview={previewPosition} onRemoveText={removeText}/>
     </div>
     <TimelinePanel project={project} selected={selected} time={time} playing={playing} ready={ready} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={value => { setTime(value); setPlaying(false); }} onPatch={patch}/>
-    {templatesOpen && <SavedTemplates project={project} onClose={() => setTemplatesOpen(false)} onApply={next => { const valid = change(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.layers.find(l => l.type === 'carousel').id); } return valid; }}/>}
+    {templatesOpen && <SavedTemplates project={project} onClose={() => setTemplatesOpen(false)} onApply={next => { const valid = change(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.layers[0]?.id ?? null); } return valid; }}/>}
+    {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}
     <Dialogs project={project} exportOpen={exportOpen} agentOpen={agentOpen} job={job} busy={busy} agentState={agentState} audit={audit} onCloseExport={() => setExportOpen(false)} onCloseAgent={() => setAgentOpen(false)} onRender={render}/>
   </main>;
 }

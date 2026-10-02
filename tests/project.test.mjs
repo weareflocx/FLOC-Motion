@@ -24,6 +24,18 @@ test('demo project validates and all presets are selectable without losing asset
   const p = demoProject(); assert.equal(validateProject(p).images.length, 6);
   for (const t of TEMPLATES) for (const s of SHADERS) { const next = patchLayer(p, 'carousel', { template: t.id, shader: s.id }); assert.deepEqual(next.images, p.images); assert.equal(next.layers.find(l => l.id === 'headline').text, p.layers[2].text); }
 });
+test('switching a media background to color preserves its source without rendering it', () => {
+  for (const [mode, extension] of [['image', 'svg'], ['video', 'mp4']]) {
+    const src = `/assets/12345678-1234-1234-1234-123456789012.${extension}`;
+    const media = patchLayer(demoProject(), 'background', { mode, src });
+    const solid = patchLayer(media, 'background', { mode: 'color' });
+    assert.equal(solid.layers.find(l => l.id === 'background').src, src);
+    assert.deepEqual(validateProject(solid), solid);
+    assert.ok(!stageMarkup(solid).includes(src));
+    assert.throws(() => patchLayer(solid, 'background', { mode: mode === 'video' ? 'image' : 'video' }), /background asset type/);
+  }
+  assert.throws(() => patchLayer(demoProject(), 'background', { src: '/assets/12345678-1234-1234-1234-123456789012.mp3' }), /background asset type/);
+});
 test('local catalog normalizes all source recipes into safe FLOC patches', () => {
   assert.equal(CATALOG.length, 108);
   assert.equal(new Set(CATALOG.map(entry => entry.id)).size, 108);

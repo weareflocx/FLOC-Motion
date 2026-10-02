@@ -3,7 +3,7 @@ const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const rounded = n => Math.round(n * 1e6) / 1e6;
 
 export function canvasWheelSize(layer, deltaY, size = layer.size) {
-  const limits = { text: [12, 180, 2], logo: [2, 35, 1], carousel: [0.5, 2.5, 0.05] };
+  const limits = { text: [12, 180, 2], logo: [2, 35, 1], media: [2, 100, 1], model: [2, 100, 1], carousel: [0.5, 2.5, 0.05] };
   if (!limits[layer.type] || !Number.isFinite(deltaY) || !Number.isFinite(size)) throw new Error('Invalid canvas size gesture.');
   const [min, max, step] = limits[layer.type];
   return rounded(clamp(size + (deltaY < 0 ? step : deltaY > 0 ? -step : 0), min, max));

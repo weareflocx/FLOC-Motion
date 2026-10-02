@@ -1,10 +1,11 @@
+import { validateSvg, validateGlb } from './asset-validation.mjs';
 import http from 'node:http';
 import { readFile, writeFile, mkdir, stat, rename } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
-import { demoProject, validateProject, TEMPLATES, SHADERS } from '../src/project.js';
+import { demoProject, validateProject, TEMPLATES, SHADERS, CAROUSEL_EFFECTS } from '../src/project.js';
 import { catalogSummary } from '../src/catalog.js';
 import { startExport, jobs, run } from './export.mjs';
 import { ensureGifVideo } from './card-media.mjs';
@@ -17,12 +18,12 @@ await mkdir(path.join(data, 'renders'), { recursive: true });
 let project = demoProject(); let revision = 0; let writing = false;
 try { const saved = JSON.parse(await readFile(path.join(data, 'project.json'), 'utf8')); project = validateProject(saved.project); revision = saved.revision; } catch (e) { if (e.code !== 'ENOENT') console.warn('Saved project is invalid; the demo is loaded.'); }
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] } }, appType: 'spa' });
-const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
+const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = async (req, limit = 2e6) => { let size = 0; const chunks = []; for await (const chunk of req) { size += chunk.length; if (size > limit) throw new Error('File is too large. Maximum upload size is 75 MB.'); chunks.push(chunk); } return Buffer.concat(chunks); };
 const json = (res, value, code = 200) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
 async function file(req, res, filename) {
   const info = await stat(filename); const mime = types[path.extname(filename).slice(1)] || 'application/octet-stream';
-  const headers = { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'X-Content-Type-Options': 'nosniff' };
+  const headers = { ...(mime === 'image/svg+xml' ? { 'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" } : {}), 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'X-Content-Type-Options': 'nosniff' };
   const range = req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
   if (range) { const start = Number(range[1]); const end = Math.min(range[2] ? Number(range[2]) : info.size - 1, info.size - 1); if (start >= info.size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }); return res.end(); } res.writeHead(206, { ...headers, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${info.size}` }); createReadStream(filename, { start, end }).pipe(res); }
   else { res.writeHead(200, { ...headers, 'Content-Length': info.size }); createReadStream(filename).pipe(res); }
@@ -50,12 +51,14 @@ const server = http.createServer(async (req, res) => {
     const templateMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})$/);
     if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], JSON.parse(await body(req))));
     if (templateMatch && req.method === 'DELETE') { await templates.remove(templateMatch[1]); return json(res, { deleted: true }); }
-    if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
+    if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, carouselEffects: CAROUSEL_EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/health') return json(res, { ok: true, localOnly: !config.publicOrigin, version: '0.1.0' });
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
-      if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'svg', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
+      if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
       const bytes = await body(req, 75e6); if (!bytes.length) throw new Error('Empty upload.');
+      if (ext === 'svg') validateSvg(bytes);
+      if (ext === 'glb') validateGlb(bytes);
       const id = randomUUID(); await writeFile(path.join(data, 'assets', `${id}.${ext}`), bytes);
       if (ext === 'gif') await ensureGifVideo(path.join(data, 'assets', `${id}.gif`), path.join(data, 'assets', `${id}.webm`), run);
       return json(res, { id, src: `/assets/${id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
@@ -63,7 +66,7 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/exports' && req.method === 'POST') { const input = JSON.parse(await body(req)); return json(res, await startExport(input.project, input.settings), 202); }
     const jobMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})$/);
     if (jobMatch) { let job = jobs.get(jobMatch[1]); if (!job) { try { job = JSON.parse(await readFile(path.join(data, 'renders', jobMatch[1], 'job.json'), 'utf8')); } catch {} } return json(res, job || { error: 'Export not found.' }, job ? 200 : 404); }
-    const assetMatch = route.match(/^\/assets\/([a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg))$/);
+    const assetMatch = route.match(/^\/assets\/([a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb))$/);
     if (assetMatch) {
       const filename = path.join(data, 'assets', assetMatch[1]);
       if (filename.endsWith('.webm')) {
