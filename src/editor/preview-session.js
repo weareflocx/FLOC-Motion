@@ -1,5 +1,5 @@
 // Keep the current scene alive while preparing at most one replacement.
-export function createPreviewSession({ prepare, activate, onError }) {
+export function createPreviewSession({ prepare, activate, onError, update }) {
   let current;
   let pending;
   let preparing = false;
@@ -24,7 +24,11 @@ export function createPreviewSession({ prepare, activate, onError }) {
     preparing = false;
   }
   return {
-    request(project) { if (!disposed) { pending = project; void drain(); } },
+    request(project) {
+      if (disposed) return;
+      if (!preparing && current && update?.(current, project)) { current.project = project; return; }
+      pending = project; void drain();
+    },
     get current() { return current; },
     dispose() { disposed = true; pending = null; current?.scene.dispose(); current = null; }
   };

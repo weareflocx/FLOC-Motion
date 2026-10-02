@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useCanvasInteraction } from './useCanvasInteraction.jsx';
 import { FORMATS } from '../project.js';
 import { createScene, stageMarkup } from '../scene.js';
+import { updateTextPreview } from './text-preview.js';
 import { createPreviewSession } from './preview-session.js';
 import { PlacementGuides } from './PlacementGuides.jsx';
 import { DEFAULT_LAYOUT } from '../layout.js';
@@ -48,6 +49,11 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
         grid.append(document.createElement('i')); node.append(grid);
         const scene = await createScene(node, project, { onMediaError: error => callbacks.current.onError(error.message) });
         return { node, scene, project };
+      },
+      update(current, project) {
+        if (!updateTextPreview(current, project)) return false;
+        setActiveProject(project);
+        return true;
       },
       activate(next) {
         const focused = root.current.contains(document.activeElement) ? document.activeElement.dataset.flocLayer : null;

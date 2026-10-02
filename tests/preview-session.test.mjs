@@ -31,3 +31,20 @@ test('unmount disposes in-flight scenes without activating them', async () => {
   const h = harness(); h.session.request('initial'); h.session.dispose(); h.loading[0].resolve(); await tick();
   assert.deepEqual(h.activated, []); assert.deepEqual(h.disposed, ['initial']);
 });
+
+test('content updates reuse the active scene without activation or disposal', async () => {
+  let preparations = 0, activations = 0, disposals = 0;
+  const scene = { dispose() { disposals++; } };
+  const session = createPreviewSession({
+    async prepare(project) { preparations++; return { project, scene }; },
+    activate() { activations++; },
+    update(current, project) { return current.project.layout === project.layout; },
+    onError(error) { throw error; }
+  });
+  session.request({ layout: 'same', text: 'initial' }); await tick();
+  session.request({ layout: 'same', text: 'typed' });
+  assert.equal(session.current.scene, scene);
+  assert.equal(session.current.project.text, 'typed');
+  assert.equal(preparations, 1); assert.equal(activations, 1); assert.equal(disposals, 0);
+  session.dispose();
+});
