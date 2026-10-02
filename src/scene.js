@@ -97,6 +97,7 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
     const loaded = textures;
     Array.from({ length: loaded.length ? layer.cardCount || loaded.length : 0 }, (_, i) => loaded[i % loaded.length]).forEach(texture => {
       texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
       const size = layer.size;
       const geometry = new THREE.PlaneGeometry(size, size / layer.cardAspect, layer.shader === 'elastic' ? 64 : 32, 16);
       if (layer.template === 'circular' && ['wrapped', undefined].includes(motionVariant(layer))) {

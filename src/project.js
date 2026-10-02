@@ -43,7 +43,7 @@ export function validateProject(input) {
   str(p.name, 100, 'project name');
   if (!Object.hasOwn(FORMATS, p.format)) fail('Unknown output format.');
   finite(p.duration, 1, 30, 'Duration');
-  if (![24, 30].includes(p.fps)) fail('Frame rate must be 24 or 30.');
+  if (![24, 30, 60].includes(p.fps)) fail('Frame rate must be 24, 30 or 60.');
   if (!Array.isArray(p.images) || p.images.length > 24) fail('Use up to 24 images.');
   const asset = src => validAsset(src) || fail('Only local studio assets are accepted.');
   const color = c => /^#[0-9a-f]{6}$/i.test(c) || fail('Use a six-digit hex color.');

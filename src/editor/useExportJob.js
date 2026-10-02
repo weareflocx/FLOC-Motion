@@ -12,11 +12,11 @@ export function useExportJob({ projectRef, setError, setPlaying }) {
     return () => clearTimeout(timer);
   }, [job, setError]);
 
-  async function render() {
+  async function render(settings) {
     setPlaying(false);
     setError('');
     try {
-      const result = await request('/api/exports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: projectRef.current }) });
+      const result = await request('/api/exports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: projectRef.current, settings }) });
       setJob(result);
     } catch (error) { setError(error.message); }
   }
