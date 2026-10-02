@@ -1,3 +1,4 @@
+import { constrainPlacement } from './layout.js';
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const rounded = n => Math.round(n * 1e6) / 1e6;
 
@@ -14,6 +15,12 @@ export const GRID_POINTS = Object.freeze([
 ]);
 export function nearestGridPoint(x, y) {
   return GRID_POINTS.reduce((best, point, index) => (point.x - x) ** 2 + (point.y - y) ** 2 < (GRID_POINTS[best].x - x) ** 2 + (GRID_POINTS[best].y - y) ** 2 ? index : best, 0);
+}
+export function freePlacement(x, y, width, height, layout) {
+  return constrainPlacement(x, y, width, height, layout);
+}
+export function nudgePlacement(position, dx, dy, [canvasWidth, canvasHeight], bounds, step = 1, layout) {
+  return freePlacement(position.x + dx * step / canvasWidth * 100, position.y + dy * step / canvasHeight * 100, bounds.width, bounds.height, layout);
 }
 export function gridPlacement(index, width, height, alignment = 'center') {
   const point = GRID_POINTS[index];

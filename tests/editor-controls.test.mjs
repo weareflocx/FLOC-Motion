@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GRID_POINTS, gridPlacement, nearestGridPoint, stepGridPoint, editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
+import { GRID_POINTS, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement, stepGridPoint, editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
 import { demoProject, patchLayer, layerAlpha } from '../src/project.js';
 import { stageMarkup } from '../src/scene.js';
 
@@ -39,6 +39,28 @@ test('existing free positions are preserved until a grid placement is applied', 
   const placed = patchLayer(p, 'logo', { x, y });
   assert.equal(placed.layers.find(l => l.id === 'logo').x, 46.5);
   assert.equal(before.x, 87);
+});
+test('free placement preserves fractional positions without a grid or safe-margin jump', () => {
+  assert.deepEqual(freePlacement(3.125, 42.333333, 20, 10), { x: 3.125, y: 42.333333 });
+  assert.deepEqual(freePlacement(-5, 100, 20, 10), { x: 0, y: 90 });
+  assert.deepEqual(freePlacement(95, 95, 55, 30), { x: 45, y: 70 });
+  assert.deepEqual(freePlacement(12, 12, 100, 120), { x: 0, y: 0 });
+  const position = freePlacement(21.1234567, 34.5678901, 20, 10);
+  const project = patchLayer(demoProject(), 'logo', position);
+  assert.match(stageMarkup(project), /left:21.123457%;top:34.56789%/);
+});
+test('keyboard nudges use composition pixels, independent of aspect ratio and preview scale', () => {
+  for (const dimensions of [[1080, 1080], [1920, 1080], [1080, 1920], [1080, 1440], [1440, 1080]]) {
+    const initial = { x: 23.123456, y: 41.654321 };
+    const bounds = { width: 20, height: 10 };
+    for (const step of [1, 10]) {
+      const next = nudgePlacement(initial, 1, -1, dimensions, bounds, step);
+      assert(Math.abs((next.x - initial.x) * dimensions[0] / 100 - step) < .00002);
+      assert(Math.abs((initial.y - next.y) * dimensions[1] / 100 - step) < .00002);
+      assert.doesNotThrow(() => patchLayer(demoProject(), 'logo', next));
+    }
+    assert.deepEqual(nudgePlacement({ x: 0, y: 90 }, -1, 1, dimensions, bounds), { x: 0, y: 90 });
+  }
 });
 test('clip movement stays in bounds, keeps its span and quantizes drag deltas to frames', () => {
   const clip = { start: 2, end: 5 };

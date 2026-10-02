@@ -3,6 +3,7 @@ import { carouselCard, motionVariant, elasticState } from './carousel-motion.js'
 import * as THREE from 'three';
 import { fontDefinition } from './fonts.js';
 import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime } from './project.js';
+import { constrainPlacement, fitsSafeArea, safeArea } from './layout.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -70,14 +71,45 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
   let orientation = null;
+  let placement = null;
   const layerNodes = [...root.querySelectorAll('[data-floc-layer]')];
   const mediaNodes = [...root.querySelectorAll('audio,video')];
   const imageNodes = [...root.querySelectorAll('img')];
   const meshes = [];
   const textures = [];
   const cardVideos = [];
+  const placementBounds = new Map();
   let requestedTime = 0;
+  function placeLayers(time) {
+    const frame = p.layout?.enabled ? canvas.getBoundingClientRect() : null;
+    for (const l of p.layers.filter(l => ['text', 'logo'].includes(l.type))) {
+      const el = layerNodes.find(node => node.dataset.flocLayer === l.id); if (!el) continue;
+      const pos = placement?.id === l.id ? { ...l, ...placement } : l;
+      const sizeProperty = l.type === 'text' ? 'fontSize' : 'width';
+      const sizeValue = l.type === 'text' ? `${pos.size * width / 1080}px` : `${pos.size}%`;
+      if (el.style[sizeProperty] !== sizeValue) el.style[sizeProperty] = sizeValue;
+      let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha(l, time)) * 24 : 0;
+      if (p.layout?.enabled) {
+        if (frame.width && frame.height) {
+          const key = `${sizeValue}:${frame.width}:${frame.height}`;
+          let bounds = placementBounds.get(el);
+          if (bounds?.key !== key) {
+            const rect = el.getBoundingClientRect();
+            bounds = { key, width: rect.width / frame.width * 100, height: rect.height / frame.height * 100 };
+            placementBounds.set(el, bounds);
+          }
+          if (renderMode && l.visible && !fitsSafeArea(bounds, p.layout)) throw new Error(`${l.name} exceeds the safe area. Reduce its width or size before exporting.`);
+          position = constrainPlacement(pos.x, pos.y, bounds.width, bounds.height, p.layout);
+          const area = safeArea(p.layout);
+          rise = Math.min(rise, Math.max(0, (area.y + area.height - position.y - bounds.height) * height / 100));
+        }
+      }
+      el.style.left = `${position.x}%`; el.style.top = `${position.y}%`;
+      el.style.transform = rise ? `translateY(${rise}px)` : '';
+    }
+  }
   try {
+    await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontDefinition(l.font).family}"`)));
     await document.fonts.ready;
     const loader = new THREE.TextureLoader();
     const results = await Promise.allSettled(p.images.map(async img => {
@@ -118,9 +150,11 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
       group.add(mesh); meshes.push(mesh);
     });
     await Promise.all(imageNodes.map(img => img.decode().catch(() => { throw new Error('An image could not be decoded.'); })));
+    placeLayers(0);
   } catch (error) { cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); }); mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); renderer.dispose(); renderer.forceContextLoss(); textures.forEach(t => t.dispose()); throw error; }
   function draw(time, playing = false) {
     if (disposed) return;
+    placeLayers(time);
     const local = Math.max(0, time - layer.start);
     group.rotation.set(THREE.MathUtils.degToRad(orientation?.tilt ?? layer.tilt), THREE.MathUtils.degToRad(orientation?.yaw ?? layer.yaw ?? 0), THREE.MathUtils.degToRad(orientation?.roll ?? layer.roll));
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(19)) * camera.position.z;
@@ -143,7 +177,7 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
     renderer.render(scene, camera);
     p.layers.forEach(l => {
       const alpha = layerAlpha(l, time);
-      layerNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) { el.style.opacity = alpha; if (l.type === 'text' && l.rise) el.style.transform = `translateY(${(1 - alpha) * 24}px)`; } });
+      layerNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) el.style.opacity = alpha; });
       const media = mediaNodes.find(el => el.dataset.flocLayer === l.id);
       if (!media) return;
       if (media.tagName === 'VIDEO') media.style.opacity = alpha;
@@ -179,5 +213,5 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
     return ready.catch(error => { if (!disposed) onMediaError(error); });
   }
   await seek(0);
-  return { seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) renderer.setSize(w, h, false); }, setOrientation(value) { orientation = value; }, dispose() { disposed = true; cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); }); mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); textures.forEach(t => t.dispose()); renderer.dispose(); renderer.forceContextLoss(); } };
+  return { seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) renderer.setSize(w, h, false); }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose() { disposed = true; cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); }); mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); }); meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); }); textures.forEach(t => t.dispose()); renderer.dispose(); renderer.forceContextLoss(); } };
 }

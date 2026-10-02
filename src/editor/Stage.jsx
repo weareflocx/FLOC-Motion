@@ -3,9 +3,12 @@ import { useCanvasInteraction } from './useCanvasInteraction.jsx';
 import { FORMATS } from '../project.js';
 import { createScene, stageMarkup } from '../scene.js';
 import { createPreviewSession } from './preview-session.js';
+import { PlacementGuides } from './PlacementGuides.jsx';
+import { DEFAULT_LAYOUT } from '../layout.js';
 
 export function Stage({ project, time, playing, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview }) {
   const [activeProject, setActiveProject] = useState(project);
+  const [geometry, setGeometry] = useState({ rect: null, targets: [] });
   const holder = useRef();
   const root = useRef();
   const ringRoot = useRef();
@@ -26,6 +29,7 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
       const [w, h] = FORMATS[active.project.format];
       const box = holder.current.getBoundingClientRect();
       const scale = Math.max(0.05, Math.min((box.width - 24) / w, (box.height - 24) / h));
+      setGeometry(value => value.scale === scale ? value : { ...value, scale });
       root.current.style.width = `${w}px`;
       root.current.style.height = `${h}px`;
       root.current.style.transform = `translate(-50%,-50%) scale(${scale})`;
@@ -46,9 +50,16 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
         return { node, scene, project };
       },
       activate(next) {
+        const focused = root.current.contains(document.activeElement) ? document.activeElement.dataset.flocLayer : null;
         next.scene.setOrientation(previewRef.current?.id === next.project.layers.find(l => l.type === 'carousel').id ? previewRef.current : null);
+        next.scene.setPlacement(previewRef.current);
         next.scene.seek(timeRef.current.time, timeRef.current.playing);
         root.current.replaceChildren(next.node);
+        const layer = next.project.layers.find(l => l.id === focused);
+        if (layer?.visible && timeRef.current.time >= layer.start && timeRef.current.time < layer.end) {
+          const node = [...next.node.querySelectorAll('[data-floc-layer]')].find(n => n.dataset.flocLayer === focused);
+          if (node) { node.tabIndex = 0; node.focus({ preventScroll: true }); }
+        }
         engine.current = next.scene;
         setActiveProject(next.project);
         callbacks.current.onReady(true);
@@ -66,9 +77,8 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
 
   useEffect(() => { session.current?.request(project); }, [project]);
 
-  useEffect(() => { engine.current?.seek(time, playing); }, [time, playing]);
-
   useEffect(() => {
+    let cancelled = false;
     const grid = root.current?.querySelector('.position-grid-overlay');
     if (grid) {
       const index = positionPreview?.gridIndex;
@@ -81,19 +91,24 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
       }
     }
     engine.current?.setOrientation(positionPreview?.id === project.layers.find(l => l.type === 'carousel').id ? positionPreview : null);
-    engine.current?.seek(timeRef.current.time, timeRef.current.playing);
-    // Editor-only positioning preview; the project and GPU scene change once per gesture.
-    for (const layer of project.layers.filter(layer => ['text', 'logo'].includes(layer.type))) {
-      const node = [...root.current.querySelectorAll('[data-floc-layer]')].find(n => n.dataset.flocLayer === layer.id);
-      if (!node) continue;
-      const position = positionPreview?.id === layer.id ? positionPreview : layer;
-      node.style.left = `${position.x}%`;
-      node.style.top = `${position.y}%`;
-      if (layer.type === 'text') node.style.fontSize = `${(position.size ?? layer.size) * FORMATS[project.format][0] / 1080}px`;
-      if (layer.type === 'logo') node.style.width = `${position.size ?? layer.size}%`;
-    }
-  }, [positionPreview, project]);
+    engine.current?.setPlacement(positionPreview);
+    const ready = engine.current?.seek(time, playing);
+    Promise.resolve(ready).then(() => {
+      if (cancelled || playing || !(activeProject.layout ?? DEFAULT_LAYOUT).guides) return;
+      const frame = root.current.getBoundingClientRect(); if (!frame.width || !frame.height) return;
+      const nodes = [...root.current.querySelectorAll('[data-floc-layer]')];
+      const rects = activeProject.layers.filter(l => l.visible && time >= l.start && time < l.end).flatMap(l => {
+        if (l.type === 'carousel') return [{ id: l.id, x: l.x, y: l.y, width: 0, height: 0 }];
+        if (!['text', 'logo'].includes(l.type)) return [];
+        const node = nodes.find(n => n.dataset.flocLayer === l.id); if (!node) return [];
+        const box = node.getBoundingClientRect();
+        return [{ id: l.id, x: (box.left - frame.left) / frame.width * 100, y: (box.top - frame.top) / frame.height * 100, width: box.width / frame.width * 100, height: box.height / frame.height * 100 }];
+      });
+      setGeometry({ rect: rects.find(r => r.id === selected), targets: rects.filter(r => r.id !== selected), scale: frame.width / FORMATS[activeProject.format][0] });
+    });
+    return () => { cancelled = true; };
+  }, [positionPreview, project, activeProject, selected, time, playing]);
 
   const { ring, handlers } = useCanvasInteraction({ root, engine, project, sceneKey: activeProject, selected, time, onSelect, onPatch, onPreview });
-  return <div ref={holder} className="stage-holder"><div ref={root} className="stage" aria-label="Video composition preview" {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{ring}</div></div>;
+  return <div ref={holder} className="stage-holder"><div ref={root} className="stage" aria-label="Video composition preview" {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{ring}<PlacementGuides layout={activeProject.layout} rect={!playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={positionPreview?.guides} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
 }

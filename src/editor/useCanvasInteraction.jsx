@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { canvasWheelSize, gridPlacement, nearestGridPoint, stepGridPoint } from '../editor-controls.js';
+import { canvasWheelSize, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../editor-controls.js';
+import { FORMATS } from '../project.js';
+import { alignmentPlacement, DEFAULT_LAYOUT } from '../layout.js';
 import { dragOrientation, wrapDegrees } from '../orientation.js';
 
 // Editor-only interaction: previews never mutate project data until release.
@@ -9,6 +11,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   const playhead = useRef(time); playhead.current = time;
   const [draft, setDraft] = useState(null);
   const layer = project.layers.find(l => l.id === selected);
+  const layout = project.layout ?? DEFAULT_LAYOUT;
   const nodeFor = id => [...(root.current?.querySelectorAll('[data-floc-layer]') || [])].find(n => n.dataset.flocLayer === id);
   function cancel() { gesture.current = null; clearTimeout(wheelDraft.current?.timer); wheelDraft.current = null; setDraft(null); onPreview(null); }
   useEffect(() => { if (gesture.current && (gesture.current.layer.id !== selected || gesture.current.project !== project)) cancel(); }, [selected, project]);
@@ -61,8 +64,14 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     if (l.locked) return;
     const box = root.current.getBoundingClientRect();
     const b = nodeFor(l.id).getBoundingClientRect();
-    const initial = l.type === 'carousel' ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { x: l.x, y: l.y };
-    gesture.current = { id: event.pointerId, layer: l, project, box, initial, latest: initial, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - (box.top + box.height * l.y / 100), event.clientX - (box.left + box.width * l.x / 100)), delta: 0, moved: false };
+    const initial = l.type === 'carousel' ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top) };
+    const targets = project.layers.filter(other => other.id !== l.id && other.visible && playhead.current >= other.start && playhead.current < other.end).flatMap(other => {
+      if (other.type === 'carousel') return [{ x: other.x, y: other.y, width: 0, height: 0 }];
+      const node = nodeFor(other.id); if (!node || !['text', 'logo'].includes(other.type)) return [];
+      const rect = node.getBoundingClientRect();
+      return [{ x: (rect.left - box.left) / box.width * 100, y: (rect.top - box.top) / box.height * 100, width: rect.width / box.width * 100, height: rect.height / box.height * 100 }];
+    });
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, targets, latest: initial, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - (box.top + box.height * l.y / 100), event.clientX - (box.left + box.width * l.x / 100)), delta: 0, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event) {
@@ -75,8 +84,10 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
       g.delta += wrapDegrees((angle - g.angle) * 180 / Math.PI); g.angle = angle;
       g.latest = dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, g.ring ? g.delta : null);
     } else {
-      const index = nearestGridPoint(g.initial.x + g.width / 2 + dx / g.box.width * 100, g.initial.y + g.height / 2 + dy / g.box.height * 100);
-      g.latest = gridPlacement(index, g.width, g.height);
+      const x = g.initial.x + dx / g.box.width * 100, y = g.initial.y + dy / g.box.height * 100;
+      const point = event.altKey ? gridPlacement(nearestGridPoint(x + g.width / 2, y + g.height / 2), g.width, g.height) : { x, y };
+      g.latest = { ...point, ...freePlacement(point.x, point.y, g.width, g.height, project.layout) };
+      if (!event.altKey && !event.shiftKey && layout.guides) g.latest = alignmentPlacement(g.latest, g, g.targets, layout, { x: 600 / g.box.width, y: 600 / g.box.height });
     }
     setDraft(g.latest); onPreview({ id: g.layer.id, ...g.latest });
   }
@@ -85,7 +96,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     cancel();
     if (event.currentTarget.hasPointerCapture(g.id)) event.currentTarget.releasePointerCapture(g.id);
     if (!aborted && g.moved) {
-      const { gridIndex, ...patch } = g.latest;
+      const { gridIndex, guides, ...patch } = g.latest;
       if (Object.keys(patch).some(key => patch[key] !== g.initial[key])) onPatch(g.layer.id, patch);
     }
   }
@@ -105,8 +116,8 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     } else if (['text', 'logo'].includes(l.type)) {
       const box = root.current.getBoundingClientRect(), b = nodeFor(l.id).getBoundingClientRect();
       const w = b.width / box.width * 100, h = b.height / box.height * 100;
-      const { gridIndex, ...patch } = gridPlacement(stepGridPoint(nearestGridPoint(l.x + w / 2, l.y + h / 2), dx, dy), w, h);
-      onPatch(l.id, patch);
+      const node = nodeFor(l.id), position = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };
+      onPatch(l.id, nudgePlacement(position, dx, dy, FORMATS[project.format], { width: w, height: h }, event.shiftKey ? 10 : 1, project.layout));
     }
   }
   const carousel = layer?.type === 'carousel' && layer.visible && time >= layer.start && time < layer.end ? layer : null;

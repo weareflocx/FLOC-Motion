@@ -1,6 +1,7 @@
 import { MOTION_VARIANTS } from './carousel-motion.js';
 import { BRAND } from './brand.js';
 import { fontDefinition } from './fonts.js';
+import { DEFAULT_LAYOUT } from './layout.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
 export const TEMPLATES = [
@@ -17,7 +18,7 @@ export const SHADERS = [
   { id: 'chromatic', name: 'Chromatic split', mode: 4 }, { id: 'elastic', name: 'Elastic stretch', mode: 5 }
 ];
 export function demoProject() {
-  return { version: 1, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24,
+  return { version: 1, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT },
     images: Array.from({ length: 6 }, (_, i) => ({ id: `demo-${i}`, src: `/demo/poster-${i + 1}.svg`, name: `Studio study ${String(i + 1).padStart(2, '0')}` })),
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
@@ -44,6 +45,10 @@ export function validateProject(input) {
   if (!Object.hasOwn(FORMATS, p.format)) fail('Unknown output format.');
   finite(p.duration, 1, 30, 'Duration');
   if (![24, 30, 60].includes(p.fps)) fail('Frame rate must be 24, 30 or 60.');
+  if (p.layout === undefined) p.layout = { ...DEFAULT_LAYOUT };
+  if (!p.layout || typeof p.layout !== 'object' || Array.isArray(p.layout) || Object.keys(p.layout).some(key => !Object.hasOwn(DEFAULT_LAYOUT, key))) fail('Invalid layout settings.');
+  if (typeof p.layout.enabled !== 'boolean' || typeof p.layout.guides !== 'boolean') fail('Layout switches must be booleans.');
+  finite(p.layout.marginX, 0, 25, 'Horizontal margin'); finite(p.layout.marginY, 0, 25, 'Vertical margin');
   if (!Array.isArray(p.images) || p.images.length > 24) fail('Use up to 24 images.');
   const asset = src => validAsset(src) || fail('Only local studio assets are accepted.');
   const color = c => /^#[0-9a-f]{6}$/i.test(c) || fail('Use a six-digit hex color.');
