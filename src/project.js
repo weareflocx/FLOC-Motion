@@ -21,16 +21,19 @@ export function demoProject() {
     images: Array.from({ length: 6 }, (_, i) => ({ id: `demo-${i}`, src: `/demo/poster-${i + 1}.svg`, name: `Studio study ${String(i + 1).padStart(2, '0')}` })),
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
-      { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, cardCount: 0, cardAspect: 1 / 1.14, radius: 0, loopDuration: 0, motionVariant: 'default', fade: 0, transitionTurn: 360, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', tilt: -12, yaw: 0, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, shader: 'none', intensity: 0.35, tint: BRAND.colors.blue },
-      { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 48, color: BRAND.colors.white, font: 'druk-wide', weight: 900, width: 80, animation: 'fade' },
-      { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, font: 'geist-mono', weight: 500, width: 22, animation: 'none' },
-      { id: 'logo', type: 'logo', name: 'Studio mark', visible: true, start: 0, end: 12, src: BRAND.assets.symbolWhite, x: 87, y: 6, size: 7 },
+      { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, cardCount: 0, cardAspect: 1 / 1.14, radius: 0, loopDuration: 0, motionVariant: 'default', fade: 0, transitionTurn: 360, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', tilt: -12, yaw: 0, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, shader: 'none', intensity: 0.35, tint: BRAND.colors.blue, fadeIn: 0, fadeOut: 0 },
+      { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 48, color: BRAND.colors.white, font: 'druk-wide', weight: 900, width: 80, fadeIn: 0.45, fadeOut: 0.25, rise: false },
+      { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, font: 'geist-mono', weight: 500, width: 22, fadeIn: 0, fadeOut: 0, rise: false },
+      { id: 'logo', type: 'logo', name: 'Studio mark', visible: true, start: 0, end: 12, src: BRAND.assets.symbolWhite, x: 87, y: 6, size: 7, fadeIn: 0, fadeOut: 0 },
       { id: 'music', type: 'music', name: 'Music', visible: true, start: 0, end: 12, src: '', volume: 0.6, offset: 0, fade: 0.5, loop: false }
     ] };
 }
 const fail = message => { throw new Error(message); };
 const finite = (v, min, max, label) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max || fail(`${label} must be between ${min} and ${max}.`);
 const str = (v, max, label) => typeof v === 'string' && v.length <= max || fail(`Invalid ${label}.`);
+const FADE_LAYERS = ['text', 'logo', 'carousel'];
+// The epsilon keeps re-validation idempotent once fades have been scaled to fit.
+export const fitFades = (fadeIn, fadeOut, span) => fadeIn + fadeOut > span + 1e-9 ? { fadeIn: fadeIn * span / (fadeIn + fadeOut), fadeOut: fadeOut * span / (fadeIn + fadeOut) } : { fadeIn, fadeOut };
 export function validAsset(src, allowEmpty = true) {
   return typeof src === 'string' && ((allowEmpty && src === '') || Object.values(BRAND.assets).includes(src) || /^\/demo\/poster-[1-6]\.svg$/.test(src) || /^\/assets\/[a-f0-9-]{36}\.(?:png|jpg|jpeg|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg)$/.test(src));
 }
@@ -57,7 +60,10 @@ export function validateProject(input) {
     if (l.type === 'text') {
       str(l.text, 500, 'text'); finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 12, 180, 'Font size'); finite(l.width, 5, 100, 'Text width'); color(l.color);
       l.font ??= 'geist';
-      if (!fontDefinition(l.font)?.weights.includes(l.weight) || !['none', 'fade', 'rise'].includes(l.animation)) fail('Unknown text style.');
+      if (!fontDefinition(l.font)?.weights.includes(l.weight) || (l.animation !== undefined && !['none', 'fade', 'rise'].includes(l.animation))) fail('Unknown text style.');
+      // Legacy text entrance: fixed 0.45 s in / 0.25 s out ramps, optionally rising.
+      if (l.animation !== undefined) { l.fadeIn ??= l.animation === 'none' ? 0 : 0.45; l.fadeOut ??= l.animation === 'none' ? 0 : 0.25; l.rise ??= l.animation === 'rise'; delete l.animation; }
+      l.rise ??= false; if (typeof l.rise !== 'boolean') fail('Text rise must be true or false.');
     } else if (l.type === 'carousel') {
       if (!TEMPLATES.some(t => t.id === l.template) || !SHADERS.some(s => s.id === l.shader)) fail('Unknown carousel or shader.');
       l.yaw ??= 0; l.transitionTurn ??= 360;
@@ -77,6 +83,10 @@ export function validateProject(input) {
     } else if (l.type === 'logo') { asset(l.src); finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 2, 35, 'Logo size');
     } else if (l.type === 'music') { asset(l.src); finite(l.volume, 0, 1, 'Volume'); finite(l.offset, 0, 3600, 'Audio offset'); finite(l.fade, 0, 5, 'Audio fade'); if (typeof l.loop !== 'boolean') fail('Invalid audio loop.');
     } else fail('Unknown layer type.');
+    if (FADE_LAYERS.includes(l.type)) {
+      l.fadeIn ??= 0; l.fadeOut ??= 0; finite(l.fadeIn, 0, 30, 'Fade in'); finite(l.fadeOut, 0, 30, 'Fade out');
+      Object.assign(l, fitFades(l.fadeIn, l.fadeOut, l.end - l.start));
+    } else { delete l.fadeIn; delete l.fadeOut; }
   }
   for (const type of ['background', 'carousel', 'music']) if (p.layers.filter(l => l.type === type).length !== 1) fail(`Project requires exactly one ${type} layer.`);
   return p;
@@ -118,8 +128,8 @@ export function duplicateLayer(project, id, newId) {
 }
 export function layerAlpha(layer, time) {
   if (!layer.visible || time < layer.start || time >= layer.end) return 0;
-  if (layer.type === 'text' && layer.animation !== 'none') return Math.min(1, (time - layer.start) / 0.45, (layer.end - time) / 0.25);
-  return 1;
+  const fadeIn = layer.fadeIn ?? 0, fadeOut = layer.fadeOut ?? 0;
+  return Math.min(1, fadeIn > 0 ? (time - layer.start) / fadeIn : 1, fadeOut > 0 ? (layer.end - time) / fadeOut : 1);
 }
 export function audioTime(layer, time, mediaDuration) {
   const elapsed = Math.max(0, time - layer.start);

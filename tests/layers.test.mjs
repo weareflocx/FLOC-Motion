@@ -16,6 +16,7 @@ test('locked content and timing cannot be patched, but visibility and unlocking 
   const p = patchLayer(demoProject(), 'headline', { locked: true });
   assert.throws(() => patchLayer(p, 'headline', { text: 'accident' }), /Unlock/);
   assert.throws(() => patchLayer(p, 'headline', { start: 1 }), /Unlock/);
+  assert.throws(() => patchLayer(p, 'headline', { fadeIn: 1 }), /Unlock/);
   assert.throws(() => patchLayer(p, 'headline', { locked: false, size: 80 }), /Unlock/);
   const hidden = patchLayer(p, 'headline', { visible: false }); assert.equal(hidden.layers.find(l => l.id === 'headline').visible, false);
   const unlocked = patchLayer(p, 'headline', { locked: false });

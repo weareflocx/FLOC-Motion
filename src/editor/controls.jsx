@@ -6,7 +6,7 @@ export function Field({ label, children, value }) {
 
 export function Range({ label, value, min, max, step = 1, suffix = '', onChange }) {
   const display = `${Number(value).toFixed(step < 1 ? 2 : 0)}${suffix}`;
-  const progress = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const progress = max > min ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
   return <label className="field integrated-range" style={{ '--range-progress': progress }}>
     <span className="range-fill" aria-hidden="true"/>
     <span className="range-ticks" aria-hidden="true">{[0, 1, 2, 3, 4].map(i => <i key={i}/>)}</span>

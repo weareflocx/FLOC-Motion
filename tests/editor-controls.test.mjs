@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GRID_POINTS, gridPlacement, nearestGridPoint, stepGridPoint, editClip, timeAtPointer } from '../src/editor-controls.js';
+import { GRID_POINTS, gridPlacement, nearestGridPoint, stepGridPoint, editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
 import { demoProject, patchLayer, layerAlpha } from '../src/project.js';
 import { stageMarkup } from '../src/scene.js';
 
@@ -58,6 +58,20 @@ test('edge trimming prevents crossing and is valid for short imported clips', ()
         if (kind === 'move') assert(Math.abs(next.end - next.start - span) < 1e-12);
       }
   assert.throws(() => editClip({ start: 0, end: 2 }, 'invalid', 1, 12, 24));
+});
+test('fade handles quantize to frames, stay inside the clip and lengthen the fade-out when moved left', () => {
+  const clip = { start: 2, end: 5, fadeIn: 0.5, fadeOut: 0.5 };
+  assert.deepEqual(editFade(clip, 'fadeIn', .06, 24), { fadeIn: 0.5 + 1 / 24, fadeOut: 0.5 });
+  assert.deepEqual(editFade(clip, 'fadeOut', -.06, 24), { fadeIn: 0.5, fadeOut: 0.5 + 1 / 24 });
+  assert.deepEqual(editFade(clip, 'fadeOut', .06, 24), { fadeIn: 0.5, fadeOut: 0.5 - 1 / 24 });
+  assert.deepEqual(editFade(clip, 'fadeIn', -12, 24), { fadeIn: 0, fadeOut: 0.5 }); assert.deepEqual(editFade(clip, 'fadeIn', 12, 24), { fadeIn: 2.5, fadeOut: 0.5 });
+  assert.deepEqual(editFade(clip, 'fadeOut', -12, 24), { fadeIn: 0.5, fadeOut: 2.5 }); assert.deepEqual(editFade(clip, 'fadeOut', 12, 24), { fadeIn: 0.5, fadeOut: 0 });
+  assert.throws(() => editFade(clip, 'fade', 1, 24), /Unknown fade/);
+  for (const fps of [24, 30]) for (const kind of ['fadeIn', 'fadeOut']) for (const delta of [-50, -.2, .01, .2, 50]) {
+    const next = editFade({ start: .1, end: .3, fadeIn: .05, fadeOut: .1 }, kind, delta, fps);
+    const logo = patchLayer(demoProject(), 'logo', { start: .1, end: .3, ...next }).layers.find(l => l.id === 'logo');
+    assert.deepEqual([logo.fadeIn, logo.fadeOut], [next.fadeIn, next.fadeOut]);
+  }
 });
 test('timing and map changes use the same rendered positions and visibility windows', () => {
   const position = gridPlacement(25, 10, 10);

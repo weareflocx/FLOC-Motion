@@ -7,7 +7,7 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     const current = projectRef.current;
     if (current.layers.length >= 20) return;
     const id = crypto.randomUUID();
-    change({ ...current, layers: [...current.layers, { id, type: 'text', name: 'New text', visible: true, start: 0, end: current.duration, text: 'Your next idea.', x: 8, y: 76, size: 42, color: BRAND.colors.white, weight: 600, width: 78, animation: 'fade' }] });
+    change({ ...current, layers: [...current.layers, { id, type: 'text', name: 'New text', visible: true, start: 0, end: current.duration, text: 'Your next idea.', x: 8, y: 76, size: 42, color: BRAND.colors.white, weight: 600, width: 78, fadeIn: 0.45, fadeOut: 0.25, rise: false }] });
     setSelected(id);
     setLeftTab('layers');
   }, [change, projectRef, setLeftTab, setSelected]);

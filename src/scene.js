@@ -142,7 +142,7 @@ export async function createScene(root, p, { renderMode = false, onMediaError = 
     renderer.render(scene, camera);
     p.layers.forEach(l => {
       const alpha = layerAlpha(l, time);
-      layerNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) { el.style.opacity = alpha; if (l.type === 'text' && l.animation === 'rise') el.style.transform = `translateY(${(1 - alpha) * 24}px)`; } });
+      layerNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) { el.style.opacity = alpha; if (l.type === 'text' && l.rise) el.style.transform = `translateY(${(1 - alpha) * 24}px)`; } });
       const media = mediaNodes.find(el => el.dataset.flocLayer === l.id);
       if (!media) return;
       if (media.tagName === 'VIDEO') media.style.opacity = alpha;

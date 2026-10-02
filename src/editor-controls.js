@@ -46,6 +46,14 @@ export function editClip(layer, kind, delta, duration, fps) {
   throw new Error('Unknown clip action.');
 }
 
+export function editFade(layer, kind, delta, fps) {
+  if (!['fadeIn', 'fadeOut'].includes(kind)) throw new Error('Unknown fade action.');
+  // The fade-out handle sits at the clip end, so moving it left lengthens the fade.
+  const quantized = Math.round(delta * fps) / fps * (kind === 'fadeIn' ? 1 : -1);
+  const other = kind === 'fadeIn' ? layer.fadeOut : layer.fadeIn;
+  return { fadeIn: layer.fadeIn, fadeOut: layer.fadeOut, [kind]: clamp(layer[kind] + quantized, 0, Math.max(0, layer.end - layer.start - other)) };
+}
+
 export function timeAtPointer(clientX, rect, duration, fps) {
   return clamp(Math.round((clientX - rect.left) / rect.width * duration * fps) / fps, 0, duration - 1 / fps);
 }
