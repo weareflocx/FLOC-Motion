@@ -68,13 +68,13 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0, 0);
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
-  camera.position.z = 8;
+  const camera = new THREE.PerspectiveCamera(layer.perspective ?? 38, width / height, 0.1, 100);
+  camera.position.z = 8 * Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   if (layer.template === 'wheel') {
     const count = layer.cardCount || p.images.length;
     const radius = layer.radius || Math.max(2.2, count * (layer.size + layer.gap) / (2 * Math.PI));
     const extent = radius + Math.max(layer.size, layer.size / layer.cardAspect) * 0.6;
-    camera.position.z = Math.max(8, extent * 1.12 / (Math.tan(THREE.MathUtils.degToRad(19)) * Math.min(1, width / height)));
+    camera.position.z = Math.max(camera.position.z, extent * 1.12 / (Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, width / height)));
   }
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
@@ -182,8 +182,9 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     models.forEach(model => model.draw(time));
     const local = Math.max(0, time - layer.start);
     group.rotation.set(THREE.MathUtils.degToRad(orientation?.tilt ?? layer.tilt), THREE.MathUtils.degToRad(orientation?.yaw ?? layer.yaw ?? 0), THREE.MathUtils.degToRad(orientation?.roll ?? layer.roll));
-    const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(19)) * camera.position.z;
-    group.position.set((layer.x / 100 - 0.5) * viewHeight * width / height, (0.5 - layer.y / 100) * viewHeight, 0);
+    const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
+    const position = placement?.id === layer.id ? { ...layer, ...placement } : layer;
+    group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, 0);
     meshes.forEach((mesh, i) => {
       const state = carouselCard(orientation?.size === undefined ? layer : { ...layer, size: orientation.size }, i, meshes.length, time);
       const optical = elasticState(layer, state);

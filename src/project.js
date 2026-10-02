@@ -95,6 +95,8 @@ export function validateProject(input) {
       finite(l.ditheringSize, 0, 1, 'Dithering pixel size'); finite(l.ditheringSteps, 1, 7, 'Dithering color steps');
       if (!Number.isInteger(l.ditheringSteps)) fail('Dithering color steps must be an integer.');
       finite(l.glassSize, 0, 1, 'Glass rib width'); finite(l.glassDistortion, 0, 1, 'Glass distortion');
+      l.perspective ??= 38;
+      finite(l.perspective, 15, 75, 'Perspective');
       l.yaw ??= 0; l.transitionTurn ??= 360;
       finite(l.transitionTurn, 0, 360, 'Transition turn');
       l.cornerRadius ??= 0; l.cardShape ??= 'rounded'; l.frontface ??= 'show'; l.backface ??= 'show';

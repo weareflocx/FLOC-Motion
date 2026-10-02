@@ -23,3 +23,12 @@ test('sphere gestures clamp tilt, wrap Y/Z and do not mutate initial orientation
   assert.deepEqual(initial, { tilt: 10, yaw: 170, roll: -175 });
   assert.equal(wrapDegrees(360), 0);
 });
+
+test('perspective migrates without changing old framing and validates edits', () => {
+  const original = demoProject();
+  const migrated = validateProject(original);
+  assert.equal(migrated.layers[1].perspective, 38);
+  assert.equal(original.layers[1].perspective, undefined);
+  for (const perspective of [15, 38, 75]) assert.equal(patchLayer(migrated, 'carousel', { perspective }).layers[1].perspective, perspective);
+  for (const perspective of [14, 76, NaN, '38']) assert.throws(() => patchLayer(migrated, 'carousel', { perspective }));
+});

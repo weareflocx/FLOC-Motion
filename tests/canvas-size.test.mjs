@@ -21,3 +21,10 @@ test('wheel limits prevent invalid text, logo and carousel sizes', () => {
   }
   assert.throws(() => canvasWheelSize({ type: 'music', size: 1 }, 10));
 });
+
+test('carousel moves by its center and stays inside its validated position range', async () => {
+  const { carouselPlacement } = await import('../src/editor-controls.js');
+  assert.deepEqual(carouselPlacement(53.5, 47.25), { x: 53.5, y: 47.25 });
+  assert.deepEqual(carouselPlacement(-20, 150), { x: 10, y: 90 });
+  assert.doesNotThrow(() => patchLayer(demoProject(), 'carousel', carouselPlacement(-20, 150)));
+});
