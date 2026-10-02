@@ -66,6 +66,6 @@ export function OrientationControl({ layer, onCommit, onPreview }) {
       </svg>
     </div>
     <button className="outline-button" onClick={() => onCommit({ tilt: 0, yaw: 0, roll: 0 })}>Reset orientation</button>
-    <p className="helper">Drag center: X/Y · outer ring: Z. Arrows fine-tune; Alt adjusts Z, Shift moves faster.</p>
+
   </div>;
 }

@@ -112,6 +112,6 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
     <div className="two-fields placement-coordinates">{[['x', w, 'width'], ['y', h, 'height']].map(([axis, dimension, size]) => <NumberField key={axis} label={`Position ${axis.toUpperCase()} (px)`} value={Math.round((draft ?? position)[axis] / 100 * dimension * 10) / 10} min={area[axis] * dimension / 100} max={Math.max(area[axis], Math.min(95, area[axis] + area[size] - bounds[size])) * dimension / 100} step={1} onChange={value => commit(freePlacement(axis === 'x' ? value / dimension * 100 : position.x, axis === 'y' ? value / dimension * 100 : position.y, bounds.width, bounds.height, layout))}/>)}</div>
     {snap && <div className="map-alignment"><span>Element anchor</span><div className="segmented" role="group" aria-label="Horizontal element anchor">{['left', 'center', 'right'].map(value => <button type="button" key={value} aria-pressed={alignment === value} className={alignment === value ? 'selected' : ''} onClick={() => { setAlignment(value); if (selected !== undefined) choose(selected, value); }}>{value}</button>)}</div></div>}
     {layout.enabled && !fitsSafeArea(bounds, layout) && <p className="helper layout-warning" role="alert">This layer exceeds the safe area. Reduce its width or size before exporting.</p>}
-    <p className="helper">Drag freely here or on the canvas. Alt snaps to grid; Shift bypasses smart snapping. Arrows move 1 px; Shift moves 10 px. Escape cancels. X/Y use the top-left corner.</p>
+
   </div>;
 }

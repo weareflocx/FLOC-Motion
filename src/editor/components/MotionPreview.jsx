@@ -18,5 +18,5 @@ export function MotionPreview({ item, collection, playing }) {
     document.addEventListener('visibilitychange', update);
     return () => { observer.disconnect(); document.removeEventListener('visibilitychange', update); video.pause(); };
   }, [playing, warning]);
-  return <><video ref={ref} className="motion-preview" src={`/${folder}/${item.id}.mp4`} poster={`/${folder}/${item.id}.jpg`} muted loop playsInline preload="none" disablePictureInPicture aria-label={`${item.name} sample animation`} onError={() => setFailed(true)}/><span>{failed ? 'Preview unavailable' : warning ? 'No visible cards' : playing ? 'Sample clip · 6s' : 'Preview paused'}</span>{warning && <div className="motion-preview-empty">{warning}</div>}</>;
+  return <><video ref={ref} className="motion-preview" src={`/${folder}/${item.id}.mp4`} poster={`/${folder}/${item.id}.jpg`} muted loop playsInline preload="none" disablePictureInPicture aria-label={`${item.name} sample animation`} onError={() => setFailed(true)}/>{(failed || warning) && <span>{failed ? 'Preview unavailable' : 'No visible cards'}</span>}{warning && <div className="motion-preview-empty">{warning}</div>}</>;
 }

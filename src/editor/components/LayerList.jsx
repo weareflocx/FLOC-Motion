@@ -26,7 +26,7 @@ export function LayerList({ project, selected, icons, onSelect, onPatch, onMove,
         onDragEnd={() => { dragging.current = null; setDrop(null); }}>
         <span className="layer-grip" aria-hidden="true"><DotsSixVertical size={12}/></span>
         {editing === item.id ? <input autoFocus className="layer-name-input" aria-label={`Rename ${item.name}`} maxLength={100} value={name} onChange={event => setName(event.target.value)} onBlur={() => commit(item)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(item); } if (event.key === 'Escape') { event.preventDefault(); setEditing(null); } }}/>
-          : <button className="layer-select" aria-pressed={selected === item.id} onClick={() => onSelect(item.id)} onDoubleClick={() => rename(item)} onKeyDown={event => { if (event.key === 'F2') { event.preventDefault(); rename(item); } if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !item.locked) { event.preventDefault(); onMove(event.key === 'ArrowUp' ? 1 : -1, item.id); } }}><Icon size={17}/><span>{item.name}<small>{item.type === 'carousel' ? TEMPLATES.find(t => t.id === item.template).name : item.type === 'music' && !item.src ? 'No track added' : item.type}</small></span></button>}
+          : <button className="layer-select" aria-pressed={selected === item.id} onClick={() => onSelect(item.id)} onDoubleClick={() => rename(item)} onKeyDown={event => { if (event.key === 'F2') { event.preventDefault(); rename(item); } if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !item.locked) { event.preventDefault(); onMove(event.key === 'ArrowUp' ? 1 : -1, item.id); } }}><Icon size={17}/><span>{item.name}<small>{item.type === 'carousel' ? TEMPLATES.find(t => t.id === item.template).name : item.type === 'music' && !item.src ? 'No track added' : null}</small></span></button>}
         <IconButton label={`${item.locked ? 'Unlock' : 'Lock'} ${item.name}`} onClick={() => onPatch(item.id, { locked: !item.locked })}>{item.locked ? <LockSimple size={14}/> : <LockSimpleOpen size={14}/>}</IconButton>
         <IconButton label={`${item.visible ? 'Hide' : 'Show'} ${item.name}`} onClick={() => onPatch(item.id, { visible: !item.visible })}>{item.visible ? <Eye size={14}/> : <EyeSlash size={14}/>}</IconButton>
       </div>;
@@ -38,6 +38,6 @@ export function LayerList({ project, selected, icons, onSelect, onPatch, onMove,
       <IconButton label="Move layer forward" onClick={() => onMove(1)} disabled={!layer || layer.locked || project.layers.at(-1)?.id === selected}><ArrowUp size={15}/></IconButton>
       <IconButton label="Move layer backward" onClick={() => onMove(-1)} disabled={!layer || layer.locked || project.layers[0]?.id === selected}><ArrowDown size={15}/></IconButton>
     </div>
-    <p className="layer-list-hint">Top layers appear in front. Drag to reorder · Double-click to rename.</p>
+
   </>;
 }
