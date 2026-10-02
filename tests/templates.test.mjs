@@ -37,3 +37,18 @@ test('template writes validate names, tags, projects and IDs and serialize concu
     assert.equal((await store.list())[0].name, 'Two');
   } finally { await rm(data, { recursive: true, force: true }); }
 });
+
+test('composition updates persist edits and reject stale copies without changing saved content', async () => {
+  const data = await mkdtemp(path.join(tmpdir(), 'floc-composition-'));
+  try {
+    const store = createTemplateStore(data);
+    const entry = await store.create({ name: 'Original', tags: ['Brand'], project: demoProject() });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    const project = { ...entry.project, name: 'Edited', duration: 15 };
+    const updated = await store.update(entry.id, { name: project.name, project, updatedAt: entry.updatedAt });
+    assert.equal(updated.project.duration, 15);
+    assert.deepEqual(updated.tags, ['Brand']);
+    await assert.rejects(store.update(entry.id, { project: entry.project, updatedAt: entry.updatedAt }), error => error.status === 409);
+    assert.equal((await createTemplateStore(data).list())[0].project.duration, 15);
+  } finally { await rm(data, { recursive: true, force: true }); }
+});

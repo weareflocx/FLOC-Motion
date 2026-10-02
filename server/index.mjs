@@ -15,8 +15,8 @@ const { port, data } = config;
 const templates = createTemplateStore(data);
 await mkdir(path.join(data, 'assets'), { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
-let project = demoProject(); let revision = 0; let writing = false;
-try { const saved = JSON.parse(await readFile(path.join(data, 'project.json'), 'utf8')); project = validateProject(saved.project); revision = saved.revision; } catch (e) { if (e.code !== 'ENOENT') console.warn('Saved project is invalid; the demo is loaded.'); }
+let project = demoProject(); let revision = 0; let writing = false; let composition = null;
+try { const saved = JSON.parse(await readFile(path.join(data, 'project.json'), 'utf8')); project = validateProject(saved.project); revision = saved.revision; composition = saved.composition || null; } catch (e) { if (e.code !== 'ENOENT') console.warn('Saved project is invalid; the demo is loaded.'); }
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = async (req, limit = 2e6) => { let size = 0; const chunks = []; for await (const chunk of req) { size += chunk.length; if (size > limit) throw new Error('File is too large. Maximum upload size is 75 MB.'); chunks.push(chunk); } return Buffer.concat(chunks); };
@@ -34,7 +34,7 @@ const server = http.createServer(async (req, res) => {
     if (!origin) return json(res, { error: config.publicOrigin ? 'Host not allowed.' : 'Local access only.' }, 403);
     if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== origin) return json(res, { error: 'Cross-origin mutations are not allowed.' }, 403);
     const url = new URL(req.url, origin); const route = url.pathname;
-    if (route === '/api/project' && req.method === 'GET') return json(res, { project, revision });
+    if (route === '/api/project' && req.method === 'GET') return json(res, { project, revision, composition });
     if (route === '/api/project' && req.method === 'PUT') {
       const input = JSON.parse(await body(req));
       if (writing || input.revision !== revision) return json(res, { error: 'The project changed in another window. Reload before saving.', project, revision }, 409);
@@ -42,8 +42,13 @@ const server = http.createServer(async (req, res) => {
       const temp = path.join(data, 'project.tmp.json');
       writing = true;
       try {
-        await writeFile(temp, JSON.stringify({ project: next, revision: revision + 1 })); await rename(temp, path.join(data, 'project.json'));
-        project = next; revision++; return json(res, { revision });
+        let nextComposition = input.composition || null;
+        if (nextComposition) {
+          const entry = await templates.update(nextComposition.id, { name: next.name, project: next, updatedAt: nextComposition.updatedAt });
+          nextComposition = { id: entry.id, updatedAt: entry.updatedAt };
+        }
+        await writeFile(temp, JSON.stringify({ project: next, revision: revision + 1, composition: nextComposition })); await rename(temp, path.join(data, 'project.json'));
+        project = next; composition = nextComposition; revision++; return json(res, { revision, composition });
       } finally { writing = false; }
     }
     if (route === '/api/templates' && req.method === 'GET') return json(res, { templates: await templates.list() });
@@ -93,7 +98,7 @@ const server = http.createServer(async (req, res) => {
     const filename = path.resolve(root, 'dist', safe || 'index.html');
     if (!filename.startsWith(path.join(root, 'dist') + path.sep)) return json(res, { error: 'Not found.' }, 404);
     try { await file(req, res, filename); } catch { await file(req, res, path.join(root, 'dist/index.html')); }
-  } catch (error) { if (!res.headersSent) json(res, { error: error.code === 'ENOENT' ? 'File not found.' : error.message }, error.code === 'ENOENT' ? 404 : 400); else res.destroy(); }
+  } catch (error) { if (!res.headersSent) json(res, { error: error.code === 'ENOENT' ? 'File not found.' : error.message }, error.status || (error.code === 'ENOENT' ? 404 : 400)); else res.destroy(); }
 });
 server.listen(port, config.host, () => console.log(`FLOC Motion: ${config.publicOrigin || `http://127.0.0.1:${port}`}`));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { server.close(); vite?.close(); process.exit(0); });

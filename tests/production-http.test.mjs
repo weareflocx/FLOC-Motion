@@ -50,6 +50,22 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.equal((await fetch(`${base}/api/templates/${entry.id}`, { method: 'DELETE' })).status, 200);
     assert.deepEqual(await (await fetch(`${base}/api/project`)).json(), original);
     assert.equal((await fetch(`${base}/assets/${media}`)).status, 200);
+    const composition = await (await fetch(`${base}/api/templates`, { method: 'POST', body: JSON.stringify({ name: 'Working composition', tags: [], project: demoProject() }) })).json();
+    const edited = { ...composition.project, name: 'Updated composition', duration: 15 };
+    const saved = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: edited, revision: original.revision, composition: { id: composition.id, updatedAt: composition.updatedAt } }) });
+    assert.equal(saved.status, 200);
+    const receipt = await saved.json();
+    assert.equal(receipt.composition.id, composition.id);
+    const current = await (await fetch(`${base}/api/project`)).json();
+    assert.equal(current.composition.id, composition.id);
+    assert.equal(current.project.duration, 15);
+    assert.equal((await (await fetch(`${base}/api/templates`)).json()).templates[0].project.duration, 15);
+    const stale = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), revision: original.revision, composition: receipt.composition }) });
+    assert.equal(stale.status, 409);
+    const draft = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), revision: receipt.revision, composition: null }) });
+    assert.equal(draft.status, 200);
+    assert.equal((await (await fetch(`${base}/api/project`)).json()).composition, null);
+    assert.equal((await (await fetch(`${base}/api/templates`)).json()).templates[0].project.duration, 15);
 
   } finally {
     if (child && child.exitCode === null) { child.kill('SIGTERM'); await once(child, 'exit'); }

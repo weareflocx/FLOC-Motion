@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { validateProject, fileLayer, carouselImages } from '../project.js';
 import { request } from './request.js';
 
-export function useProjectFiles({ projectRef, change, patch, setError, setSelected, setLeftTab }) {
+export function useProjectFiles({ projectRef, change, importDraft = change, patch, setError, setSelected, setLeftTab }) {
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef();
   const fileTarget = useRef('layers');
@@ -47,11 +47,11 @@ export function useProjectFiles({ projectRef, change, patch, setError, setSelect
   const handleImportChange = useCallback(async event => {
     const file = event.target.files[0];
     if (file) {
-      try { change(validateProject(JSON.parse(await file.text()))); }
+      try { importDraft(validateProject(JSON.parse(await file.text()))); }
       catch (error) { setError(error.message); }
     }
     event.target.value = '';
-  }, [change, setError]);
+  }, [importDraft, setError]);
 
   const downloadProject = useCallback(() => {
     const blob = new Blob([JSON.stringify(projectRef.current, null, 2)], { type: 'application/json' });

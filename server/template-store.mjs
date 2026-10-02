@@ -41,8 +41,10 @@ export function createTemplateStore(data) {
       return write({ id: randomUUID(), ...fields, project, createdAt: now, updatedAt: now });
     }),
     update: (id, input) => serial(async () => {
-      const fields = metadata(input), entry = await read(id);
-      return write({ ...entry, ...fields, updatedAt: new Date().toISOString() });
+      const entry = await read(id), fields = metadata({ ...entry, ...input });
+      if (input.updatedAt && input.updatedAt !== entry.updatedAt) { const error = new Error("This composition changed in another window. Reopen it before saving."); error.status = 409; throw error; }
+      const project = input.project ? validateProject(input.project) : entry.project;
+      return write({ ...entry, ...fields, project, updatedAt: new Date(Math.max(Date.now(), Date.parse(entry.updatedAt) + 1)).toISOString() });
     }),
     remove: id => serial(async () => { await unlink(filename(id)); })
   };

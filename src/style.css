@@ -205,3 +205,6 @@ dialog.modal-backdrop:not([open]){display:none}
 @media(hover:none),(pointer:coarse){.preset-direct-tile .preset-card-apply{top:8px;bottom:auto}.preset-direct-tile:hover .preset-tile-label,.preset-direct-tile:focus-within .preset-tile-label{padding-right:12px}}
 
 @media(max-width:600px){.preset-direct-tile .preset-card-apply{top:6px;right:6px;bottom:auto;padding:5px 7px;font-size:10px;opacity:1;pointer-events:auto}.preset-direct-tile .preset-tile-label,.preset-direct-tile:hover .preset-tile-label,.preset-direct-tile:focus-within .preset-tile-label{padding:7px 8px;min-height:30px;gap:5px}.preset-direct-tile .preset-tile-label strong{font-size:11px}.preset-direct-tile .preset-tile-label small{font-size:8px}}
+/* Keep the composition identity and save feedback visible at narrow widths. */
+.save-state{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1100px){.topbar{height:auto;min-height:58px}.header-actions{flex-wrap:wrap;justify-content:flex-end;padding:8px 0}.save-state{display:flex;flex-basis:100%;max-width:none;justify-content:flex-end;order:-1}}
