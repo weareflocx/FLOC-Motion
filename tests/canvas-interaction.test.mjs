@@ -7,6 +7,7 @@ import { demoProject, FORMATS } from '../src/project.js';
 import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../src/editor-controls.js';
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../src/layout.js';
 import { dragOrientation, wrapDegrees } from '../src/orientation.js';
+import { captureState, evaluateChoreography } from '../src/choreography.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useCanvasInteraction.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -23,7 +24,7 @@ function editor() {
     removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
-    gridPlacement, nearestGridPoint, nudgePlacement, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees,
+    gridPlacement, nearestGridPoint, nudgePlacement, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -54,6 +55,16 @@ test('history can commit a pending resize synchronously without a later timer ed
   const h = editor(); h.scroll(); h.commit();
   assert.equal(h.patches.length, 1); assert.equal(h.timers.size, 0);
   h.flush(); assert.equal(h.patches.length, 1); h.unmount();
+});
+
+test('resizing an animated layer starts from its evaluated size at the playhead', () => {
+  const h = editor(), layer = h.project.layers.find(item => item.id === 'headline');
+  layer.choreography = captureState(layer, 0, 24, { size: 24 }, 'start');
+  layer.choreography = captureState(layer, 2, 24, { size: 96 }, 'end');
+  h.render(); h.scroll(); h.flush();
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.patches[0].size, canvasWheelSize(evaluateChoreography(layer, 1), -100));
+  h.unmount();
 });
 
 test('Escape and unmount cancel pending wheel edits', () => {

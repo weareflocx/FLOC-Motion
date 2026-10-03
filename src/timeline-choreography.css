@@ -1,0 +1,9 @@
+.track-lane.has-choreography{height:46px}
+.has-choreography .track-clip{bottom:16px}
+.choreography-mark{position:absolute;top:30px;width:16px;height:16px;padding:0;border:0;background:transparent;transform:translateX(-50%);z-index:5;cursor:ew-resize;touch-action:none}
+.choreography-mark span{display:block;width:7px;height:7px;margin:auto;border:1px solid #929292;background:#363636;transform:rotate(45deg);pointer-events:none}
+.choreography-mark:hover span,.choreography-mark:focus-visible span{border-color:#fff;background:#aaa}
+.choreography-mark.current span{border-color:#fff;background:#e8e8e8}
+.choreography-mark.dragging span{border-color:#fff;background:#fff}
+.track-row.locked .choreography-mark{cursor:pointer}
+.track-clip.muted~.choreography-mark{opacity:.5}

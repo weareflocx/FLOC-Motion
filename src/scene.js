@@ -6,6 +6,7 @@ import { fontDefinition } from './fonts.js';
 import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages } from './project.js';
 import { constrainPlacement, fitsSafeArea, safeArea } from './layout.js';
 import { createCarouselEffect } from './carousel-effects.js';
+import { evaluateChoreography } from './choreography.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -105,17 +106,19 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   const frameCards = [];
   const frameLoader = new THREE.TextureLoader();
   const placementBounds = new Map();
+  let geometrySize = layer.size;
   let requestedTime = 0;
   function placeLayers(time) {
     const frame = p.layout?.enabled ? (carousel ? canvas : root).getBoundingClientRect() : null;
     for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model'].includes(l.type))) {
       const el = layerNodes.find(node => node.dataset.flocLayer === l.id); if (!el) continue;
-      const pos = placement?.id === l.id ? { ...l, ...placement } : l;
+      const evaluated = evaluateChoreography(l, time);
+      const pos = placement?.id === l.id ? { ...evaluated, ...placement } : evaluated;
       const sizeProperty = l.type === 'text' ? 'fontSize' : 'width';
       const sizeValue = l.type === 'text' ? `${pos.size * width / 1080}px` : `${pos.size}%`;
       if (el.style[sizeProperty] !== sizeValue) el.style[sizeProperty] = sizeValue;
       if (l.type === 'model') el.style.height = `${pos.size * width / 100}px`;
-      let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha(l, time)) * 24 : 0;
+      let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha({ ...l, opacity: 1, choreography: [] }, time)) * 24 : 0;
       if (p.layout?.enabled && ['text', 'logo'].includes(l.type)) {
         if (frame.width && frame.height) {
           const key = `${sizeValue}:${frame.width}:${frame.height}`;
@@ -125,7 +128,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
             bounds = { key, width: rect.width / frame.width * 100, height: rect.height / frame.height * 100 };
             placementBounds.set(el, bounds);
           }
-          if (renderMode && l.visible && !fitsSafeArea(bounds, p.layout)) throw new Error(`${l.name} exceeds the safe area. Reduce its width or size before exporting.`);
+          if (renderMode && layerAlpha(l, time) > 0 && !fitsSafeArea(bounds, p.layout)) throw new Error(`${l.name} exceeds the safe area. Reduce its width or size before exporting.`);
           position = constrainPlacement(pos.x, pos.y, bounds.width, bounds.height, p.layout);
           const area = safeArea(p.layout);
           rise = Math.min(rise, Math.max(0, (area.y + area.height - position.y - bounds.height) * height / 100));
@@ -135,15 +138,26 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       el.style.transform = rise ? `translateY(${rise}px)` : '';
     }
   }
+  function reshapeCardGeometry(geometry, sampled) {
+    const size = sampled.size;
+    const positions = geometry.attributes.position;
+    const uv = geometry.attributes.uv;
+    const wrapped = sampled.template === 'circular' && ['wrapped', undefined].includes(motionVariant(sampled));
+    const radius = sampled.radius || Math.max(1.45, ((sampled.cardCount || p.images.length) * (size + sampled.gap)) / (2 * Math.PI));
+    for (let i = 0; i < positions.count; i++) {
+      const x = (uv.getX(i) - 0.5) * size;
+      const angle = x / radius;
+      positions.setXYZ(i, wrapped ? x * (1 - sampled.curve) + Math.sin(angle) * radius * sampled.curve : x,
+        (uv.getY(i) - 0.5) * size / sampled.cardAspect, wrapped ? (Math.cos(angle) - 1) * radius * sampled.curve : 0);
+    }
+    positions.needsUpdate = true;
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+  }
   function cardGeometry() {
     const size = layer.size;
     const geometry = new THREE.PlaneGeometry(size, size / layer.cardAspect, layer.shader === 'elastic' ? 64 : 32, 16);
-    if (layer.template === 'circular' && ['wrapped', undefined].includes(motionVariant(layer))) {
-      const radius = layer.radius || Math.max(1.45, ((layer.cardCount || p.images.length) * (size + layer.gap)) / (2 * Math.PI));
-      const pos = geometry.attributes.position;
-      for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); const a = x / radius; pos.setX(i, x * (1 - layer.curve) + Math.sin(a) * radius * layer.curve); pos.setZ(i, (Math.cos(a) - 1) * radius * layer.curve); }
-      geometry.computeVertexNormals();
-    }
+    reshapeCardGeometry(geometry, layer);
     return geometry;
   }
   try {
@@ -208,15 +222,20 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   function draw(time, playing = false) {
     if (disposed) return;
     placeLayers(time);
-    models.forEach(model => model.draw(time));
+    models.forEach(model => model.draw(time, placement?.id === model.id ? placement : undefined));
     const local = Math.max(0, time - layer.start);
-    group.rotation.set(THREE.MathUtils.degToRad(orientation?.tilt ?? layer.tilt), THREE.MathUtils.degToRad(orientation?.yaw ?? layer.yaw ?? 0), THREE.MathUtils.degToRad(orientation?.roll ?? layer.roll));
+    const sampled = { ...evaluateChoreography(layer, time), ...orientation };
+    if (sampled.size !== geometrySize) {
+      meshes.forEach(mesh => { reshapeCardGeometry(mesh.geometry, sampled); mesh.material.uniforms.uCardSize.value = sampled.size; });
+      geometrySize = sampled.size;
+    }
+    group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
-    const position = placement?.id === layer.id ? { ...layer, ...placement } : layer;
+    const position = placement?.id === layer.id ? { ...sampled, ...placement } : sampled;
     group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, 0);
     meshes.forEach((mesh, i) => {
-      const state = carouselCard(orientation?.size === undefined ? layer : { ...layer, size: orientation.size }, i, meshes.length, time);
-      const optical = elasticState(layer, state);
+      const state = carouselCard(sampled, i, meshes.length, time);
+      const optical = elasticState(sampled, state);
       mesh.material.uniforms.uElastic.value = optical.strength;
       mesh.material.uniforms.uSide.value = optical.side;
       mesh.position.set(...state.position);
@@ -299,6 +318,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
         mesh.material.uniforms.uCardSize.value = layer.size;
         previous.dispose();
       });
+      geometrySize = layer.size;
     }
     models.forEach(model => model.updateLayer(p.layers.find(next => next.id === model.id)));
     placementBounds.clear();

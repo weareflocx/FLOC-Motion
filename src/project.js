@@ -3,6 +3,7 @@ import { BRAND } from './brand.js';
 import { fontDefinition } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
 import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline } from './motion-timing.js';
+import { CHOREOGRAPHY_EASINGS, choreographyFields, evaluateChoreography } from './choreography.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
 export const TEMPLATES = [
@@ -45,6 +46,24 @@ function validateMotion(motion) {
   finite(motion.action, 0.05, 30, 'Action duration'); finite(motion.pause, 0, 30, 'Pause duration'); finite(motion.intensity, 0, 1, 'Curve intensity');
 }
 const FADE_LAYERS = ['text', 'logo', 'carousel', 'media', 'model'];
+function validateChoreography(layer) {
+  const fields = choreographyFields(layer);
+  if (!Array.isArray(layer.choreography) || layer.choreography.length > 32) fail('Use up to 32 choreography states.');
+  const ids = new Set();
+  let previousTime = -1;
+  for (const state of layer.choreography) {
+    if (!state || typeof state !== 'object' || Array.isArray(state) || Object.keys(state).some(key => !['id', 'time', 'easing', 'values'].includes(key))) fail('Invalid choreography state.');
+    str(state.id, 80, 'state ID');
+    if (!state.id.trim() || ids.has(state.id)) fail('State IDs must be nonempty and unique.');
+    ids.add(state.id);
+    finite(state.time, 0, 30, 'State time');
+    if (state.time <= previousTime) fail('State times must be unique and increasing.');
+    previousTime = state.time;
+    if (!CHOREOGRAPHY_EASINGS.some(([id]) => id === state.easing)) fail('Unknown choreography easing.');
+    if (!state.values || typeof state.values !== 'object' || Array.isArray(state.values) || Object.keys(state.values).some(key => !Object.hasOwn(fields, key))) fail('Invalid choreography values.');
+    for (const [field, [min, max]] of Object.entries(fields)) finite(state.values[field], min, max, `State ${field}`);
+  }
+}
 // The epsilon keeps re-validation idempotent once fades have been scaled to fit.
 export const fitFades = (fadeIn, fadeOut, span) => fadeIn + fadeOut > span + 1e-9 ? { fadeIn: fadeIn * span / (fadeIn + fadeOut), fadeOut: fadeOut * span / (fadeIn + fadeOut) } : { fadeIn, fadeOut };
 export function validAsset(src, allowEmpty = true) {
@@ -127,9 +146,16 @@ export function validateProject(input) {
     } else if (l.type === 'music') { asset(l.src); if (l.src && !/\.(mp3|wav|m4a|ogg)$/i.test(l.src)) fail('Music requires an audio file.'); finite(l.volume, 0, 1, 'Volume'); finite(l.offset, 0, 3600, 'Audio offset'); finite(l.fade, 0, 5, 'Audio fade'); if (typeof l.loop !== 'boolean') fail('Invalid audio loop.');
     } else fail('Unknown layer type.');
     if (FADE_LAYERS.includes(l.type)) {
+      if (l.opacity === undefined) l.opacity = 1;
+      if (l.choreography === undefined) l.choreography = [];
+      finite(l.opacity, 0, 1, 'Opacity');
+      validateChoreography(l);
       l.fadeIn ??= 0; l.fadeOut ??= 0; finite(l.fadeIn, 0, 30, 'Fade in'); finite(l.fadeOut, 0, 30, 'Fade out');
       Object.assign(l, fitFades(l.fadeIn, l.fadeOut, l.end - l.start));
-    } else { delete l.fadeIn; delete l.fadeOut; }
+    } else {
+      if (Object.hasOwn(l, 'opacity') || Object.hasOwn(l, 'choreography')) fail('Only visual layers accept opacity and choreography.');
+      delete l.fadeIn; delete l.fadeOut;
+    }
   }
   return p;
 }
@@ -140,7 +166,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'font' && layer.type === 'text') && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(key === 'font' && layer.type === 'text') && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {
@@ -170,14 +196,14 @@ export function duplicateLayer(project, id, newId) {
   const source = p.layers[index];
   if (!source) fail('Layer not found.');
   if (source.locked) fail('Unlock the layer before duplicating it.');
-  const copy = { ...source, ...(source.type === 'carousel' ? { images: structuredClone(carouselImages(p, source)) } : {}), id: newId, name: `${source.name.slice(0, 95)} copy`, locked: false };
+  const copy = { ...structuredClone(source), ...(source.type === 'carousel' ? { images: structuredClone(carouselImages(p, source)) } : {}), id: newId, name: `${source.name.slice(0, 95)} copy`, locked: false };
   p.layers.splice(index + 1, 0, copy);
   return validateProject(p);
 }
 export function layerAlpha(layer, time) {
   if (!layer.visible || time < layer.start || time >= layer.end) return 0;
   const fadeIn = layer.fadeIn ?? 0, fadeOut = layer.fadeOut ?? 0;
-  return Math.min(1, fadeIn > 0 ? (time - layer.start) / fadeIn : 1, fadeOut > 0 ? (layer.end - time) / fadeOut : 1);
+  return (evaluateChoreography(layer, time).opacity ?? 1) * Math.min(1, fadeIn > 0 ? (time - layer.start) / fadeIn : 1, fadeOut > 0 ? (layer.end - time) / fadeOut : 1);
 }
 export function audioTime(layer, time, mediaDuration) {
   const elapsed = Math.max(0, time - layer.start);

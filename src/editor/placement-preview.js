@@ -2,7 +2,7 @@
 export function updatePlacementPreview(current, project) {
   const normalize = value => ({ ...value, layers: value.layers.map(layer => {
     if (!['text', 'logo', 'media', 'model', 'carousel'].includes(layer.type)) return layer;
-    const { x, y, size, ...rest } = layer;
+    const { x, y, size, opacity, choreography, ...rest } = layer;
     if (['model', 'carousel'].includes(layer.type)) {
       const { tilt, yaw, roll, ...unchanged } = rest;
       return unchanged;

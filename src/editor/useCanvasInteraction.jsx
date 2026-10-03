@@ -3,6 +3,7 @@ import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, neare
 import { FORMATS } from '../project.js';
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../layout.js';
 import { dragOrientation, wrapDegrees } from '../orientation.js';
+import { evaluateChoreography } from '../choreography.js';
 
 // Drag previews commit on release; wheel previews commit after scrolling or before history/selection changes.
 export function useCanvasInteraction({ root, engine, project, sceneKey, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled = true }) {
@@ -10,7 +11,8 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   const wheelDraft = useRef(null);
   const playhead = useRef(time); playhead.current = time;
   const [draft, setDraft] = useState(null);
-  const layer = project.layers.find(l => l.id === selected);
+  const sourceLayer = project.layers.find(l => l.id === selected);
+  const layer = sourceLayer && evaluateChoreography(sourceLayer, time);
   const layout = project.layout ?? DEFAULT_LAYOUT;
   const nodeFor = id => [...(root.current?.querySelectorAll('[data-floc-layer]') || [])].find(n => n.dataset.flocLayer === id);
   const cancelWheel = useCallback(() => {
@@ -46,7 +48,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     }
     node?.addEventListener('wheel', wheel, { passive: false });
     return () => node?.removeEventListener('wheel', wheel);
-  }, [project, selected, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
+  }, [project, selected, time, layer?.size, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
   useEffect(() => {
     for (const l of project.layers) {
       const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model'].includes(l.type)) continue;
@@ -61,7 +63,8 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   }, [project, selected, time, sceneKey, enabled]);
   function pick(x, y) {
     const box = root.current.getBoundingClientRect();
-    for (const l of [...project.layers].reverse()) {
+    for (const source of [...project.layers].reverse()) {
+      const l = evaluateChoreography(source, playhead.current);
       if (!l.visible || playhead.current < l.start || playhead.current >= l.end || l.type === 'music') continue;
       const node = nodeFor(l.id); if (!node || Number(node.style.opacity) <= 0) continue;
       const b = node.getBoundingClientRect();
@@ -75,7 +78,8 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   function begin(event) {
     if (!enabled || event.button !== 0 || gesture.current || wheelDraft.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
-    const l = ring ? project.layers.find(l => l.id === selected && l.type === 'carousel') : pick(event.clientX, event.clientY);
+    const ringLayer = ring && project.layers.find(l => l.id === selected && l.type === 'carousel');
+    const l = ringLayer ? evaluateChoreography(ringLayer, playhead.current) : pick(event.clientX, event.clientY);
     if (!l) return;
     event.preventDefault(); onSelect(l.id);
     nodeFor(l.id)?.focus({ preventScroll: true });
@@ -84,7 +88,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     const b = nodeFor(l.id).getBoundingClientRect();
     const orient = l.type === 'carousel' && (!!ring || event.shiftKey);
     const initial = orient ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : l.type === 'carousel' ? { x: l.x, y: l.y } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top) };
-    const targets = project.layers.filter(other => other.id !== l.id && other.visible && playhead.current >= other.start && playhead.current < other.end).flatMap(other => {
+    const targets = project.layers.filter(other => other.id !== l.id && other.visible && playhead.current >= other.start && playhead.current < other.end).map(other => evaluateChoreography(other, playhead.current)).flatMap(other => {
       if (other.type === 'carousel') return [{ x: other.x, y: other.y, width: 0, height: 0 }];
       const node = nodeFor(other.id); if (!node || !['text', 'logo', 'media', 'model'].includes(other.type)) return [];
       const rect = node.getBoundingClientRect();
@@ -125,7 +129,8 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     if (event.key === 'Escape') { event.preventDefault(); cancel(); return; }
     if (!enabled) return;
     const target = event.target.closest('[data-floc-layer]');
-    const l = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : layer;
+    const source = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : sourceLayer;
+    const l = source && evaluateChoreography(source, playhead.current);
     if (!l || !l.visible || playhead.current < l.start || playhead.current >= l.end) return;
     if (['Enter', ' '].includes(event.key)) { event.preventDefault(); onSelect(l.id); return; }
     if (l.locked || gesture.current || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;

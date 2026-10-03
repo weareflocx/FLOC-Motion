@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { evaluateChoreography } from './choreography.js';
 
 export async function createModelScene(canvas, layer, width, height) {
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
@@ -47,14 +48,15 @@ export async function createModelScene(canvas, layer, width, height) {
     return {
       id: layer.id,
       updateLayer(value) { layer = value; },
-      draw(time) {
+      draw(time, draft) {
         if (action) {
           const elapsed = Math.max(0, time - layer.start) + layer.offset;
           const sample = layer.loop && clip.duration > 0 ? elapsed % clip.duration : Math.min(elapsed, clip.duration);
           action.reset().play();
           mixer.setTime(sample);
         }
-        group.rotation.set(...[layer.tilt, layer.yaw, layer.roll].map(THREE.MathUtils.degToRad));
+        const state = { ...evaluateChoreography(layer, time), ...draft };
+        group.rotation.set(...[state.tilt, state.yaw, state.roll].map(THREE.MathUtils.degToRad));
         renderer.render(scene, camera);
       },
       setResolution(w, h) { renderer.setSize(w, h, false); }, dispose

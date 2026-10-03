@@ -8,6 +8,7 @@ import { createPreviewSession } from './preview-session.js';
 import { PlacementGuides } from './PlacementGuides.jsx';
 import { DEFAULT_LAYOUT } from '../layout.js';
 import { canvasViewport } from './canvas-viewport.js';
+import { evaluateChoreography } from '../choreography.js';
 
 export function Stage({ project, time, playing, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
   const [activeProject, setActiveProject] = useState(project);
@@ -156,7 +157,7 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
       if (cancelled || !synchronized || playing || !(activeProject.layout ?? DEFAULT_LAYOUT).guides) return;
       const frame = root.current.getBoundingClientRect(); if (!frame.width || !frame.height) return;
       const nodes = [...root.current.querySelectorAll('[data-floc-layer]')];
-      const rects = activeProject.layers.filter(l => l.visible && time >= l.start && time < l.end).flatMap(l => {
+      const rects = activeProject.layers.filter(l => l.visible && time >= l.start && time < l.end).map(l => evaluateChoreography(l, time)).flatMap(l => {
         if (l.type === 'carousel') return [{ id: l.id, x: l.x, y: l.y, width: 0, height: 0 }];
         if (!['text', 'logo'].includes(l.type)) return [];
         const node = nodes.find(n => n.dataset.flocLayer === l.id); if (!node) return [];
