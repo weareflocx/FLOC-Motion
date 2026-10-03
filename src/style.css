@@ -1,4 +1,5 @@
-:root{font-family:Geist,Arial,sans-serif;color:#e9e9e9;background:#000000;font-synthesis:none;--surface:#1c1c1c;--panel:#1a1a1a;--line:#313131;--muted:#9c9c9c;--accent:#ffffff;--ink:#000000;color-scheme:dark}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:500;src:url("/fonts/jetbrains-mono-500.woff2") format("woff2");font-display:swap}
+:root{--font-ui:Geist,Arial,sans-serif;--font-data:"JetBrains Mono",monospace;font-family:var(--font-ui);color:#e9e9e9;background:#000000;font-synthesis:none;--surface:#1c1c1c;--panel:#1a1a1a;--line:#313131;--muted:#9c9c9c;--accent:#ffffff;--ink:#000000;color-scheme:dark}
 .motion-curve{display:block;width:100%;height:auto;background:#222;border:1px solid var(--line);border-radius:7px;margin:0 0 10px;fill:none}.motion-curve-axis{stroke:#444}.motion-curve-reference{stroke:#666;stroke-dasharray:3 4}.motion-curve-path{stroke:var(--accent);stroke-width:2}.motion-curve text{fill:var(--muted);font-size:9px}.motion-curves{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-bottom:10px}.motion-curves button{padding:8px 3px;font-size:10px;border:1px solid var(--line);border-radius:5px;color:var(--muted)}.motion-curves button[aria-pressed=true]{background:#333;border-color:#777;color:var(--accent)}.motion-cycle{font-variant-numeric:tabular-nums}
 .canvas-formats{flex-wrap:wrap}.segmented.canvas-formats button{flex:1 0 28%;white-space:nowrap}
 .stage{touch-action:none}.stage [data-floc-layer]:focus{outline:none}.stage .canvas-selected{outline:1px solid #ffffff40;outline-offset:3px;cursor:move}.stage [data-floc-layer]:focus-visible{outline:1px solid #ffffffa6;outline-offset:3px}.canvas-interaction-ring{position:absolute;left:50%;top:50%;transform-origin:center;pointer-events:none;touch-action:none}.canvas-orientation-ring{position:absolute;width:48%;height:48%;overflow:visible;transform:translate(-50%,-50%);pointer-events:none;fill:none;stroke:#ffffff80;stroke-width:1}.canvas-orientation-ring circle{pointer-events:stroke;cursor:crosshair;stroke-width:4}.canvas-orientation-ring .canvas-ring-handle{fill:#fff;stroke:#fff;pointer-events:all}.canvas-orientation-ring:focus{outline:none}.canvas-orientation-ring:focus-visible{outline:1px solid #ffffffa6;outline-offset:3px}
@@ -40,7 +41,7 @@ dialog.modal-backdrop:not([open]){display:none}
 .transport .icon-button{min-width:28px;min-height:28px;border-radius:5px}
 .transport .timeline-play{background:#e5e5e5;color:#171717}
 .transport .timeline-play:hover:not(:disabled){background:#fff;color:#171717}
-.timecode{display:flex;align-items:baseline;gap:7px;margin-left:6px;font-family:"Geist Mono",monospace;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.timecode{display:flex;align-items:baseline;gap:7px;margin-left:6px;font-family:var(--font-data);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .timecode-current{color:#e8e8e8}.timecode-total{color:#777}
 .transport>input{flex:1;min-width:60px;height:16px;margin:0}
 .timeline-label{color:#888;font-size:9px;letter-spacing:.03em;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -55,7 +56,7 @@ dialog.modal-backdrop:not([open]){display:none}
 .timeline-ruler{height:30px;position:relative;cursor:ew-resize;touch-action:none;border-bottom:1px solid #ffffff20;user-select:none}
 .timeline-tick{position:absolute;bottom:0;width:1px;height:5px;background:#ffffff20;pointer-events:none}
 .timeline-tick.major{height:9px;background:#ffffff35}.timeline-tick.endpoint{width:0}
-.tick-label{position:absolute;top:-16px;left:0;transform:translateX(-50%);font-family:"Geist Mono",monospace;font-size:9px;line-height:1;color:#929292;white-space:nowrap}
+.tick-label{position:absolute;top:-16px;left:0;transform:translateX(-50%);font-family:var(--font-data);font-size:9px;line-height:1;color:#929292;white-space:nowrap}
 .timeline-tick:first-child .tick-label{transform:none}.timeline-tick.endpoint .tick-label{transform:translateX(-100%)}
 .ruler-playhead{position:absolute;top:7px;bottom:-1px;width:1px;background:#e7e7e7;pointer-events:none;z-index:2}
 .playhead-cap{position:absolute;top:-2px;left:50%;width:7px;height:7px;transform:translateX(-50%);background:#e7e7e7;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%)}
@@ -77,7 +78,7 @@ dialog.modal-backdrop:not([open]){display:none}
 .track-row.selected .track-lane{background:#ffffff05}.track-row.selected .track-clip{border-color:#ffffff66;color:#e4e4e4}
 .track-clip.muted{opacity:.45}.track-clip.dragging{border-color:#ffffff99;z-index:3}
 .clip-body{position:relative;z-index:1;display:flex;align-items:center;gap:12px;flex:1;min-width:0;width:100%;padding:0 12px;overflow:hidden;text-align:left;font-size:10px;cursor:grab;touch-action:none}
-.clip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.clip-duration{margin-left:auto;flex-shrink:0;color:#999;font-family:"Geist Mono",monospace;font-size:9px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.clip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.clip-duration{margin-left:auto;flex-shrink:0;color:#999;font-family:var(--font-data);font-size:9px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .clip-body:disabled{opacity:1;color:#999;cursor:default}.track-clip.dragging .clip-body{cursor:grabbing}
 .clip-handle{position:absolute;top:0;bottom:0;width:12px;padding:0;z-index:2;cursor:ew-resize;touch-action:none;color:#9a9a9a}
 .clip-handle.start{left:0}.clip-handle.end{right:0}
@@ -208,6 +209,36 @@ dialog.modal-backdrop:not([open]){display:none}
 /* Keep the composition identity and save feedback visible at narrow widths. */
 .save-state{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:1100px){.topbar{height:auto;min-height:58px}.header-actions{flex-wrap:wrap;justify-content:flex-end;padding:8px 0}.save-state{display:flex;flex-basis:100%;max-width:none;justify-content:flex-end;order:-1}}
+
+/* UI data uses Mono; names, labels and composition typography stay independent. */
+.app-shell .field output,
+.app-shell input[type=number],
+.app-shell .color-field>span,
+.app-shell .canvas-meta>span,
+.app-shell .timecode,
+.app-shell .tick-label,
+.app-shell .clip-duration,
+.app-shell .timeline-label,
+.app-shell .ruler-track-heading small,
+.app-shell .map-coordinates,
+.app-shell .motion-cycle,
+.app-shell .asset-number,
+.app-shell .version,
+.app-shell .tool-list code,
+.app-shell .tool-list>div>span,
+.app-shell .audit code,
+.app-shell .audit>div>span,
+.app-shell .export-summary>span,
+.app-shell .export-summary>span:first-child small,
+.app-shell select[aria-label="Export resolution"],
+.app-shell .preset-visual-filters .preset-family-list button:first-child span{
+  font-family:var(--font-data);
+  font-weight:500;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:0;
+}
+.app-shell .export-summary small{font-family:var(--font-ui);font-weight:400;letter-spacing:0}
+.app-shell .brand em{font-family:var(--font-data);font-weight:500;letter-spacing:2px}
 
 /* Canvas view controls never change composition or export dimensions. */
 .canvas-toolbar{flex-wrap:wrap;gap:4px 8px}.canvas-toolbar>div:first-child{flex:1;min-width:80px}.canvas-toolbar .project-name{width:100%;max-width:280px}.canvas-meta{gap:6px}

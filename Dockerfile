@@ -23,6 +23,7 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/src ./src
 COPY --from=build --chown=node:node /app/server ./server
+COPY --from=build --chown=node:node /app/scripts/render-prepared.mjs ./scripts/render-prepared.mjs
 COPY --from=build --chown=node:node /app/.data/engine ./.data/engine
 RUN chown node:node /app /app/.data
 COPY --chown=node:node server/docker-entrypoint.sh /usr/local/bin/floc-entrypoint

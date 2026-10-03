@@ -16,6 +16,12 @@ Source: [FLOC Brand System](https://www.figma.com/design/61GRiVYnWbglilWGDN7fUq/
 
 Requires Node.js 22.12+ and FFmpeg/FFprobe on PATH. Rendering uses installed Google Chrome on macOS when present. Set `HYPERFRAMES_BROWSER_PATH` to select a different working Chromium binary.
 
+Each export stores the renderer output in `render.log` and its result or failure in `job.json`, so failures remain inspectable after a server restart.
+Source video frame format is automatic: the engine keeps PNG for transparency and uses JPEG for opaque footage, independently of the final MP4 quality setting.
+Carousel video frames are prepared once with FFmpeg at the project frame rate. Export textures read the prepared images, including alpha-preserving PNGs, instead of seeking browser video decoders. Preview playback still uses the original media.
+
+Prepared export folders include `render-input.json`, local assets and the compiled scene. A separate host with the same application version, Chromium and FFmpeg can render a trusted folder with `node scripts/render-prepared.mjs <composition-folder>`. The command verifies the MP4 and writes `render-result.json`. The Mac render worker below connects the shared editor's export button to a trusted Mac.
+
 ```sh
 npm ci
 npm run dev
@@ -163,3 +169,7 @@ GIFs retain their original file and get a local, cached VP9 WebM derivative for 
 Open **Saved templates** in the header to save a complete composition snapshot with a name and up to ten searchable tags. A selected template has a real, on-demand engine preview; gallery covers are media references, not rendered composition thumbnails. Rename or retag a template without changing its saved scene. Applying a template replaces the full composition after confirmation and uses the editor's existing Undo history.
 
 Templates persist as validated JSON files in `FLOC_DATA_DIR/templates` (the local `.data/templates` by default), separately from the autosaved canvas. Editing a composition does not overwrite a saved template: save another snapshot to retain a new version. Uploaded media are referenced in the same workspace rather than duplicated; deleting a template does not delete media or the current project. These are workspace-local snapshots, not portable media archives or cross-device sync. Fly uses its existing persistent data volume when this feature is deployed. Restart the server after adding the template API; refreshing the frontend alone does not reload backend modules.
+
+## Mac render worker
+
+The shared editor can delegate exports to a trusted Mac without exposing a local port. Set `FLOC_RENDER_WORKER_TOKEN` on the shared server and create `.data/render-worker/config.json` on the Mac with `{"origin":"https://floc-motion.fly.dev","token":"<same random token>"}`. Restrict that file to the current user (mode 0600). Run `node scripts/render-worker.mjs`; the worker downloads validated project media, uses the native browser GPU, renders with the pinned HyperFrames engine and uploads the verified MP4. The existing export confirmation and download button remain in place. When the Mac is offline, new exports fail immediately with an explanatory message; interrupted jobs fail after 90 seconds without a heartbeat. Only one export runs at a time. The Mac must remain awake and connected. No Runpod resources are used.

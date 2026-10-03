@@ -1,5 +1,5 @@
 import { createModelScene } from './model-scene.js';
-import { cardMediaKind, cardVideoSource, cardMediaTime, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
+import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, cardFrameSource, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
 import { carouselCard, motionVariant, elasticState } from './carousel-motion.js';
 import * as THREE from 'three';
 import { fontDefinition } from './fonts.js';
@@ -58,7 +58,7 @@ if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacit
 #include <colorspace_fragment>
 }`;
 
-async function createLayerScene(root, p, { renderMode = false, onMediaError = () => {} } = {}) {
+async function createLayerScene(root, p, { renderMode = false, onMediaError = () => {}, cardFrames = {} } = {}) {
   const [width, height] = FORMATS[p.format];
   const carousel = p.layers.find(l => l.type === 'carousel');
   const layer = carousel || { ...demoProject().layers.find(l => l.type === 'carousel'), visible: false };
@@ -99,6 +99,8 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   const meshes = [];
   const textures = [];
   const cardVideos = [];
+  const frameCards = [];
+  const frameLoader = new THREE.TextureLoader();
   const placementBounds = new Map();
   let requestedTime = 0;
   function placeLayers(time) {
@@ -137,6 +139,13 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     const loader = new THREE.TextureLoader();
     const results = await Promise.allSettled((carousel ? p.images : []).map(async img => {
       if (cardMediaKind(img.src) === 'image') return loader.loadAsync(img.src);
+      if (renderMode) {
+        const frames = cardFrames[img.src];
+        if (!frames) throw new Error(`Prepared carousel frames are missing: ${img.src}`);
+        const texture = await frameLoader.loadAsync(cardFrameSource(frames, 0));
+        frameCards.push({ texture, frames, index: 0 });
+        return texture;
+      }
       const video = document.createElement('video');
       video.muted = true; video.playsInline = true; video.preload = 'auto';
       const texture = new THREE.VideoTexture(video);
@@ -252,6 +261,17 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       pauseMedia(video);
       return seekCardVideo(video, cardMediaTime(time, layer.start, video.duration));
     });
+    frames.push(...frameCards.map(async card => {
+      const index = cardFrameIndex(card.frames, time, layer.start);
+      if (card.index === index) return;
+      const loaded = await frameLoader.loadAsync(cardFrameSource(card.frames, index));
+      if (!disposed && requestedTime === time) {
+        card.texture.image = loaded.image;
+        card.texture.needsUpdate = true;
+        card.index = index;
+      }
+      loaded.dispose();
+    }));
     frames.push(...standalone);
     if (!frames.length) { draw(time, playing); return Promise.resolve(); }
     const ready = Promise.all(frames).then(() => { if (!disposed && requestedTime === time) draw(time, playing); });

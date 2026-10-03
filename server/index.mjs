@@ -10,9 +10,11 @@ import { catalogSummary } from '../src/catalog.js';
 import { startExport, jobs, run } from './export.mjs';
 import { ensureGifVideo } from './card-media.mjs';
 import { createTemplateStore } from './template-store.mjs';
+import { createRenderWorker } from './render-worker.mjs';
 const config = runtimeConfig();
 const { port, data } = config;
 const templates = createTemplateStore(data);
+const renderWorker = createRenderWorker({ data, jobs, token: process.env.FLOC_RENDER_WORKER_TOKEN });
 await mkdir(path.join(data, 'assets'), { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
 let project = demoProject(); let revision = 0; let writing = false; let composition = null;
@@ -34,6 +36,13 @@ const server = http.createServer(async (req, res) => {
     if (!origin) return json(res, { error: config.publicOrigin ? 'Host not allowed.' : 'Local access only.' }, 403);
     if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== origin) return json(res, { error: 'Cross-origin mutations are not allowed.' }, 403);
     const url = new URL(req.url, origin); const route = url.pathname;
+    if (route.startsWith('/api/render-worker/')) {
+      if (!renderWorker.authorize(req.headers.authorization)) return json(res, { error: 'Renderer authentication required.' }, 401);
+      if (route === '/api/render-worker/claim' && req.method === 'POST') return json(res, await renderWorker.claim());
+      const workerJob = route.match(/^\/api\/render-worker\/([a-f0-9-]{36})\/(progress|result)$/);
+      if (workerJob && req.method === 'POST') return json(res, workerJob[2] === 'result' ? await renderWorker.complete(workerJob[1], req) : await renderWorker.update(workerJob[1], JSON.parse(await body(req))));
+      return json(res, { error: 'Not found.' }, 404);
+    }
     if (route === '/api/project' && req.method === 'GET') return json(res, { project, revision, composition });
     if (route === '/api/project' && req.method === 'PUT') {
       const input = JSON.parse(await body(req));
@@ -68,9 +77,22 @@ const server = http.createServer(async (req, res) => {
       if (ext === 'gif') await ensureGifVideo(path.join(data, 'assets', `${id}.gif`), path.join(data, 'assets', `${id}.webm`), run);
       return json(res, { id, src: `/assets/${id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
     }
-    if (route === '/api/exports' && req.method === 'POST') { const input = JSON.parse(await body(req)); return json(res, await startExport(input.project, input.settings), 202); }
+    if (route === '/api/exports' && req.method === 'POST') { const input = JSON.parse(await body(req)); return json(res, await (renderWorker.enabled ? renderWorker.enqueue(input.project, input.settings) : startExport(input.project, input.settings)), 202); }
     const jobMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})$/);
-    if (jobMatch) { let job = jobs.get(jobMatch[1]); if (!job) { try { job = JSON.parse(await readFile(path.join(data, 'renders', jobMatch[1], 'job.json'), 'utf8')); } catch {} } return json(res, job || { error: 'Export not found.' }, job ? 200 : 404); }
+    if (jobMatch) {
+      let job = await renderWorker.status(jobMatch[1]);
+      if (!job) {
+        try {
+          const filename = path.join(data, 'renders', jobMatch[1], 'job.json');
+          job = JSON.parse(await readFile(filename, 'utf8'));
+          if (renderWorker.enabled && !['done', 'failed'].includes(job.state)) {
+            Object.assign(job, { state: 'failed', message: 'The editor restarted during export. Please export again.' });
+            await writeFile(filename, JSON.stringify(job));
+          }
+        } catch {}
+      }
+      return json(res, job || { error: 'Export not found.' }, job ? 200 : 404);
+    }
     const assetMatch = route.match(/^\/assets\/([a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb))$/);
     if (assetMatch) {
       const filename = path.join(data, 'assets', assetMatch[1]);

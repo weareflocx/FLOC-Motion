@@ -12,7 +12,8 @@ window.addEventListener('hf-seek', event => {
 });
 const root = document.querySelector('[data-composition-id]');
 const project = JSON.parse(root.dataset.flocProject);
-window.__flocReady = createScene(root, project, { renderMode: true }).then(value => {
+const cardFrames = JSON.parse(document.getElementById('floc-card-frames')?.textContent || '{}');
+window.__flocReady = createScene(root, project, { renderMode: true, cardFrames }).then(value => {
   scene = value;
   const [width, height] = FORMATS[project.format];
   const scale = Number(root.dataset.renderScale) || 1;

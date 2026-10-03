@@ -14,7 +14,7 @@ test('production serves frontend bundles and uploaded media without mixing names
   let child;
   try {
     await mkdir(path.join(folder, 'server'));
-    for (const name of ['index.mjs', 'runtime-config.mjs', 'export.mjs', 'build-scene.mjs', 'card-media.mjs', 'template-store.mjs', 'asset-validation.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
+    for (const name of ['index.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
     for (const name of ['node_modules', 'src']) await symlink(path.join(root, name), path.join(folder, name));
     await mkdir(path.join(folder, 'dist/assets'), { recursive: true });
     await writeFile(path.join(folder, 'dist/index.html'), '<script src="/assets/index-test.js"></script>');

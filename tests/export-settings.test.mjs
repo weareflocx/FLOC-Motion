@@ -72,3 +72,26 @@ test('standalone exports keep Paper notices and saved layer-effect settings', as
     }
   } finally { await rm(folder, { recursive: true, force: true }); }
 });
+
+test('failed exports persist their error so it survives a server restart', async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), 'floc-export-failure-'));
+  const previousData = process.env.FLOC_DATA_DIR;
+  process.env.FLOC_DATA_DIR = folder;
+  try {
+    const project = demoProject();
+    project.images = [{ id: 'missing', name: 'Missing video', src: '/assets/12345678-1234-1234-1234-123456789abc.mp4' }];
+    const job = await startExport(project);
+    let persisted;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try { persisted = JSON.parse(await readFile(path.join(folder, 'renders', job.id, 'job.json'), 'utf8')); break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(persisted?.state, 'failed');
+    assert.match(persisted.message, /12345678-1234-1234-1234-123456789abc.mp4/);
+    assert.equal(persisted.id, job.id);
+    assert.match(await readFile(path.join(folder, 'renders', job.id, 'render.log'), 'utf8'), /12345678-1234-1234-1234-123456789abc.mp4/);
+  } finally {
+    if (previousData === undefined) delete process.env.FLOC_DATA_DIR; else process.env.FLOC_DATA_DIR = previousData;
+    await rm(folder, { recursive: true, force: true });
+  }
+});
