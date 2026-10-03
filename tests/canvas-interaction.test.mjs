@@ -1,0 +1,98 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { transform } from 'esbuild';
+import { demoProject, FORMATS } from '../src/project.js';
+import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../src/editor-controls.js';
+import { alignmentPlacement, DEFAULT_LAYOUT } from '../src/layout.js';
+import { dragOrientation, wrapDegrees } from '../src/orientation.js';
+
+const source = fs.readFileSync(new URL('../src/editor/useCanvasInteraction.jsx', import.meta.url), 'utf8');
+const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
+
+function editor() {
+  const slots = [], effects = [], timers = new Map(), patches = [], previews = [];
+  let cursor = 0, timerId = 0, wheel, pending;
+  const project = demoProject();
+  const rect = { left: 0, top: 0, right: 1000, bottom: 1000, width: 1000, height: 1000 };
+  const node = { dataset: { flocLayer: 'headline' }, style: { opacity: '1', left: '5%', top: '5%' },
+    getBoundingClientRect: () => rect, classList: { toggle() {} }, setAttribute() {} };
+  const root = { current: { getBoundingClientRect: () => rect, querySelectorAll: () => [node],
+    addEventListener(name, fn) { if (name === 'wheel') wheel = fn; },
+    removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
+  const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
+  const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
+    gridPlacement, nearestGridPoint, nudgePlacement, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees,
+    setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
+    useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
+    useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
+    useCallback(fn, deps) { const i = cursor++; if (changed(slots[i]?.deps, deps)) slots[i] = { fn, deps }; return slots[i].fn; },
+    useEffect(fn, deps) { const i = cursor++; if (changed(slots[i]?.deps, deps)) effects.push(() => { slots[i]?.cleanup?.(); slots[i] = { deps, cleanup: fn() }; }); }
+  };
+  vm.createContext(context); vm.runInContext(compiled + '\nthis.hook = useCanvasInteraction;', context);
+  let props = { root, engine: { current: {} }, project, sceneKey: project, selected: 'headline', time: 1,
+    onSelect() {}, onPatch(id, patch) { patches.push({ id, ...patch }); },
+    onPreview(value) { previews.push(value); }, onPendingEdit(commit) { pending = commit; } };
+  function render(next = {}) { cursor = 0; props = { ...props, ...next }; const result = context.hook(props); for (const effect of effects.splice(0)) effect(); return result; }
+  const scroll = () => wheel({ clientX: 100, clientY: 100, deltaY: -100, preventDefault() {} });
+  const flush = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
+  const unmount = () => { for (const slot of slots) slot?.cleanup?.(); };
+  render();
+  return { render, scroll, flush, unmount, patches, previews, node, rect, project, timers, commit: () => pending?.() };
+}
+
+test('wheel changes are grouped into one edit and survive selecting another layer', () => {
+  const h = editor(), original = h.project.layers.find(layer => layer.id === 'headline');
+  h.scroll(); h.scroll(); assert.equal(h.patches.length, 0);
+  h.render({ selected: 'logo' });
+  assert.deepEqual(h.patches, [{ id: 'headline', size: canvasWheelSize(original, -100, canvasWheelSize(original, -100)) }]);
+  h.flush(); assert.equal(h.patches.length, 1); h.unmount();
+});
+
+test('history can commit a pending resize synchronously without a later timer edit', () => {
+  const h = editor(); h.scroll(); h.commit();
+  assert.equal(h.patches.length, 1); assert.equal(h.timers.size, 0);
+  h.flush(); assert.equal(h.patches.length, 1); h.unmount();
+});
+
+test('Escape and unmount cancel pending wheel edits', () => {
+  for (const cancel of ['escape', 'unmount']) {
+    const h = editor(); h.scroll();
+    if (cancel === 'escape') h.render().handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+    else h.unmount();
+    h.flush(); assert.equal(h.patches.length, 0); assert.equal(h.previews.at(-1), null);
+    if (cancel === 'escape') h.unmount();
+  }
+});
+
+test('loading a new scene cancels old drafts and blocks wheel, pointer and keyboard edits', () => {
+  const h = editor(); h.scroll();
+  const { handlers } = h.render({ enabled: false, project: { ...h.project, format: 'portrait' } });
+  h.scroll();
+  handlers.onPointerDown({ button: 0, target: { closest() { throw new Error('disabled hit testing'); } } });
+  handlers.onKeyDown({ key: 'ArrowRight', target: { closest() { throw new Error('disabled keyboard editing'); } } });
+  h.flush(); assert.equal(h.patches.length, 0); assert.equal(h.node.tabIndex, -1);
+  h.render({ enabled: true }); h.scroll(); h.flush();
+  assert.equal(h.patches.length, 1); assert.equal(h.node.tabIndex, 0); h.unmount();
+});
+test('dragging uses the displayed frame size at different zoom levels and commits once', () => {
+  for (const width of [300, 1080, 2160]) {
+    const h = editor();
+    Object.assign(h.rect, { left: 100, top: 100, width, height: width, right: 100 + width, bottom: 100 + width });
+    h.node.getBoundingClientRect = () => ({ left: 100 + width * 0.05, top: 100 + width * 0.05, right: 100 + width * 0.25, bottom: 100 + width * 0.1, width: width * 0.2, height: width * 0.05 });
+    h.node.focus = () => {};
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 100 + width * 0.1, clientY: 100 + width * 0.075, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render();
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: event.clientX + width * 0.1, shiftKey: true });
+    assert.equal(h.patches.length, 0);
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, 1);
+    assert.equal(h.patches[0].id, 'headline');
+    assert(Math.abs(h.patches[0].x - 15) < 1e-8);
+    assert.equal(h.patches[0].y, 5);
+    h.unmount();
+  }
+});

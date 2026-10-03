@@ -51,3 +51,19 @@ test('shortcuts support Mac and Windows and preserve editing and dialogs', () =>
   for (const extra of [{ altKey: true }, { isComposing: true }, { defaultPrevented: true }, { target: { isContentEditable: true } }, { target: { closest: () => ({}) } }]) assert.equal(historyShortcut({ ...base, ...extra }), null);
   assert.equal(historyShortcut({ key: 'z' }), null);
 });
+
+test('undo commits a pending canvas resize before reverting it, and redo restores it', () => {
+  const render = editor(); let api = render();
+  const original = api.project.layers.find(layer => layer.id === 'headline').size;
+  let commits = 0;
+  api.setCanvasEdit(() => {
+    api.setCanvasEdit(null); commits++;
+    api.patch('headline', { size: original + 2 });
+  });
+  api = render(); assert.equal(api.canvasEditing, true); assert.equal(api.history.length, 0);
+  api.undo();
+  assert.equal(api.projectRef.current.layers.find(layer => layer.id === 'headline').size, original);
+  api.redo();
+  assert.equal(api.projectRef.current.layers.find(layer => layer.id === 'headline').size, original + 2);
+  api = render(); assert.equal(api.canvasEditing, false); assert.equal(commits, 1);
+});

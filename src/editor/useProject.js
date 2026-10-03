@@ -24,6 +24,12 @@ export function useProject() {
   const [future, setFuture] = useState([]);
   const historyRef = useRef([]);
   const futureRef = useRef([]);
+  const canvasEdit = useRef(null);
+  const [canvasEditing, setCanvasEditing] = useState(false);
+  const setCanvasEdit = useCallback(commit => {
+    canvasEdit.current = commit;
+    setCanvasEditing(Boolean(commit));
+  }, []);
   const clearHistory = useCallback(() => {
     historyRef.current = []; futureRef.current = [];
     setHistory([]); setFuture([]);
@@ -82,6 +88,7 @@ export function useProject() {
   }, []);
 
   const undo = useCallback(() => {
+    canvasEdit.current?.();
     const previous = historyRef.current.at(-1);
     if (!previous) return;
     futureRef.current = [...futureRef.current, projectRef.current];
@@ -95,6 +102,7 @@ export function useProject() {
   }, []);
 
   const redo = useCallback(() => {
+    canvasEdit.current?.();
     const next = futureRef.current.at(-1);
     if (!next) return;
     historyRef.current = [...historyRef.current.slice(-19), projectRef.current];
@@ -206,6 +214,8 @@ export function useProject() {
     setError,
     history,
     future,
+    canvasEditing,
+    setCanvasEdit,
     change,
     patch,
     save,

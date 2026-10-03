@@ -1,5 +1,5 @@
 import { createModelScene } from './model-scene.js';
-import { cardMediaKind, cardVideoSource, cardMediaTime, waitForVideo, seekCardVideo } from './card-media.js';
+import { cardMediaKind, cardVideoSource, cardMediaTime, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
 import { carouselCard, motionVariant, elasticState } from './carousel-motion.js';
 import * as THREE from 'three';
 import { fontDefinition } from './fonts.js';
@@ -83,6 +83,17 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   let placement = null;
   const layerNodes = [...root.querySelectorAll('[data-floc-layer]')].filter(node => p.layers.some(l => l.id === node.dataset.flocLayer));
   const mediaNodes = layerNodes.filter(node => ['AUDIO', 'VIDEO'].includes(node.tagName));
+  const mediaErrors = renderMode ? [] : mediaNodes.map(media => {
+    let reported = false;
+    const failed = () => {
+      if (disposed || reported) return;
+      reported = true;
+      onMediaError(new Error(`${p.layers.find(l => l.id === media.dataset.flocLayer).name} could not be loaded or decoded.`));
+    };
+    media.addEventListener('error', failed, { once: true });
+    if (media.error) queueMicrotask(failed);
+    return () => media.removeEventListener('error', failed);
+  });
   const imageNodes = layerNodes.filter(node => node.tagName === 'IMG');
   const models = [];
   const meshes = [];
@@ -168,10 +179,11 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   function dispose() {
     if (disposed) return;
     disposed = true;
+    mediaErrors.forEach(remove => remove());
     carouselEffect?.dispose();
     models.forEach(model => model.dispose());
-    cardVideos.forEach(({ video, texture }) => { video.pause(); video.removeAttribute('src'); video.load(); texture.dispose(); });
-    mediaNodes.forEach(m => { m.pause(); m.removeAttribute('src'); m.load(); });
+    cardVideos.forEach(({ video, texture }) => { pauseMedia(video); video.removeAttribute('src'); video.load(); texture.dispose(); });
+    mediaNodes.forEach(m => { pauseMedia(m); m.removeAttribute('src'); m.load(); });
     meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); });
     textures.forEach(t => t.dispose());
     renderer.dispose(); renderer.forceContextLoss();
@@ -213,7 +225,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       const active = alpha > 0 && (l.loop || desired < media.duration - 0.02);
       if (Math.abs(media.currentTime - desired) > (playing ? 0.2 : 0.025)) media.currentTime = desired;
       if (l.type === 'music') media.volume = l.volume * (l.fade ? Math.max(0, Math.min(1, (time - l.start) / l.fade, (l.end - time) / l.fade)) : 1);
-      if (playing && active) { if (media.paused) media.play().catch(() => {}); } else if (!media.paused) media.pause();
+      if (playing && active) { if (media.paused) playMedia(media, error => { if (!disposed) onMediaError(error); }); } else pauseMedia(media);
     });
   }
   function seek(time, playing = false) {
@@ -224,8 +236,8 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
         const desired = cardMediaTime(time, layer.start, video.duration);
         if (Math.abs(video.currentTime - desired) > 0.2) video.currentTime = desired;
         video.loop = true;
-        if (layerAlpha(layer, time) > 0) { if (video.paused) video.play().catch(onMediaError); }
-        else if (!video.paused) video.pause();
+        if (layerAlpha(layer, time) > 0) { if (video.paused) playMedia(video, error => { if (!disposed) onMediaError(error); }); }
+        else pauseMedia(video);
       }
       draw(time, playing);
       return Promise.resolve();
@@ -233,11 +245,11 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     const standalone = renderMode ? [] : mediaNodes.filter(video => video.tagName === 'VIDEO').map(async video => {
       const l = p.layers.find(l => l.id === video.dataset.flocLayer);
       if (video.readyState < 2) await waitForVideo(video, 'loadeddata', () => video.load(), () => video.readyState >= 2);
-      video.pause();
+      pauseMedia(video);
       await seekCardVideo(video, audioTime(l, time, video.duration));
     });
     const frames = cardVideos.map(({ video }) => {
-      video.pause();
+      pauseMedia(video);
       return seekCardVideo(video, cardMediaTime(time, layer.start, video.duration));
     });
     frames.push(...standalone);

@@ -23,7 +23,7 @@ import { LayerPanel } from './editor/components/LayerPanel.jsx';
 import { TimelinePanel } from './editor/components/TimelinePanel.jsx';
 
 function App() {
-  const { project, composition, openComposition, updateCompositionMetadata, saveCopy, importDraft, projectRef, loaded, status, error, setError, history, future, change, patch, save, undo, redo, reload } = useProject();
+  const { project, composition, openComposition, updateCompositionMetadata, saveCopy, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject();
   const [selected, setSelected] = useState('carousel'); const [leftTab, setLeftTab] = useState('layers'); const [rightTab, setRightTab] = useState('composition');
   const [ready, setReady] = useState(false);
   const [positionPreview, setPositionPreview] = useState(null);
@@ -52,10 +52,10 @@ function App() {
     <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={() => { if (window.confirm("Discard your local changes and load the latest saved project? Download your project JSON first to keep a copy.")) reload().catch(reloadError => setError(reloadError.message)); }} onDismiss={() => setError('')}/>
     <div className="workspace">
       <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
-      <CanvasPanel selected={selected} onSelect={selectCanvasLayer} onPatch={patch} onPreview={previewPosition} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview} time={time} playing={playing} onError={showError} onReady={sceneReady} onChangeName={name => change({ ...project, name })} onUndo={undo} onRedo={redo}/>
+      <CanvasPanel selected={selected} onSelect={selectCanvasLayer} onPatch={patch} onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview} time={time} playing={playing} onError={showError} onReady={sceneReady} onChangeName={name => change({ ...project, name })} onUndo={undo} onRedo={redo}/>
       <InspectorPanel project={project} layer={layer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={patch} onPick={target => setAddTarget(target)} onPreview={previewPosition} onRemoveText={removeText}/>
+      <TimelinePanel project={project} selected={selected} time={time} playing={playing} ready={ready} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={value => { setTime(value); setPlaying(false); }} onPatch={patch}/>
     </div>
-    <TimelinePanel project={project} selected={selected} time={time} playing={playing} ready={ready} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={value => { setTime(value); setPlaying(false); }} onPatch={patch}/>
     {saveOpen && <SaveCompositionDialog name={project.name} onClose={() => setSaveOpen(false)} onSave={saveCopy}/>}
     {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}

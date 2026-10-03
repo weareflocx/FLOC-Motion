@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../editor-controls.js';
 import { FORMATS } from '../project.js';
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../layout.js';
 import { dragOrientation, wrapDegrees } from '../orientation.js';
 
-// Editor-only interaction: previews never mutate project data until release.
-export function useCanvasInteraction({ root, engine, project, sceneKey, selected, time, onSelect, onPatch, onPreview }) {
+// Drag previews commit on release; wheel previews commit after scrolling or before history/selection changes.
+export function useCanvasInteraction({ root, engine, project, sceneKey, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled = true }) {
   const gesture = useRef(null);
   const wheelDraft = useRef(null);
   const playhead = useRef(time); playhead.current = time;
@@ -13,34 +13,52 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   const layer = project.layers.find(l => l.id === selected);
   const layout = project.layout ?? DEFAULT_LAYOUT;
   const nodeFor = id => [...(root.current?.querySelectorAll('[data-floc-layer]') || [])].find(n => n.dataset.flocLayer === id);
-  function cancel() { gesture.current = null; clearTimeout(wheelDraft.current?.timer); wheelDraft.current = null; setDraft(null); onPreview(null); }
-  useEffect(() => { if (gesture.current && (gesture.current.layer.id !== selected || gesture.current.project !== project)) cancel(); }, [selected, project]);
-  useEffect(() => () => onPreview(null), [onPreview]);
+  const cancelWheel = useCallback(() => {
+    if (!wheelDraft.current) return;
+    clearTimeout(wheelDraft.current.timer); wheelDraft.current = null;
+    onPendingEdit?.(null); onPreview(null);
+  }, [onPendingEdit, onPreview]);
+  const commitWheel = useCallback(() => {
+    const edit = wheelDraft.current; if (!edit) return;
+    clearTimeout(edit.timer); wheelDraft.current = null;
+    onPendingEdit?.(null); onPreview(null);
+    if (edit.size !== edit.layer.size) onPatch(edit.layer.id, { size: edit.size });
+  }, [onPendingEdit, onPreview, onPatch]);
+  function cancel() { gesture.current = null; cancelWheel(); setDraft(null); onPreview(null); }
+  useEffect(() => {
+    if (gesture.current && (!enabled || gesture.current.layer.id !== selected || gesture.current.project !== project)) cancel();
+    const edit = wheelDraft.current;
+    if (edit && (!enabled || edit.project !== project)) cancelWheel();
+    else if (edit && edit.layer.id !== selected) commitWheel();
+  }, [selected, project, enabled, cancelWheel, commitWheel]);
+  useEffect(() => () => { cancelWheel(); onPreview?.(null); }, [cancelWheel, onPreview]);
   useEffect(() => {
     const node = root.current;
     function wheel(event) {
-      if (event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
+      if (!enabled || event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
       event.preventDefault();
       onSelect(layer.id);
       const size = canvasWheelSize(layer, event.deltaY, wheelDraft.current?.size ?? layer.size);
       clearTimeout(wheelDraft.current?.timer);
       onPreview({ id: layer.id, x: layer.x, y: layer.y, size });
-      wheelDraft.current = { size, timer: setTimeout(() => { wheelDraft.current = null; onPreview(null); if (size !== layer.size) onPatch(layer.id, { size }); }, 250) };
+      wheelDraft.current = { layer, project, size, timer: setTimeout(commitWheel, 250) };
+      onPendingEdit?.(commitWheel);
     }
     node?.addEventListener('wheel', wheel, { passive: false });
-    return () => { node?.removeEventListener('wheel', wheel); if (wheelDraft.current) { clearTimeout(wheelDraft.current.timer); wheelDraft.current = null; onPreview(null); } };
-  }, [project, selected, onPatch, onPreview, onSelect]);
+    return () => node?.removeEventListener('wheel', wheel);
+  }, [project, selected, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
   useEffect(() => {
     for (const l of project.layers) {
       const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model'].includes(l.type)) continue;
       node.classList.toggle('canvas-selected', l.id === selected && l.type !== 'carousel');
       const visible = l.visible && time >= l.start && time < l.end;
-      node.tabIndex = visible ? 0 : -1; node.setAttribute('role', 'button');
+      node.tabIndex = visible && enabled ? 0 : -1; node.setAttribute('role', 'button');
+      node.setAttribute('aria-disabled', String(!enabled));
       node.setAttribute('aria-hidden', String(!visible));
       node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : l.type === 'carousel' ? ': drag to move; Shift-drag to orient; scroll to resize' : ''}`);
-      node.style.pointerEvents = 'auto';
+      node.style.pointerEvents = enabled ? 'auto' : 'none';
     }
-  }, [project, selected, time, sceneKey]);
+  }, [project, selected, time, sceneKey, enabled]);
   function pick(x, y) {
     const box = root.current.getBoundingClientRect();
     for (const l of [...project.layers].reverse()) {
@@ -55,7 +73,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     return null;
   }
   function begin(event) {
-    if (event.button !== 0 || gesture.current || wheelDraft.current) return;
+    if (!enabled || event.button !== 0 || gesture.current || wheelDraft.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
     const l = ring ? project.layers.find(l => l.id === selected && l.type === 'carousel') : pick(event.clientX, event.clientY);
     if (!l) return;
@@ -76,7 +94,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event) {
-    const g = gesture.current; if (!g || g.id !== event.pointerId) return;
+    const g = gesture.current; if (!enabled || !g || g.id !== event.pointerId) return;
     const dx = event.clientX - g.x, dy = event.clientY - g.y;
     if (!g.moved && Math.hypot(dx, dy) < 3) return;
     g.moved = true;
@@ -105,12 +123,14 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   }
   function keys(event) {
     if (event.key === 'Escape') { event.preventDefault(); cancel(); return; }
+    if (!enabled) return;
     const target = event.target.closest('[data-floc-layer]');
     const l = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : layer;
     if (!l || !l.visible || playhead.current < l.start || playhead.current >= l.end) return;
     if (['Enter', ' '].includes(event.key)) { event.preventDefault(); onSelect(l.id); return; }
     if (l.locked || gesture.current || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault(); onSelect(l.id);
+    commitWheel();
     const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
     const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
     if (l.type === 'carousel' && (event.shiftKey || event.altKey || event.target.closest('[data-canvas-ring]'))) {
@@ -126,7 +146,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
       onPatch(l.id, nudgePlacement(position, dx, dy, FORMATS[project.format], { width: w, height: h }, event.shiftKey ? 10 : 1, project.layout));
     }
   }
-  const carousel = layer?.type === 'carousel' && layer.visible && time >= layer.start && time < layer.end ? layer : null;
+  const carousel = enabled && layer?.type === 'carousel' && layer.visible && time >= layer.start && time < layer.end ? layer : null;
   const ring = carousel && !carousel.locked ? <svg className="canvas-orientation-ring" style={{ left: `${draft?.x ?? carousel.x}%`, top: `${draft?.y ?? carousel.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label="Rotate carousel Z: drag ring or use arrow keys; Escape cancels"><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos((draft?.roll ?? carousel.roll) * Math.PI / 180)} cy={50 + 45 * Math.sin((draft?.roll ?? carousel.roll) * Math.PI / 180)} r="2"/></svg> : null;
   return { ring, handlers: { onPointerDown: begin, onPointerMove: move, onPointerUp: finish, onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: keys } };
 }
