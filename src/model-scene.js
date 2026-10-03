@@ -45,6 +45,8 @@ export async function createModelScene(canvas, layer, width, height) {
     const action = clip ? mixer.clipAction(clip) : null;
     if (action) { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; }
     return {
+      id: layer.id,
+      updateLayer(value) { layer = value; },
       draw(time) {
         if (action) {
           const elapsed = Math.max(0, time - layer.start) + layer.offset;

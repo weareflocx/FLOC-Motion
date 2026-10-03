@@ -3,6 +3,7 @@ import { useCanvasInteraction } from './useCanvasInteraction.jsx';
 import { FORMATS } from '../project.js';
 import { createScene, stageMarkup } from '../scene.js';
 import { updateTextPreview } from './text-preview.js';
+import { updatePlacementPreview } from './placement-preview.js';
 import { createPreviewSession } from './preview-session.js';
 import { PlacementGuides } from './PlacementGuides.jsx';
 import { DEFAULT_LAYOUT } from '../layout.js';
@@ -62,7 +63,7 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
         return { node, scene, project };
       },
       update(current, project) {
-        if (!updateTextPreview(current, project)) return false;
+        if (!updateTextPreview(current, project) && !updatePlacementPreview(current, project)) return false;
         setActiveProject(project);
         return true;
       },

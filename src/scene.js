@@ -61,7 +61,7 @@ if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacit
 async function createLayerScene(root, p, { renderMode = false, onMediaError = () => {}, cardFrames = {} } = {}) {
   const [width, height] = FORMATS[p.format];
   const carousel = p.layers.find(l => l.type === 'carousel');
-  const layer = carousel || { ...demoProject().layers.find(l => l.type === 'carousel'), visible: false };
+  let layer = carousel || { ...demoProject().layers.find(l => l.type === 'carousel'), visible: false };
   const canvas = (carousel ? root.querySelector(`[id="carousel-${CSS.escape(carousel.id)}"]`) : null) || document.createElement('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(1); renderer.setSize(width, height, false);
@@ -69,13 +69,16 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   renderer.setClearColor(0, 0);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(layer.perspective ?? 38, width / height, 0.1, 100);
-  camera.position.z = 8 * Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  if (layer.template === 'wheel') {
-    const count = layer.cardCount || p.images.length;
-    const radius = layer.radius || Math.max(2.2, count * (layer.size + layer.gap) / (2 * Math.PI));
-    const extent = radius + Math.max(layer.size, layer.size / layer.cardAspect) * 0.6;
-    camera.position.z = Math.max(camera.position.z, extent * 1.12 / (Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, width / height)));
+  function updateCamera() {
+    camera.position.z = 8 * Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    if (layer.template === 'wheel') {
+      const count = layer.cardCount || p.images.length;
+      const radius = layer.radius || Math.max(2.2, count * (layer.size + layer.gap) / (2 * Math.PI));
+      const extent = radius + Math.max(layer.size, layer.size / layer.cardAspect) * 0.6;
+      camera.position.z = Math.max(camera.position.z, extent * 1.12 / (Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, width / height)));
+    }
   }
+  updateCamera();
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
   let carouselEffect = null;
@@ -132,6 +135,17 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       el.style.transform = rise ? `translateY(${rise}px)` : '';
     }
   }
+  function cardGeometry() {
+    const size = layer.size;
+    const geometry = new THREE.PlaneGeometry(size, size / layer.cardAspect, layer.shader === 'elastic' ? 64 : 32, 16);
+    if (layer.template === 'circular' && ['wrapped', undefined].includes(motionVariant(layer))) {
+      const radius = layer.radius || Math.max(1.45, ((layer.cardCount || p.images.length) * (size + layer.gap)) / (2 * Math.PI));
+      const pos = geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); const a = x / radius; pos.setX(i, x * (1 - layer.curve) + Math.sin(a) * radius * layer.curve); pos.setZ(i, (Math.cos(a) - 1) * radius * layer.curve); }
+      geometry.computeVertexNormals();
+    }
+    return geometry;
+  }
   try {
     await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontDefinition(l.font).family}"`)));
     await document.fonts.ready;
@@ -163,13 +177,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
       const size = layer.size;
-      const geometry = new THREE.PlaneGeometry(size, size / layer.cardAspect, layer.shader === 'elastic' ? 64 : 32, 16);
-      if (layer.template === 'circular' && ['wrapped', undefined].includes(motionVariant(layer))) {
-        const radius = layer.radius || Math.max(1.45, ((layer.cardCount || p.images.length) * (size + layer.gap)) / (2 * Math.PI));
-        const pos = geometry.attributes.position;
-        for (let i = 0; i < pos.count; i++) { const x = pos.getX(i); const a = x / radius; pos.setX(i, x * (1 - layer.curve) + Math.sin(a) * radius * layer.curve); pos.setZ(i, (Math.cos(a) - 1) * radius * layer.curve); }
-        geometry.computeVertexNormals();
-      }
+      const geometry = cardGeometry();
       const imageRatio = (texture.image.videoWidth || texture.image.width) / (texture.image.videoHeight || texture.image.height);
       const cardRatio = layer.cardAspect;
       const crop = imageRatio > cardRatio ? new THREE.Vector2(cardRatio / imageRatio, 1) : new THREE.Vector2(1, imageRatio / cardRatio);
@@ -279,7 +287,23 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     return ready.catch(error => { if (!disposed) onMediaError(error); });
   }
   try { await seek(0); } catch (error) { dispose(); throw error; }
-  return { seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); carouselEffect?.setResolution(w, h); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
+  function updateLayers(layers) {
+    const previousSize = layer.size;
+    p = { ...p, layers: p.layers.map(previous => layers.find(next => next.id === previous.id) ?? previous) };
+    if (carousel) layer = p.layers.find(next => next.id === carousel.id);
+    if (layer.size !== previousSize) {
+      updateCamera();
+      meshes.forEach(mesh => {
+        const previous = mesh.geometry;
+        mesh.geometry = cardGeometry();
+        mesh.material.uniforms.uCardSize.value = layer.size;
+        previous.dispose();
+      });
+    }
+    models.forEach(model => model.updateLayer(p.layers.find(next => next.id === model.id)));
+    placementBounds.clear();
+  }
+  return { updateLayers, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); carouselEffect?.setResolution(w, h); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
 }
 
 export async function createScene(root, project, options = {}) {
@@ -293,6 +317,7 @@ export async function createScene(root, project, options = {}) {
     }
   } catch (error) { engines.forEach(engine => engine.scene.dispose()); throw error; }
   return {
+    updateLayers: layers => engines.forEach(engine => engine.scene.updateLayers(layers)),
     seek: (time, playing) => Promise.all(engines.map(engine => engine.scene.seek(time, playing))),
     hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,
     setResolution: (w, h) => engines.forEach(engine => engine.scene.setResolution(w, h)),
