@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { demoProject, patchLayer, validateProject } from '../project.js';
 import { request } from './request.js';
+import { historyShortcut } from './history-shortcut.js';
 
 /**
  * Owns the editor's project state and its revision-guarded local persistence.
@@ -8,7 +9,7 @@ import { request } from './request.js';
  * state while a control is being edited.
  */
 export function useProject() {
-  const [project, setProject] = useState(demoProject);
+  const [project, setProject] = useState(() => validateProject(demoProject()));
   const projectRef = useRef(project);
   const revisionRef = useRef(0);
   const compositionRef = useRef(null);
@@ -20,12 +21,22 @@ export function useProject() {
   const [status, setStatus] = useState('Loading project');
   const [error, setError] = useState('');
   const [history, setHistory] = useState([]);
+  const [future, setFuture] = useState([]);
+  const historyRef = useRef([]);
+  const futureRef = useRef([]);
+  const clearHistory = useCallback(() => {
+    historyRef.current = []; futureRef.current = [];
+    setHistory([]); setFuture([]);
+  }, []);
 
   const change = useCallback(next => {
     try {
       const valid = validateProject(next);
       const previous = projectRef.current;
-      setHistory(items => [...items.slice(-19), previous]);
+      if (JSON.stringify(valid) === JSON.stringify(previous)) return previous;
+      historyRef.current = [...historyRef.current.slice(-19), previous];
+      setHistory(historyRef.current);
+      futureRef.current = []; setFuture([]);
       projectRef.current = valid;
       setProject(valid);
       dirty.current = true;
@@ -71,14 +82,41 @@ export function useProject() {
   }, []);
 
   const undo = useCallback(() => {
-    const previous = history.at(-1);
+    const previous = historyRef.current.at(-1);
     if (!previous) return;
+    futureRef.current = [...futureRef.current, projectRef.current];
+    setFuture(futureRef.current);
+    historyRef.current = historyRef.current.slice(0, -1);
+    setHistory(historyRef.current);
     projectRef.current = previous;
     setProject(previous);
-    setHistory(items => items.slice(0, -1));
     dirty.current = true;
     setStatus('Unsaved changes');
-  }, [history]);
+  }, []);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.at(-1);
+    if (!next) return;
+    historyRef.current = [...historyRef.current.slice(-19), projectRef.current];
+    setHistory(historyRef.current);
+    futureRef.current = futureRef.current.slice(0, -1);
+    setFuture(futureRef.current);
+    projectRef.current = next;
+    setProject(next);
+    dirty.current = true;
+    setStatus('Unsaved changes');
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = event => {
+      const action = historyShortcut(event);
+      if (!action) return;
+      event.preventDefault();
+      if (action === 'undo') undo(); else redo();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [undo, redo]);
 
   const reload = useCallback(async () => {
     await saveQueue.current.catch(() => {});
@@ -96,21 +134,21 @@ export function useProject() {
     compositionRef.current = data.composition || null;
     setComposition(compositionRef.current);
     dirty.current = false;
-    setHistory([]);
+    clearHistory();
     hydrated.current = true;
     setLoaded(true);
     setError('');
     setStatus(data.composition ? 'All changes saved' : 'Draft saved');
     return next;
-  }, []);
+  }, [clearHistory]);
 
   const openComposition = useCallback(entry => {
     compositionRef.current = { id: entry.id, updatedAt: entry.updatedAt };
     setComposition(compositionRef.current);
     const valid = change({ ...entry.project, name: entry.name });
-    setHistory([]);
+    clearHistory();
     return valid;
-  }, [change]);
+  }, [change, clearHistory]);
 
   const updateCompositionMetadata = useCallback(entry => {
     if (compositionRef.current?.id !== entry.id) return;
@@ -167,10 +205,12 @@ export function useProject() {
     error,
     setError,
     history,
+    future,
     change,
     patch,
     save,
     undo,
+    redo,
     reload
   };
 }
