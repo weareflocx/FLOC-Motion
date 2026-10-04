@@ -1,7 +1,8 @@
 // Placement edits keep decoded media and renderer resources alive.
 export function updatePlacementPreview(current, project) {
   const normalize = value => {
-    return { ...value, layers: value.layers.map(layer => {
+    const { linkedFormats, ...renderProject } = value;
+    return { ...renderProject, layers: value.layers.map(layer => {
       const { contentField, ...renderLayer } = layer;
       if (!['text', 'logo', 'media', 'model', 'carousel'].includes(layer.type)) return renderLayer;
       const { x, y, size, opacity, choreography, ...rest } = renderLayer;

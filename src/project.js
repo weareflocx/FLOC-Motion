@@ -5,6 +5,7 @@ import { DEFAULT_LAYOUT } from './layout.js';
 import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline } from './motion-timing.js';
 import { CHOREOGRAPHY_EASINGS, choreographyFields, evaluateChoreography } from './choreography.js';
 import { CONTENT_PROPERTIES } from './template-content.js';
+import { assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
 export const TEMPLATES = [
@@ -72,6 +73,7 @@ export function validAsset(src, allowEmpty = true) {
 }
 export function validateProject(input) {
   if (!input || input.version !== 1) fail('Unsupported project version.');
+  if (Object.hasOwn(input, 'linkedFormats')) assertLinkedFormatInput(input.linkedFormats);
   const p = structuredClone(input);
   str(p.name, 100, 'project name');
   if (!Object.hasOwn(FORMATS, p.format)) fail('Unknown output format.');
@@ -165,6 +167,40 @@ export function validateProject(input) {
       delete l.fadeIn; delete l.fadeOut;
     }
   }
+  if (Object.hasOwn(p, 'linkedFormats')) p.linkedFormats = normalizeLinkedFormats(p, FORMATS, validateProject);
+  return p;
+}
+export function linkFormats(project) {
+  const p = validateProject(project);
+  if (p.linkedFormats) return p;
+  const layouts = { [p.format]: captureFormatSnapshot(p) };
+  for (const format of ['square', 'portrait', 'landscape']) {
+    if (format !== p.format) layouts[format] = assistedFormatSnapshot(p, format, FORMATS);
+  }
+  return validateProject({ ...p, linkedFormats: { master: p.format, layouts } });
+}
+export function switchFormat(project, format) {
+  if (!Object.hasOwn(FORMATS, format)) fail('Unknown output format.');
+  const p = validateProject(project);
+  if (!p.linkedFormats) return validateProject({ ...p, format });
+  if (format === p.format) return p;
+  if (!p.linkedFormats.layouts[format]) {
+    const master = applyFormatSnapshot(p, p.linkedFormats.master, p.linkedFormats.layouts[p.linkedFormats.master]);
+    p.linkedFormats.layouts[format] = assistedFormatSnapshot(master, format, FORMATS);
+  }
+  return validateProject(applyFormatSnapshot(p, format, p.linkedFormats.layouts[format]));
+}
+export function resetFormat(project) {
+  const p = validateProject(project);
+  if (!p.linkedFormats || p.format === p.linkedFormats.master) return p;
+  const master = applyFormatSnapshot(p, p.linkedFormats.master, p.linkedFormats.layouts[p.linkedFormats.master]);
+  const snapshot = assistedFormatSnapshot(master, p.format, FORMATS);
+  p.linkedFormats.layouts[p.format] = snapshot;
+  return validateProject(applyFormatSnapshot(p, p.format, snapshot));
+}
+export function unlinkFormats(project) {
+  const p = validateProject(project);
+  delete p.linkedFormats;
   return p;
 }
 export function resizeDuration(project, duration) {
@@ -215,6 +251,11 @@ export function duplicateLayer(project, id, newId) {
   if (source.locked) fail('Unlock the layer before duplicating it.');
   const copy = { ...structuredClone(source), ...(source.type === 'carousel' ? { images: structuredClone(carouselImages(p, source)) } : {}), id: newId, name: `${source.name.slice(0, 95)} copy`, locked: false };
   delete copy.contentField;
+  if (p.linkedFormats) {
+    for (const snapshot of Object.values(p.linkedFormats.layouts)) {
+      if (Object.hasOwn(snapshot.layers, id)) snapshot.layers[newId] = structuredClone(snapshot.layers[id]);
+    }
+  }
   p.layers.splice(index + 1, 0, copy);
   return validateProject(p);
 }

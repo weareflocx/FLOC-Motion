@@ -1,0 +1,4 @@
+.linked-formats-status{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+.linked-formats-status .check-field{margin-top:0}
+.linked-formats-master{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.linked-format-controls>.outline-button{margin-top:8px;padding:8px}

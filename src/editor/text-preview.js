@@ -1,6 +1,9 @@
 // Content edits do not change scene resources or layer geometry settings.
 export function updateTextPreview(current, project) {
-  const withoutText = value => ({ ...value, layers: value.layers.map(layer => layer.type === 'text' ? { ...layer, text: '' } : layer) });
+  const withoutText = value => {
+    const { linkedFormats, ...renderProject } = value;
+    return { ...renderProject, layers: value.layers.map(layer => layer.type === 'text' ? { ...layer, text: '' } : layer) };
+  };
   if (JSON.stringify(withoutText(current.project)) !== JSON.stringify(withoutText(project))) return false;
   const changes = project.layers.filter((layer, index) => layer.type === 'text' && layer.text !== current.project.layers[index].text);
   if (!changes.length) return false;

@@ -19,13 +19,15 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
     return { width: layer.type === 'text' ? layer.width : layer.size, height: rect.height / frame.current.clientHeight * 100 };
   }
   useEffect(() => {
+    let active = true;
     const update = () => {
+      if (!active || !frame.current || !element.current) return;
       setWidth(frame.current.clientWidth); setBounds(measure());
       setSizes(Object.fromEntries([...frame.current.querySelectorAll('[data-map-layer]')].map(node => { const box = node.getBoundingClientRect(), l = project.layers.find(l => l.id === node.dataset.mapLayer); return [l.id, { width: l.type === 'text' ? l.width : l.size, height: box.height / frame.current.clientHeight * 100 }]; })));
     };
     const observer = new ResizeObserver(update);
     observer.observe(frame.current); frame.current.querySelectorAll('[data-map-layer]').forEach(node => observer.observe(node)); update();
-    return () => observer.disconnect();
+    return () => { active = false; observer.disconnect(); };
   }, [layer.id, project.layers, project.format]);
   useEffect(() => { gesture.current = null; setDraft(null); onPreview(null); }, [layer.id, layer.x, layer.y, project.format, onPreview]);
   useEffect(() => { setChosen(null); setAlignment('center'); }, [layer.id]);

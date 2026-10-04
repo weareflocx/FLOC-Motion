@@ -164,6 +164,12 @@ Give a text, carousel, logo, media or music layer a **Template field → Field n
 
 The header's **Content** form edits only declared fields, including content in locked layers. Position, styling, timing and choreography stay intact; configuring field names still requires an unlocked layer. Carousel uploads replace only that layer's cards. Changes remain in a private preview until applied as one undoable edit; Cancel leaves the composition unchanged.
 
+### Linked format versions
+
+Enable **Linked formats** under Canvas to make the current ratio the master and generate assisted 1:1, 9:16 and 16:9 adaptations. The ratio buttons switch between versions; the existing 3:4 and 4:3 ratios are adapted when first selected. Each version retains its placement, size, orientation, framing, safe margins and text font/weight/width. Content, assets, layer order, visibility, duration, media settings and carousel motion remain shared. Choreography state IDs, times, easing and opacity are shared; each format keeps its own pose coordinates and sizes.
+
+Correct a version with the ordinary inspector and canvas controls. **Reset from master** regenerates the active adaptation from the master's current layout. Disabling Linked formats retains the active composition and removes the other layouts. These actions are undoable. Saved compositions and project JSON retain all versions; preview, agent output switching and manual MP4 export use the active version through the same scene engine.
+
 ### Layers
 
 The layer list shows frontmost layers first. Drag a row to reorder it; the insertion line indicates its new position. Double-click a name (or use Rename / F2) to rename it, Enter to commit and Escape to cancel. Arrow buttons and Alt+Up/Down provide keyboard ordering. Text and logo layers can be duplicated above their source; background, carousel and music remain singletons, with a 20-layer project limit.
