@@ -7,6 +7,8 @@ import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime, demoProject, carou
 import { constrainPlacement, fitsSafeArea, safeArea } from './layout.js';
 import { createCarouselEffect } from './carousel-effects.js';
 import { evaluateChoreography } from './choreography.js';
+import { drawProceduralBackground } from './backgrounds.js';
+import { textTypography, textRevealClip } from './text-style.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -15,13 +17,17 @@ export function stageMarkup(p, path = src => src) {
     const timing = `data-start="${l.start}" data-duration="${l.end - l.start}" data-track-index="${i}"`;
     const common = `data-floc-layer="${esc(l.id)}" style="position:absolute;z-index:${i};opacity:${l.visible ? 1 : 0};`;
     if (l.type === 'background') {
+      if (l.mode === 'procedural') return `<canvas id="background-${esc(l.id)}" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
       const fill = `<div ${common}inset:0;background:${l.color}"></div>`;
       if (l.mode === 'color' || !l.src) return fill;
       const style = `${common}inset:0;width:100%;height:100%;object-fit:${l.fit}">`;
       return fill + (l.mode === 'video' ? `<video id="media-${esc(l.id)}" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(l.src))}" ${style}</video>` : `<img alt="" src="${esc(path(l.src))}" ${style}`);
     }
     if (l.type === 'carousel') return `<canvas id="carousel-${esc(l.id)}" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
-    if (l.type === 'text') return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:0.98;letter-spacing:-0.035em;font-family:${esc(fontDefinition(l.font).family)};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
+    if (l.type === 'text') {
+      const typography = textTypography(l);
+      return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:${typography.lineHeight};letter-spacing:${typography.letterSpacing};text-align:${typography.textAlign};clip-path:${textRevealClip(l, 0)};font-family:${esc(fontDefinition(l.font).family)};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
+    }
     if (l.type === 'logo' && l.src) return `<img alt="Studio mark" src="${esc(path(l.src))}" ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
     if (l.type === 'model') return `<canvas id="model-${esc(l.id)}" class="clip" ${timing} ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;aspect-ratio:1" width="${w}" height="${w}"></canvas>`;
     if (l.type === 'media') {
@@ -136,6 +142,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       }
       el.style.left = `${position.x}%`; el.style.top = `${position.y}%`;
       el.style.transform = rise ? `translateY(${rise}px)` : '';
+      if (l.type === 'text') el.style.clipPath = textRevealClip(l, time);
     }
   }
   function reshapeCardGeometry(geometry, sampled) {
@@ -327,8 +334,20 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
 }
 
 export async function createScene(root, project, options = {}) {
+  let currentProject = project;
+  let currentTime = 0;
+  let disposed = false;
   const carousels = project.layers.filter(layer => layer.type === 'carousel');
   const engines = [];
+  const backgrounds = project.layers.filter(layer => layer.type === 'background' && layer.mode === 'procedural').map(layer => ({ id: layer.id, canvas: root.querySelector(`[id="background-${CSS.escape(layer.id)}"]`) })).filter(background => background.canvas);
+  function drawBackgrounds(time) {
+    if (disposed) return;
+    currentTime = time;
+    backgrounds.forEach(background => {
+      const layer = currentProject.layers.find(layer => layer.id === background.id);
+      if (layer) drawProceduralBackground(background.canvas, layer, Math.max(0, time - layer.start));
+    });
+  }
   try {
     const first = carousels[0];
     engines.push({ id: first?.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, first), layers: project.layers.filter(layer => layer.type !== 'carousel' || layer.id === first?.id) }, options) });
@@ -336,13 +355,22 @@ export async function createScene(root, project, options = {}) {
       engines.push({ id: layer.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, layer), layers: [layer] }, options) });
     }
   } catch (error) { engines.forEach(engine => engine.scene.dispose()); throw error; }
+  drawBackgrounds(0);
   return {
-    updateLayers: layers => engines.forEach(engine => engine.scene.updateLayers(layers)),
-    seek: (time, playing) => Promise.all(engines.map(engine => engine.scene.seek(time, playing))),
+    updateLayers: layers => {
+      currentProject = { ...currentProject, layers: currentProject.layers.map(previous => layers.find(layer => layer.id === previous.id) ?? previous) };
+      engines.forEach(engine => engine.scene.updateLayers(layers));
+    },
+    seek: (time, playing) => { drawBackgrounds(time); return Promise.all(engines.map(engine => engine.scene.seek(time, playing))); },
     hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,
-    setResolution: (w, h) => engines.forEach(engine => engine.scene.setResolution(w, h)),
+    setResolution: (w, h) => {
+      if (disposed) return;
+      engines.forEach(engine => engine.scene.setResolution(w, h));
+      backgrounds.forEach(({ canvas }) => { if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h; });
+      drawBackgrounds(currentTime);
+    },
     setOrientation: value => engines.forEach(engine => engine.scene.setOrientation(value?.id === engine.id ? value : null)),
     setPlacement: value => engines.forEach(engine => engine.scene.setPlacement(value)),
-    dispose: () => engines.forEach(engine => engine.scene.dispose())
+    dispose: () => { disposed = true; engines.forEach(engine => engine.scene.dispose()); }
   };
 }

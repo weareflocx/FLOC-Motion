@@ -166,7 +166,7 @@ The header's **Content** form edits only declared fields, including content in l
 
 ### Linked format versions
 
-Enable **Linked formats** under Canvas to make the current ratio the master and generate assisted 1:1, 9:16 and 16:9 adaptations. The ratio buttons switch between versions; the existing 3:4 and 4:3 ratios are adapted when first selected. Each version retains its placement, size, orientation, framing, safe margins and text font/weight/width. Content, assets, layer order, visibility, duration, media settings and carousel motion remain shared. Choreography state IDs, times, easing and opacity are shared; each format keeps its own pose coordinates and sizes.
+Enable **Linked formats** under Canvas to make the current ratio the master and generate assisted 1:1, 9:16 and 16:9 adaptations. The ratio buttons switch between versions; the existing 3:4 and 4:3 ratios are adapted when first selected. Each version retains its placement, size, orientation, framing, safe margins and text font, weight, width, line height, letter spacing and alignment. Content, assets, layer order, visibility, duration, media settings and carousel motion remain shared. Choreography state IDs, times, easing and opacity are shared; each format keeps its own pose coordinates and sizes.
 
 Correct a version with the ordinary inspector and canvas controls. **Reset from master** regenerates the active adaptation from the master's current layout. Disabling Linked formats retains the active composition and removes the other layouts. These actions are undoable. Saved compositions and project JSON retain all versions; preview, agent output switching and manual MP4 export use the active version through the same scene engine.
 
@@ -191,3 +191,9 @@ Templates persist as validated JSON files in `FLOC_DATA_DIR/templates` (the loca
 ## Mac render worker
 
 The shared editor can delegate exports to a trusted Mac without exposing a local port. Set `FLOC_RENDER_WORKER_TOKEN` on the shared server and create `.data/render-worker/config.json` on the Mac with `{"origin":"https://floc-motion.fly.dev","token":"<same random token>"}`. Restrict that file to the current user (mode 0600). Run `node scripts/render-worker.mjs`; the worker downloads validated project media, uses the native browser GPU, renders with the pinned HyperFrames engine and uploads the verified MP4. The existing export confirmation and download button remain in place. When the Mac is offline, new exports fail immediately with an explanatory message; interrupted jobs fail after 90 seconds without a heartbeat. Only one export runs at a time. The Mac must remain awake and connected. No Runpod resources are used.
+
+### Visual language
+
+Background Source includes **Procedural** with a curated collection of 12 patterns. Each tile is drawn by the same renderer as the composition. Base color, pattern color, scale, intensity, speed and seed remain editable; a speed of zero freezes the pattern. Procedural animation derives from the supplied layer time, so reverse seeking and export reproduce the same image. Existing image and video backgrounds remain available.
+
+Text layers include line height, letter spacing in em, alignment and directional wipe reveals with an adjustable duration. Typography is local to each linked format; reveal direction and timing remain shared. Previews, placement measurements and export use the same style values. These settings are saved in project JSON and validated for human and WebMCP edits. MP4 export still requires **Render MP4** confirmation.

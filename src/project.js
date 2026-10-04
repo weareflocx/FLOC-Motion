@@ -5,6 +5,8 @@ import { DEFAULT_LAYOUT } from './layout.js';
 import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline } from './motion-timing.js';
 import { CHOREOGRAPHY_EASINGS, choreographyFields, evaluateChoreography } from './choreography.js';
 import { CONTENT_PROPERTIES } from './template-content.js';
+import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from './backgrounds.js';
+import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from './text-style.js';
 import { assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
@@ -103,6 +105,10 @@ export function validateProject(input) {
     if (l.type === 'text') {
       str(l.text, 500, 'text'); finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 12, 180, 'Font size'); finite(l.width, 5, 100, 'Text width'); color(l.color);
       l.font ??= 'geist';
+      for (const [field, value] of Object.entries(DEFAULT_TEXT_STYLE)) if (l[field] === undefined) l[field] = value;
+      finite(l.lineHeight, 0.5, 3, 'Line height'); finite(l.letterSpacing, -0.15, 0.5, 'Letter spacing');
+      if (!['left', 'center', 'right'].includes(l.textAlign) || !TEXT_REVEALS.some(({ id }) => id === l.reveal)) fail('Unknown text alignment or reveal.');
+      finite(l.revealDuration, 0, 5, 'Reveal duration'); l.revealDuration = Math.min(l.revealDuration, l.end - l.start);
       if (!fontDefinition(l.font)?.weights.includes(l.weight) || (l.animation !== undefined && !['none', 'fade', 'rise'].includes(l.animation))) fail('Unknown text style.');
       // Legacy text entrance: fixed 0.45 s in / 0.25 s out ramps, optionally rising.
       if (l.animation !== undefined) { l.fadeIn ??= l.animation === 'none' ? 0 : 0.45; l.fadeOut ??= l.animation === 'none' ? 0 : 0.25; l.rise ??= l.animation === 'rise'; delete l.animation; }
@@ -137,7 +143,12 @@ export function validateProject(input) {
       if (!baseline || typeof baseline !== 'object' || Array.isArray(baseline) || Object.keys(baseline).some(key => !['name', 'speed', 'loopDuration', 'motion'].includes(key))) fail('Invalid motion baseline.');
       str(baseline.name, 100, 'motion baseline name'); finite(baseline.speed, -90, 90, 'Original speed'); finite(baseline.loopDuration, 0, 60, 'Original loop duration'); validateMotion(baseline.motion);
     } else if (l.type === 'background') {
-      if (!['color', 'image', 'video'].includes(l.mode) || !['cover', 'contain'].includes(l.fit)) fail('Unknown background setting.');
+      if (!['color', 'image', 'video', 'procedural'].includes(l.mode) || !['cover', 'contain'].includes(l.fit)) fail('Unknown background setting.');
+      for (const [field, value] of Object.entries(DEFAULT_PROCEDURAL_BACKGROUND)) if (l[field] === undefined) l[field] = value;
+      if (!PROCEDURAL_BACKGROUNDS.some(({ id }) => id === l.pattern)) fail('Unknown background pattern.');
+      color(l.patternColor); finite(l.patternScale, 0.25, 4, 'Pattern scale'); finite(l.patternIntensity, 0, 1, 'Pattern intensity'); finite(l.patternSpeed, -2, 2, 'Pattern speed');
+      if (!Number.isInteger(l.patternSeed)) fail('Pattern seed must be an integer.');
+      finite(l.patternSeed, 0, 65535, 'Pattern seed');
       color(l.color); asset(l.src); if (l.src && !(l.mode === 'video' ? /\.(mp4|webm)$/i : l.mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid background asset type.'); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
     } else if (l.type === 'logo') { asset(l.src); if (l.src && !/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(l.src)) fail('Logo requires an image.'); finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 2, 35, 'Logo size');
     } else if (l.type === 'media' || l.type === 'model') {
@@ -210,7 +221,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(key === 'font' && layer.type === 'text') && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {

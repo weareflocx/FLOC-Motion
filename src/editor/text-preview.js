@@ -1,4 +1,4 @@
-// Content edits do not change scene resources or layer geometry settings.
+// Keep scene resources while refreshing text geometry after wrapping changes.
 export function updateTextPreview(current, project) {
   const withoutText = value => {
     const { linkedFormats, ...renderProject } = value;
@@ -11,5 +11,6 @@ export function updateTextPreview(current, project) {
   const updates = changes.map(layer => ({ layer, node: nodes.find(node => node.dataset.flocLayer === layer.id) }));
   if (updates.some(update => !update.node)) return false;
   updates.forEach(({ layer, node }) => { node.textContent = layer.text; });
+  current.scene.updateLayers(project.layers);
   return true;
 }

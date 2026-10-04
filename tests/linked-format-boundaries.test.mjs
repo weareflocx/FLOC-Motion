@@ -47,7 +47,7 @@ test('linked placement and text edits retain preview resources but format change
   assert.equal(updateTextPreview(current, typed), true);
   assert.equal(textNode.textContent, 'Linked title');
   assert.equal(updatePlacementPreview(current, switchFormat(typed, 'portrait')), false);
-  assert.equal(updates, 1);
+  assert.equal(updates, 2);
 });
 
 test('saved compositions retain all linked corrections and export the active version', async () => {

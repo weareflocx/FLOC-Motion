@@ -5,7 +5,7 @@ import { DEFAULT_LAYOUT } from './layout.js';
 // These are the only per-format properties. Content, timing and motion stay
 // on the effective project; choreography caches only the local pose by state ID.
 export const FORMAT_LOCAL_FIELDS = Object.freeze({
-  text: ['x', 'y', 'size', 'width', 'font', 'weight', 'choreography'],
+  text: ['x', 'y', 'size', 'width', 'font', 'weight', 'lineHeight', 'letterSpacing', 'textAlign', 'choreography'],
   logo: ['x', 'y', 'size', 'choreography'],
   media: ['x', 'y', 'size', 'choreography'],
   model: ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'choreography'],
@@ -20,14 +20,14 @@ const record = value => value && typeof value === 'object' && !Array.isArray(val
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const LOCAL_BOUNDS = {
-  text: { x: [0, 95], y: [0, 95], size: [12, 180], width: [5, 100] },
+  text: { x: [0, 95], y: [0, 95], size: [12, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5] },
   logo: { x: [0, 95], y: [0, 95], size: [2, 35] },
   media: { x: [0, 95], y: [0, 95], size: [2, 100] },
   model: { x: [0, 95], y: [0, 95], size: [2, 100], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
   carousel: { x: [10, 90], y: [10, 90], size: [0.5, 2.5], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] }
 };
 const ALL_FIELDS = new Set(Object.values(FORMAT_LOCAL_FIELDS).flat());
-const ALL_BOUNDS = { x: [0, 95], y: [0, 95], size: [0.5, 180], width: [5, 100], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] };
+const ALL_BOUNDS = { x: [0, 95], y: [0, 95], size: [0.5, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] };
 const POSE_FIELDS = new Set(['x', 'y', 'size', 'tilt', 'yaw', 'roll']);
 const numeric = (value, bounds) => typeof value === 'number' && Number.isFinite(value) && value >= bounds[0] && value <= bounds[1];
 const validID = id => typeof id === 'string' && id.trim() && id.length <= 80 && !dangerous(id);
@@ -72,7 +72,8 @@ function validateLocalFields(local, layer, pose = false) {
       if (!Number.isInteger(value) || value < 100 || value > 900 || value % 100) fail('Invalid linked text weight.');
     } else if (key === 'fit') {
       if (!['cover', 'contain'].includes(value)) fail('Unknown linked background fit.');
-
+    } else if (key === 'textAlign') {
+      if (!['left', 'center', 'right'].includes(value)) fail('Unknown linked text alignment.');
     } else if (!bounds[key] || !numeric(value, bounds[key])) fail(`Invalid linked ${key}.`);
   }
   if (local.font !== undefined && local.weight !== undefined && !fontDefinition(local.font).weights.includes(local.weight)) fail('Unknown linked text style.');
