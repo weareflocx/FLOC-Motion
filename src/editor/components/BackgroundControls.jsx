@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
 import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawProceduralBackground } from '../../backgrounds.js';
-import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
+import { Color, Field, NumberField, Range } from '../controls.jsx';
 import './visual-language.css';
 
 const SOURCES = [['color', 'Solid'], ['image', 'Image'], ['video', 'Video'], ['procedural', 'Procedural']];
@@ -20,13 +20,13 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
     const mediaType = mode === 'video' ? /\.(mp4|webm)$/i : mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : null;
     onPatch(layer.id, { mode, ...(mediaType && layer.src && !mediaType.test(layer.src) ? { src: '' } : {}) });
   }
-  return <Section title="Background">
-    <Field label="Source"><div className="segmented background-source-options" role="group" aria-label="Background source">
+  return <div className="property-section background-controls">
+    <div className="segmented background-source-options" role="group" aria-label="Background source">
       {SOURCES.map(([mode, label]) => <button type="button" key={mode} aria-pressed={layer.mode === mode} className={layer.mode === mode ? 'selected' : ''} onClick={() => selectSource(mode)}>{label}</button>)}
-    </div></Field>
+    </div>
     <Color label="Base color" value={layer.color} onChange={color => onPatch(layer.id, { color })}/>
     {layer.mode === 'procedural' && <>
-      <div className="procedural-background-grid" role="group" aria-label="Background pattern">
+      <div className="procedural-background-list" role="group" aria-label="Background pattern">
         {PROCEDURAL_BACKGROUNDS.map(pattern => <button type="button" key={pattern.id} className={`procedural-background-option${settings.pattern === pattern.id ? ' selected' : ''}`} aria-label={`${pattern.name} background`} title={pattern.name} aria-pressed={settings.pattern === pattern.id} onClick={() => onPatch(layer.id, { pattern: pattern.id })}>
           <BackgroundPreview layer={settings} pattern={pattern}/><span>{pattern.name}</span>
         </button>)}
@@ -46,5 +46,5 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
         <label className="check-field"><input type="checkbox" checked={layer.loop} onChange={event => onPatch(layer.id, { loop: event.target.checked })}/>Loop video</label>
       </>}
     </>}
-  </Section>;
+  </div>;
 }

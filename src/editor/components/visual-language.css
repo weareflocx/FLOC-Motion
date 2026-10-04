@@ -1,7 +1,8 @@
+.property-section.background-controls{border-top:0;padding-top:0}
 .background-source-options button{min-width:0;padding:7px 3px;font-size:10px}
-.procedural-background-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:10px 0}
-.procedural-background-option{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:7px;background:#242424;color:var(--muted);text-align:left}
-.procedural-background-option.selected{border-color:#a5a5a5;color:#ececec}
-.procedural-background-option:hover{border-color:#737373;color:#ececec}
-.procedural-background-option canvas{display:block;width:100%;height:auto;aspect-ratio:16/9}
-.procedural-background-option span{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:6px 4px;font-size:11px}
+.procedural-background-list{display:flex;flex-direction:column;gap:2px;margin:10px 0}
+.procedural-background-option{display:flex;align-items:center;gap:8px;min-width:0;padding:6px 4px;overflow:hidden;border:0;border-bottom:1px solid var(--line);border-radius:3px;background:transparent;color:var(--muted);text-align:left}
+.procedural-background-option.selected{background:#303030;color:#ececec}
+.procedural-background-option:hover{background:#292929;color:#ececec}
+.procedural-background-option canvas{display:block;flex-shrink:0;width:40px;height:24px;border-radius:2px}
+.procedural-background-option span{display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px}
