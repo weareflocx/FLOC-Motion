@@ -14,11 +14,13 @@ import { useProject } from './editor/useProject.js';
 import { useCompositionActions } from './editor/useCompositionActions.js';
 import { useProjectFiles } from './editor/useProjectFiles.js';
 import { useAgentBridge } from './editor/useAgentBridge.js';
+import { useVisualAlternatives } from './editor/useVisualAlternatives.js';
 import { useExportJob } from './editor/useExportJob.js';
 import { usePlayback } from './editor/usePlayback.js';
 import { SaveCompositionDialog } from './editor/components/SaveCompositionDialog.jsx';
 import { SavedTemplates } from './editor/components/SavedTemplates.jsx';
 import { TemplateContentDialog } from './editor/components/TemplateContentDialog.jsx';
+import { VisualAlternativesDialog } from './editor/components/VisualAlternativesDialog.jsx';
 import { Dialogs } from './editor/components/Dialogs.jsx';
 import { CanvasPanel } from './editor/components/CanvasPanel.jsx';
 import { ErrorBanner, Header } from './editor/components/Header.jsx';
@@ -57,7 +59,10 @@ function App() {
   }, [patch, projectRef, time, setPlaying, setError]);
   const seek = useCallback(value => { setTime(Math.max(0, Math.min(projectRef.current.duration, value))); setPlaying(false); }, [projectRef, setTime, setPlaying]);
   const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
-  const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef });
+  const alternativesBlocked = canvasEditing || exportOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
+  const alternatives = useVisualAlternatives({ projectRef, change, setPlaying, blocked: alternativesBlocked });
+  const proposeAlternatives = useCallback(proposal => { alternatives.propose(proposal); setAgentOpen(false); }, [alternatives.propose]);
+  const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef, proposeAlternatives });
   const { uploading, fileInput, importInput, pick, handleFileChange, handleImportChange, downloadProject } = useProjectFiles({ projectRef, change, importDraft, patch, setError, setSelected, setLeftTab });
   const { addLayer, addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText } = useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change });
   const selectCanvasLayer = useCallback(id => { setSelected(id); setPlaying(false); }, [setPlaying]);
@@ -85,7 +90,7 @@ function App() {
   return <main className="app-shell">
     <input ref={fileInput} hidden type="file" onChange={handleFileChange}/>
     <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={handleImportChange}/>
-    <Header name={project.name} composition={composition} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
+    <Header name={project.name} composition={composition} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} onExplore={() => { try { alternatives.explore(); } catch (error) { setError(error.message); } }} canExplore={!alternativesBlocked && project.layers.some(layer => layer.visible && !layer.locked && layer.type !== 'music')} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={() => { if (window.confirm("Discard your local changes and load the latest saved project? Download your project JSON first to keep a copy.")) reload().catch(reloadError => setError(reloadError.message)); }} onDismiss={() => setError('')}/>
     <div className="workspace">
       <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
@@ -97,6 +102,7 @@ function App() {
     {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}
     {contentTarget && <TemplateContentDialog project={contentTarget.project} copy={contentTarget.copy} name={contentTarget.name} onClose={() => setContentTarget(null)} onSubmit={applyContent}/>}
+    {alternatives.proposal && <VisualAlternativesDialog proposal={alternatives.proposal} stale={project !== alternatives.proposal.base || canvasEditing} onClose={alternatives.close} onApply={alternatives.apply}/> }
     <Dialogs project={project} exportOpen={exportOpen} agentOpen={agentOpen} job={job} busy={busy} agentState={agentState} audit={audit} onCloseExport={() => setExportOpen(false)} onCloseAgent={() => setAgentOpen(false)} onRender={render}/>
   </main>;
 }

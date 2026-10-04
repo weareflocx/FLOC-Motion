@@ -142,6 +142,6 @@ test('WebMCP exposes and applies local catalog recipes through project validatio
 });
 test('native WebMCP registers with AbortSignal and cleans up; unsupported is explicit', async () => {
   const calls = []; const context = { registerTool: async (tool, options) => calls.push({ tool, options }) };
-  const r = registerWebMCP({}, context); await r.ready; assert.equal(calls.length, 13); assert(!calls[0].options.signal.aborted); r.dispose(); assert(calls[0].options.signal.aborted);
+  const r = registerWebMCP({}, context); await r.ready; assert.equal(calls.length, 14); assert(!calls[0].options.signal.aborted); r.dispose(); assert(calls[0].options.signal.aborted);
   assert.equal(registerWebMCP({}, {}).supported, false);
 });

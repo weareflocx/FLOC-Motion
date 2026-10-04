@@ -197,3 +197,9 @@ The shared editor can delegate exports to a trusted Mac without exposing a local
 Background Source includes **Procedural** with a curated collection of 12 patterns. Each tile is drawn by the same renderer as the composition. Base color, pattern color, scale, intensity, speed and seed remain editable; a speed of zero freezes the pattern. Procedural animation derives from the supplied layer time, so reverse seeking and export reproduce the same image. Existing image and video backgrounds remain available.
 
 Text layers include line height, letter spacing in em, alignment and directional wipe reveals with an adjustable duration. Typography is local to each linked format; reveal direction and timing remain shared. Previews, placement measurements and export use the same style values. These settings are saved in project JSON and validated for human and WebMCP edits. MP4 export still requires **Render MP4** confirmation.
+
+### Visual alternatives
+
+**Explore styles** opens three installed creative directions: Editorial, Bold and Experimental. Switch between their real previews and **Original** at the same playhead time, then choose **Apply alternative**. Comparison stays private; applying a proposal is one undoable edit through the usual autosave. Content, local media, layer timing, locks and inactive linked-format corrections are preserved.
+
+A connected native WebMCP agent can submit 2–3 custom directions with **floc_propose_alternatives**. Read **floc_get_project** first and pass that snapshot as `base`, with each alternative's name and per-layer visual patches. Proposals use installed styles and the canonical validator; they cannot upload code, replace content or start a render. The app rejects stale proposals and changes made while another comparison is open. A person chooses which proposal to apply.
