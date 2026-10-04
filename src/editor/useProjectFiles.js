@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { validateProject, fileLayer, carouselImages } from '../project.js';
-import { request } from './request.js';
+import { uploadAssets } from './upload-assets.js';
 
 export function useProjectFiles({ projectRef, change, importDraft = change, patch, setError, setSelected, setLeftTab }) {
   const [uploading, setUploading] = useState(false);
@@ -16,8 +16,7 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
       const cardLayer = target.startsWith('cards:') ? projectRef.current.layers.find(l => l.id === target.slice(6) && l.type === 'carousel') : null;
       if (target.startsWith('cards:') && (!cardLayer || cardLayer.locked)) throw new Error('Select an unlocked carousel layer.');
       if (cardLayer && carouselImages(projectRef.current, cardLayer).length + files.length > 24) throw new Error('Use up to 24 carousel assets.');
-      const values = [];
-      for (const file of files) values.push(await request(`/api/assets?name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }));
+      const values = await uploadAssets(files);
       if (target === 'layers') {
         const current = projectRef.current;
         const layers = values.map(asset => fileLayer(asset, current.duration, crypto.randomUUID()));

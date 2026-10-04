@@ -4,6 +4,7 @@ import { fontDefinition } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
 import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline } from './motion-timing.js';
 import { CHOREOGRAPHY_EASINGS, choreographyFields, evaluateChoreography } from './choreography.js';
+import { CONTENT_PROPERTIES } from './template-content.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
 export const TEMPLATES = [
@@ -145,6 +146,13 @@ export function validateProject(input) {
       if (l.type === 'model') { finite(l.yaw, -180, 180, 'Model yaw'); finite(l.tilt, -180, 180, 'Model tilt'); finite(l.roll, -180, 180, 'Model roll'); }
     } else if (l.type === 'music') { asset(l.src); if (l.src && !/\.(mp3|wav|m4a|ogg)$/i.test(l.src)) fail('Music requires an audio file.'); finite(l.volume, 0, 1, 'Volume'); finite(l.offset, 0, 3600, 'Audio offset'); finite(l.fade, 0, 5, 'Audio fade'); if (typeof l.loop !== 'boolean') fail('Invalid audio loop.');
     } else fail('Unknown layer type.');
+    if (Object.hasOwn(l, 'contentField')) {
+      if (!Object.hasOwn(CONTENT_PROPERTIES, l.type)) fail('This layer cannot declare a content field.');
+      if (typeof l.contentField !== 'string' || /[\u0000-\u001f\u007f-\u009f]/.test(l.contentField)) fail('Invalid content field name.');
+      l.contentField = l.contentField.trim();
+      str(l.contentField, 60, 'content field name');
+      if (!l.contentField) delete l.contentField;
+    }
     if (FADE_LAYERS.includes(l.type)) {
       if (l.opacity === undefined) l.opacity = 1;
       if (l.choreography === undefined) l.choreography = [];
@@ -166,7 +174,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(key === 'font' && layer.type === 'text') && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(key === 'font' && layer.type === 'text') && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {
@@ -177,6 +185,15 @@ export function patchLayer(project, id, patch) {
     if (l.type === 'carousel' && !Object.hasOwn(patch, 'motionBaseline') && (changedFamily || !l.motionBaseline)) next.motionBaseline = motionBaseline(changedFamily ? next : l);
     return next;
   }) });
+}
+export function patchTemplateContent(project, id, value) {
+  const p = validateProject(project);
+  const layer = p.layers.find(l => l.id === id);
+  if (!layer) fail('Layer not found.');
+  if (!Object.hasOwn(CONTENT_PROPERTIES, layer.type) || !layer.contentField) fail('Layer has no declared content field.');
+  const property = CONTENT_PROPERTIES[layer.type];
+  if (property === 'images' && !Array.isArray(value)) fail('Use up to 24 carousel cards.');
+  return validateProject({ ...p, layers: p.layers.map(l => l.id === id ? { ...l, [property]: value } : l) });
 }
 export function reorderLayer(project, id, targetId, side = 'above') {
   const p = validateProject(project);
@@ -197,6 +214,7 @@ export function duplicateLayer(project, id, newId) {
   if (!source) fail('Layer not found.');
   if (source.locked) fail('Unlock the layer before duplicating it.');
   const copy = { ...structuredClone(source), ...(source.type === 'carousel' ? { images: structuredClone(carouselImages(p, source)) } : {}), id: newId, name: `${source.name.slice(0, 95)} copy`, locked: false };
+  delete copy.contentField;
   p.layers.splice(index + 1, 0, copy);
   return validateProject(p);
 }

@@ -1,14 +1,16 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { X } from '@phosphor-icons/react';
-import { FORMAT_LABELS } from '../../project.js';
+import { carouselImages, FORMAT_LABELS } from '../../project.js';
+import { contentFields } from '../../template-content.js';
 import { request } from '../request.js';
 import { IconButton, Modal } from '../controls.jsx';
 import { Stage } from '../Stage.jsx';
 import { usePlayback } from '../usePlayback.js';
 
 const noop = () => {};
-function TemplatePreview({ project }) {
+export function TemplatePreview({ project }) {
   const projectRef = useRef(project);
+  projectRef.current = project;
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const { time, playing, setPlaying } = usePlayback({ projectRef, duration: project.duration });
@@ -17,9 +19,9 @@ function TemplatePreview({ project }) {
     document.addEventListener('visibilitychange', pause);
     return () => document.removeEventListener('visibilitychange', pause);
   }, [setPlaying]);
-  return <><div className="saved-template-preview" inert><Stage project={project} time={time} playing={playing} onReady={setReady} onError={setError} onPreview={noop} onSelect={noop} onPatch={noop}/></div>{error && <p role="alert">{error}</p>}<button className="outline-button" disabled={!ready} onClick={() => setPlaying(value => !value)}>{playing ? 'Pause preview' : 'Play preview'}</button></>;
+  return <><div className="saved-template-preview" inert><Stage project={project} time={time} playing={playing} onReady={setReady} onError={setError} onPreview={noop} onSelect={noop} onPatch={noop}/></div>{error && <p role="alert">{error}</p>}<button type="button" className="outline-button" disabled={!ready} onClick={() => setPlaying(value => !value)}>{playing ? 'Pause preview' : 'Play preview'}</button></>;
 }
-export function SavedTemplates({ project, onMetadata, onSaveCurrent, onApply, onClose }) {
+export function SavedTemplates({ project, onMetadata, onSaveCurrent, onApply, onUseTemplate, onClose }) {
   const title = useId();
   const [entries, setEntries] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -54,10 +56,12 @@ export function SavedTemplates({ project, onMetadata, onSaveCurrent, onApply, on
     <div className="preset-toolbar"><button className="subtle-button" disabled={busy} onClick={onSaveCurrent}>Save a copy of current composition</button><label className="preset-search"><input autoFocus type="search" aria-label="Search saved compositions" placeholder="Search names and tags…" value={query} onChange={event => setQuery(event.target.value)}/></label></div>
     {error && <p className="saved-template-error" role="alert">{error}</p>}
     <div className="preset-content"><div className="preset-gallery"><p className="helper" role="status">{busy ? 'Loading…' : `${filtered.length} saved compositions`}</p><div className="preset-grid">{filtered.map(entry => {
-      const cover = entry.project.images.find(image => !/\.(mp4|webm)$/i.test(image.src));
-      return <button key={entry.id} disabled={busy} className={`preset-tile ${selectedId === entry.id ? 'selected' : ''}`} aria-pressed={selectedId === entry.id} onClick={() => choose(entry)}><div className="preset-art">{cover ? <img src={cover.src} alt="" loading="lazy"/> : <span>{FORMAT_LABELS[entry.project.format]}</span>}<span>{FORMAT_LABELS[entry.project.format]}</span></div><div className="preset-tile-label"><div><small>{entry.tags.join(' · ')}</small><strong>{entry.name}</strong></div></div></button>;
+      const carousel = entry.project.layers.find(layer => layer.type === 'carousel');
+      const cover = (carousel ? carouselImages(entry.project, carousel) : entry.project.images).find(image => !/\.(mp4|webm)$/i.test(image.src));
+      const fieldCount = contentFields(entry.project).length;
+      return <button key={entry.id} disabled={busy} className={`preset-tile ${selectedId === entry.id ? 'selected' : ''}`} aria-pressed={selectedId === entry.id} onClick={() => choose(entry)}><div className="preset-art">{cover ? <img src={cover.src} alt="" loading="lazy"/> : <span>{FORMAT_LABELS[entry.project.format]}</span>}<span>{FORMAT_LABELS[entry.project.format]}</span></div><div className="preset-tile-label"><div><small>{[...(fieldCount ? [`${fieldCount} content fields`] : []), ...entry.tags].join(' · ')}</small><strong>{entry.name}</strong></div></div></button>;
     })}</div>{!busy && !filtered.length && <div className="preset-empty"><h3>{entries.length ? 'No matching templates' : 'No saved compositions'}</h3><p>Save the current composition to get started.</p></div>}</div>
-      <aside className="preset-detail" aria-label="Saved template details">{selected ? <><h3>{selected.name}</h3><TemplatePreview key={selected.id} project={selected.project}/><form className="saved-template-form" onSubmit={save}><label>Name<input required maxLength={100} value={name} onChange={event => setName(event.target.value)}/></label><label>Tags<input value={tags} placeholder="Brand, campaign, format…" onChange={event => setTags(event.target.value)}/></label><button className="outline-button" disabled={busy}>Save name and tags</button></form>{selected && <div className="preset-apply">{confirm ? <><p>{confirm === 'apply' ? 'Open this composition? Further edits will automatically save to it. Your current composition has not been saved as a separate copy.' : 'Delete this saved composition? Media files and your current composition will remain.'}</p><button disabled={busy} onClick={confirm === 'delete' ? remove : async () => { setBusy(true); setError(''); try { if (await onApply(selected)) onClose(); } catch (failure) { setError(failure.message); } finally { setBusy(false); } }}>{confirm === 'delete' ? 'Confirm delete' : 'Open composition'}</button><button className="outline-button" disabled={busy} onClick={() => setConfirm('')}>Cancel</button></> : <><button disabled={busy} onClick={() => setConfirm('apply')}>Open composition</button><button className="outline-button" disabled={busy} onClick={() => setConfirm('delete')}>Delete template</button></>}</div>}</> : <p>Select a template to preview it.</p>}</aside>
+      <aside className="preset-detail" aria-label="Saved template details">{selected ? <><h3>{selected.name}</h3><TemplatePreview key={selected.id} project={selected.project}/><form className="saved-template-form" onSubmit={save}><label>Name<input required maxLength={100} value={name} onChange={event => setName(event.target.value)}/></label><label>Tags<input value={tags} placeholder="Brand, campaign, format…" onChange={event => setTags(event.target.value)}/></label><button className="outline-button" disabled={busy}>Save name and tags</button></form>{selected && <div className="preset-apply">{confirm ? <><p>{confirm === 'apply' ? 'Open this composition? Further edits will automatically save to it. Your current composition has not been saved as a separate copy.' : 'Delete this saved composition? Media files and your current composition will remain.'}</p><button disabled={busy} onClick={confirm === 'delete' ? remove : async () => { setBusy(true); setError(''); try { if (await onApply(selected)) onClose(); } catch (failure) { setError(failure.message); } finally { setBusy(false); } }}>{confirm === 'delete' ? 'Confirm delete' : 'Open composition'}</button><button className="outline-button" disabled={busy} onClick={() => setConfirm('')}>Cancel</button></> : <>{contentFields(selected.project).length > 0 && <button disabled={busy} onClick={() => onUseTemplate(selected)}>Use as template</button>}<button disabled={busy} onClick={() => setConfirm('apply')}>Open composition</button><button className="outline-button" disabled={busy} onClick={() => setConfirm('delete')}>Delete template</button></>}</div>}</> : <p>Select a template to preview it.</p>}</aside>
     </div>
   </div></Modal>;
 }

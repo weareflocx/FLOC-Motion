@@ -158,6 +158,12 @@ Text, logos, media, carousels and 3D models support up to 32 choreography states
 
 Click a state to seek to it; drag its timeline diamond or edit **Time (s)** to move it. Arrow keys move a diamond by one frame (Shift: ten), Home/End move within its neighbors, and Delete removes it. Each destination state selects Linear, Smooth, Ease in or Ease out for its incoming transition. States move with their layer; trimming preserves states outside the visible clip. Undo and layer locks apply to state edits. Preview and export evaluate the same poses from the supplied time.
 
+### Editable template content
+
+Give a text, carousel, logo, media or music layer a **Template field → Field name** in the inspector to expose its content. Leave the name blank to keep that layer out of the content form. Save the composition, then choose **Use as template** in **Compositions** to fill these fields and create an independently saved composition. **Open composition** continues to edit the original saved entry.
+
+The header's **Content** form edits only declared fields, including content in locked layers. Position, styling, timing and choreography stay intact; configuring field names still requires an unlocked layer. Carousel uploads replace only that layer's cards. Changes remain in a private preview until applied as one undoable edit; Cancel leaves the composition unchanged.
+
 ### Layers
 
 The layer list shows frontmost layers first. Drag a row to reorder it; the insertion line indicates its new position. Double-click a name (or use Rename / F2) to rename it, Enter to commit and Escape to cancel. Arrow buttons and Alt+Up/Down provide keyboard ordering. Text and logo layers can be duplicated above their source; background, carousel and music remain singletons, with a 20-layer project limit.

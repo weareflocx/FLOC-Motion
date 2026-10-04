@@ -9,6 +9,7 @@ import './style.css';
 import { resizeDuration } from './project.js';
 import { evaluateChoreography } from './choreography.js';
 import { choreographyPatch } from './editor/choreography-edit.js';
+import { contentFields } from './template-content.js';
 import { useProject } from './editor/useProject.js';
 import { useCompositionActions } from './editor/useCompositionActions.js';
 import { useProjectFiles } from './editor/useProjectFiles.js';
@@ -17,6 +18,7 @@ import { useExportJob } from './editor/useExportJob.js';
 import { usePlayback } from './editor/usePlayback.js';
 import { SaveCompositionDialog } from './editor/components/SaveCompositionDialog.jsx';
 import { SavedTemplates } from './editor/components/SavedTemplates.jsx';
+import { TemplateContentDialog } from './editor/components/TemplateContentDialog.jsx';
 import { Dialogs } from './editor/components/Dialogs.jsx';
 import { CanvasPanel } from './editor/components/CanvasPanel.jsx';
 import { ErrorBanner, Header } from './editor/components/Header.jsx';
@@ -35,6 +37,7 @@ function App() {
   const [addTarget, setAddTarget] = useState(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [contentTarget, setContentTarget] = useState(null);
   const layer = project.layers.find(l => l.id === selected) || project.layers[0];
   const carousel = project.layers.find(l => l.type === 'carousel');
   useEffect(() => { if (!project.layers.some(layer => layer.id === selected)) setSelected(project.layers[0]?.id ?? null); }, [project.layers, selected]);
@@ -61,10 +64,28 @@ function App() {
   const showError = useCallback(message => setError(message), [setError]);
   const sceneReady = useCallback(value => setReady(value), []);
   const previewPosition = useCallback(value => { setPositionPreview(value); if (value) setPlaying(false); }, []);
+  async function applyContent(draft, name) {
+    if (contentTarget.copy) {
+      await save();
+      await saveCopy(name, draft);
+      setTime(0.65);
+      setSelected(draft.layers[0]?.id ?? null);
+    } else {
+      if (projectRef.current !== contentTarget.project) throw new Error('The composition changed while the form was open. Reopen Content to use its latest values.');
+      if (!change(draft)) throw new Error('Content could not be applied.');
+    }
+    setPlaying(false);
+    return true;
+  }
+  function useTemplate(entry) {
+    setTemplatesOpen(false);
+    setPlaying(false);
+    setContentTarget({ project: entry.project, copy: true, name: `${entry.name.slice(0, 95)} copy` });
+  }
   return <main className="app-shell">
     <input ref={fileInput} hidden type="file" onChange={handleFileChange}/>
     <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={handleImportChange}/>
-    <Header name={project.name} composition={composition} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
+    <Header name={project.name} composition={composition} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={() => { if (window.confirm("Discard your local changes and load the latest saved project? Download your project JSON first to keep a copy.")) reload().catch(reloadError => setError(reloadError.message)); }} onDismiss={() => setError('')}/>
     <div className="workspace">
       <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
@@ -73,8 +94,9 @@ function App() {
       <TimelinePanel project={project} selected={selected} time={time} playing={playing} ready={ready} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={seek} onPatch={patch}/>
     </div>
     {saveOpen && <SaveCompositionDialog name={project.name} onClose={() => setSaveOpen(false)} onSave={saveCopy}/>}
-    {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}
+    {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}
+    {contentTarget && <TemplateContentDialog project={contentTarget.project} copy={contentTarget.copy} name={contentTarget.name} onClose={() => setContentTarget(null)} onSubmit={applyContent}/>}
     <Dialogs project={project} exportOpen={exportOpen} agentOpen={agentOpen} job={job} busy={busy} agentState={agentState} audit={audit} onCloseExport={() => setExportOpen(false)} onCloseAgent={() => setAgentOpen(false)} onRender={render}/>
   </main>;
 }

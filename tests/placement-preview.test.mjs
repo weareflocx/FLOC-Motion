@@ -28,6 +28,25 @@ test('resource and structural changes still require a rebuilt scene', () => {
   }
 });
 
+test('content field names preserve the preview while changed content rebuilds it', () => {
+  const project = validateProject(demoProject());
+  const updates = [];
+  const current = { project, scene: { updateLayers: layers => updates.push(layers) } };
+  const next = structuredClone(project);
+  for (const layer of next.layers) {
+    if (['text', 'carousel', 'music'].includes(layer.type)) layer.contentField = `${layer.type} content`;
+  }
+  assert.equal(updatePlacementPreview(current, next), true);
+  assert.equal(updates[0], next.layers);
+  current.project = next;
+  const renamed = structuredClone(next);
+  renamed.layers.find(layer => layer.type === 'text').contentField = 'Weekly title';
+  assert.equal(updatePlacementPreview(current, renamed), true);
+  const changed = structuredClone(renamed);
+  changed.layers.find(layer => layer.type === 'text').text = 'New content';
+  assert.equal(updatePlacementPreview(current, changed), false);
+});
+
 for (const type of ['text', 'logo', 'media', 'model', 'carousel']) {
   test(`${type} placement edits reuse the current scene with validated values`, () => {
     const input = demoProject();

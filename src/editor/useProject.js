@@ -165,12 +165,14 @@ export function useProject() {
     if (projectRef.current.name !== entry.name) change({ ...projectRef.current, name: entry.name });
   }, [change]);
 
-  const saveCopy = useCallback(async name => {
+  const saveCopy = useCallback(async (name, source) => {
     await saveQueue.current.catch(() => {});
-    const snapshot = validateProject({ ...projectRef.current, name: name.trim() });
+    const snapshot = validateProject({ ...(source ?? projectRef.current), name: name.trim() });
     const entry = await request('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: snapshot.name, tags: [], project: snapshot }) });
     openComposition(entry);
-    await save();
+    // The copy is already persisted. A failed editor-link save uses the normal
+    // error/retry flow instead of allowing the create form to create it twice.
+    await save().catch(() => {});
     return entry;
   }, [openComposition, save]);
 
