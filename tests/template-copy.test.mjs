@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { demoProject, patchLayer, validateProject } from '../src/project.js';
+import { blankProject, demoProject, patchLayer, validateProject } from '../src/project.js';
 import { captureState } from '../src/choreography.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
 
@@ -11,14 +11,14 @@ const source = fs.readFileSync(new URL('../src/editor/useProject.js', import.met
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'))).code;
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function editor() {
+function editor({ linked = true } = {}) {
   const slots = [], requests = [];
   let cursor = 0, revision = 4, create, saveFailure;
   const current = validateProject({ ...demoProject(), name: 'Current composition' });
-  const identity = { id: 'current-composition', updatedAt: '2026-10-04T01:00:00Z' };
+  const identity = linked ? { id: 'current-composition', updatedAt: '2026-10-04T01:00:00Z' } : null;
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = {
-    demoProject, patchLayer, validateProject, historyShortcut,
+    blankProject, demoProject, patchLayer, validateProject, historyShortcut,
     request: async (url, options) => {
       const body = options?.body && JSON.parse(options.body);
       requests.push({ url, method: options?.method || 'GET', body });
@@ -140,4 +140,93 @@ test('a created copy remains successful when linking the draft fails and retry s
   assert(saves.every(item => item.body.composition.id === entry.id));
   assert.equal(h.render().status, 'All changes saved');
   assert.equal(h.render().error, '');
+});
+
+test('new composition saves linked changes then starts an independent empty draft with no undo history', async () => {
+  const h = editor();
+  await h.render().reload();
+  h.render().patch('headline', { text: 'Keep this edit' });
+  const previous = plain(h.render().project);
+  await h.render().newComposition('  Fresh canvas  ');
+  const writes = h.requests.filter(item => item.method === 'PUT');
+  assert.deepEqual(writes[0].body.project, previous);
+  assert.equal(writes[0].body.composition.id, h.identity.id);
+  assert.equal(writes[1].body.composition, null);
+  assert.equal(h.requests.some(item => item.method === 'POST'), false);
+  assert.deepEqual(plain(h.render().project), validateProject(blankProject('Fresh canvas')));
+  assert.equal(h.render().composition, null);
+  assert.equal(h.render().history.length, 0);
+  assert.equal(h.render().future.length, 0);
+  h.render().undo();
+  assert.equal(h.render().project.name, 'Fresh canvas');
+  assert.equal(h.render().status, 'Draft saved');
+});
+
+test('new composition archives the current draft before replacing it', async () => {
+  const h = editor({ linked: false });
+  await h.render().reload();
+  h.render().patch('headline', { text: 'Unlisted draft edit' });
+  const previous = plain(h.render().project);
+  const pending = h.deferCreate();
+  const creating = h.render().newComposition('Empty');
+  while (!h.requests.some(item => item.method === 'POST')) await Promise.resolve();
+  assert.deepEqual(plain(h.render().project), previous);
+  pending.resolve();
+  await creating;
+  const writes = h.requests.filter(item => item.method !== 'GET');
+  assert.deepEqual(writes.map(item => [item.method, item.url]), [['PUT', '/api/project'], ['POST', '/api/templates'], ['PUT', '/api/project']]);
+  assert.deepEqual(writes[1].body.project, previous);
+  assert.equal(writes[1].body.name, previous.name);
+  assert.equal(h.render().project.layers.length, 0);
+  assert.equal(h.render().project.images.length, 0);
+  assert.equal(h.render().composition, null);
+});
+
+test('a failed save or draft archive never clears the current composition', async () => {
+  for (const linked of [true, false]) {
+    const h = editor({ linked });
+    await h.render().reload();
+    h.render().patch('headline', { text: 'Must survive' });
+    const previous = plain(h.render().project);
+    let pending;
+    if (linked) h.failNextSave(new Error('Save conflict'));
+    else pending = h.deferCreate();
+    const creating = h.render().newComposition('Empty');
+    if (pending) {
+      while (!h.requests.some(item => item.method === 'POST')) await Promise.resolve();
+      pending.reject(new Error('Library unavailable'));
+    }
+    await assert.rejects(creating, /Save conflict|Library unavailable/);
+    assert.deepEqual(plain(h.render().project), previous);
+    assert.deepEqual(plain(h.render().composition), h.identity);
+    assert.equal(h.render().history.length, 1);
+  }
+});
+
+test('edits arriving during archive are kept and abort the new composition', async () => {
+  const h = editor({ linked: false });
+  await h.render().reload();
+  const pending = h.deferCreate();
+  const creating = h.render().newComposition('Empty');
+  while (!h.requests.some(item => item.method === 'POST')) await Promise.resolve();
+  h.render().patch('headline', { text: 'Arrived during save' });
+  pending.resolve();
+  await assert.rejects(creating, /composition changed/);
+  assert.equal(h.render().project.layers.find(layer => layer.id === 'headline').text, 'Arrived during save');
+});
+
+test('new draft persistence failure keeps the previous backup and retries without another archive', async () => {
+  const h = editor({ linked: false });
+  await h.render().reload();
+  const pending = h.deferCreate();
+  const creating = h.render().newComposition('Empty');
+  while (!h.requests.some(item => item.method === 'POST')) await Promise.resolve();
+  h.failNextSave(new Error('Draft save unavailable'));
+  pending.resolve();
+  await creating;
+  assert.equal(h.render().project.name, 'Empty');
+  assert.equal(h.render().status, 'Save failed');
+  await h.render().save();
+  assert.equal(h.render().status, 'Draft saved');
+  assert.equal(h.requests.filter(item => item.method === 'POST').length, 1);
 });

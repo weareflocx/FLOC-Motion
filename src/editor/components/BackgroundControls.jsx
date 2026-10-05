@@ -26,12 +26,12 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
     </div>
     <Color label="Base color" value={layer.color} onChange={color => onPatch(layer.id, { color })}/>
     {layer.mode === 'procedural' && <>
+      <Color label="Pattern color" value={settings.patternColor} onChange={patternColor => onPatch(layer.id, { patternColor })}/>
       <div className="procedural-background-list" role="group" aria-label="Background pattern">
         {PROCEDURAL_BACKGROUNDS.map(pattern => <button type="button" key={pattern.id} className={`procedural-background-option${settings.pattern === pattern.id ? ' selected' : ''}`} aria-label={`${pattern.name} background`} title={pattern.name} aria-pressed={settings.pattern === pattern.id} onClick={() => onPatch(layer.id, { pattern: pattern.id })}>
           <BackgroundPreview layer={settings} pattern={pattern}/><span>{pattern.name}</span>
         </button>)}
       </div>
-      <Color label="Pattern color" value={settings.patternColor} onChange={patternColor => onPatch(layer.id, { patternColor })}/>
       <Range label="Pattern scale" value={settings.patternScale} min={0.25} max={4} step={0.05} onChange={patternScale => onPatch(layer.id, { patternScale })}/>
       <Range label="Pattern intensity" value={settings.patternIntensity} min={0} max={1} step={0.05} onChange={patternIntensity => onPatch(layer.id, { patternIntensity })}/>
       <Range label="Pattern speed" value={settings.patternSpeed} min={-2} max={2} step={0.05} onChange={patternSpeed => onPatch(layer.id, { patternSpeed })}/>

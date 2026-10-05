@@ -12,6 +12,7 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
   const fps = project.fps;
   const selected = stateAtTime(layer, time, fps);
   const insideClip = time >= layer.start && time <= layer.end;
+  const outsideCount = states.filter(state => state.time > layer.end - layer.start).length;
 
   function saveState() {
     const at = selected ? layer.start + selected.time : time;
@@ -42,5 +43,6 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
       <label className="timeline-state-picker"><span>Easing</span><select aria-label="Transition into state" value={selected.easing} onChange={event => onPatch(layer.id, { choreography: states.map(state => state.id === selected.id ? { ...state, easing: event.target.value } : state) })}>{CHOREOGRAPHY_EASINGS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <IconButton label={`Remove state at ${formatTime(layer.start + selected.time)}`} onClick={() => onPatch(layer.id, { choreography: states.filter(state => state.id !== selected.id) })}><Trash size={15} aria-hidden="true"/></IconButton>
     </fieldset>}
+    {outsideCount > 0 && <p className="timeline-controls-note">{outsideCount} {outsideCount === 1 ? 'state is' : 'states are'} beyond this layer’s duration. Extend the duration to include {outsideCount === 1 ? 'it' : 'them'}.</p>}
   </div>;
 }

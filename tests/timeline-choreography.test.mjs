@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { transform } from 'esbuild';
 import { editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
 import { fitFades } from '../src/project.js';
-import { moveState } from '../src/choreography.js';
+import { moveState, choreographyFields } from '../src/choreography.js';
 import { LAYER_COLORS } from '../src/editor/layer-colors.js';
 
 const source = fs.readFileSync(new URL('../src/timeline.jsx', import.meta.url), 'utf8');
@@ -16,7 +16,7 @@ function timeline({ locked = false, time = 3, mode = 'choreography', width = 800
   let cursor = 0;
   const layer = { id: 'title', type: 'text', name: 'Title', text: 'Hello', visible: true, locked, start: 2, end: 6, fadeIn: .2, fadeOut: .2,
     choreography: [{ id: 'a', time: 0 }, { id: 'b', time: 1 }, { id: 'c', time: 3 }].map(state => ({ ...state, easing: 'smooth', values: { x: 5, y: 5, size: 40, opacity: 1 } })) };
-  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, editClip, editFade, timeAtPointer, fitFades, moveState, LAYER_COLORS,
+  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, editClip, editFade, timeAtPointer, fitFades, moveState, choreographyFields, LAYER_COLORS,
     useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value: value === 0 ? width : value }; return [slots[i].value, next => { slots[i].value = next; }]; } };
@@ -47,6 +47,24 @@ test('state dragging previews timing and commits only once on release, then seek
   assert.deepEqual(h.seeks, [3.5]);
   mark.props.onClick(h.event({ detail: 1 }));
   assert.deepEqual(h.seeks, [3.5]);
+});
+
+test('inline timing and the choreography trigger target their own row', () => {
+  const h = timeline({ mode: 'timing' }), opened = [];
+  h.render({ onOpenControls: (...args) => opened.push(args) });
+  const timing = h.find(p => p.layer?.id === 'title');
+  const choreography = h.find(p => p['aria-label'] === 'Choreography for Title');
+  timing.props.onFocus();
+  timing.props.onPatch('title', { start: 3, end: 7 });
+  choreography.props.onClick(h.event());
+  assert.equal(opened[0][0], 'title');
+  assert.deepEqual(h.selections, ['title']);
+  assert.deepEqual(h.patches, [{ id: 'title', patch: { start: 3, end: 7 } }]);
+  assert.equal(timing.props.layer.start, 2);
+  assert.equal(timing.props.layer.end, 6);
+  assert.equal(h.find(p => p['aria-label'] === 'Timing for Title'), undefined);
+  h.render({ controlsLayerId: 'title', mode: 'choreography' });
+  assert.equal(h.find(p => p['aria-label'] === 'Choreography for Title').props['aria-expanded'], true);
 });
 
 test('Escape, pointer cancellation and lost capture discard state timing drafts', () => {
@@ -93,6 +111,8 @@ test('state marks follow clip movement drafts and disappear beyond a trimmed spa
   const h = timeline({ mode: 'timing' });
   const clip = h.find(p => p['aria-label'] === 'Move Title clip');
   clip.props.onPointerDown(h.event()); clip.props.onPointerMove(h.event({ clientX: 400 }));
+  assert.equal(h.find(p => p.layer?.id === 'title').props.layer.start, 3);
+  assert.equal(h.find(p => p.layer?.id === 'title').props.layer.end, 7);
   assert.equal(h.find(p => p['aria-label']?.includes('Title state at 4.00')).props.style.left, '50%');
   clip.props.onPointerCancel(h.event());
   const trim = h.find(p => p['aria-label'] === 'Trim end of Title');

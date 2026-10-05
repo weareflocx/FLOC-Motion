@@ -17,6 +17,7 @@ import { useAgentBridge } from './editor/useAgentBridge.js';
 import { useVisualAlternatives } from './editor/useVisualAlternatives.js';
 import { useExportJob } from './editor/useExportJob.js';
 import { usePlayback } from './editor/usePlayback.js';
+import { NewCompositionDialog } from './editor/components/NewCompositionDialog.jsx';
 import { SaveCompositionDialog } from './editor/components/SaveCompositionDialog.jsx';
 import { SavedTemplates } from './editor/components/SavedTemplates.jsx';
 import { TemplateContentDialog } from './editor/components/TemplateContentDialog.jsx';
@@ -29,7 +30,7 @@ import { LayerPanel } from './editor/components/LayerPanel.jsx';
 import { TimelinePanel } from './editor/components/TimelinePanel.jsx';
 
 function App() {
-  const { project, composition, openComposition, updateCompositionMetadata, saveCopy, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject();
+  const { project, composition, openComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject();
   const [selected, setSelected] = useState('carousel'); const [leftTab, setLeftTab] = useState('layers'); const [rightTab, setRightTab] = useState('composition');
   const [ready, setReady] = useState(false);
   const [positionPreview, setPositionPreview] = useState(null);
@@ -37,6 +38,7 @@ function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [addTarget, setAddTarget] = useState(null);
+  const [newOpen, setNewOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [contentTarget, setContentTarget] = useState(null);
@@ -59,7 +61,7 @@ function App() {
   }, [patch, projectRef, time, setPlaying, setError]);
   const seek = useCallback(value => { setTime(Math.max(0, Math.min(projectRef.current.duration, value))); setPlaying(false); }, [projectRef, setTime, setPlaying]);
   const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
-  const alternativesBlocked = canvasEditing || exportOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
+  const alternativesBlocked = canvasEditing || exportOpen || newOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
   const alternatives = useVisualAlternatives({ projectRef, change, setPlaying, blocked: alternativesBlocked });
   const proposeAlternatives = useCallback(proposal => { alternatives.propose(proposal); setAgentOpen(false); }, [alternatives.propose]);
   const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef, proposeAlternatives });
@@ -90,7 +92,7 @@ function App() {
   return <main className="app-shell">
     <input ref={fileInput} hidden type="file" onChange={handleFileChange}/>
     <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={handleImportChange}/>
-    <Header name={project.name} onChangeName={name => change({ ...project, name })} composition={composition} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} onExplore={() => { try { alternatives.explore(); } catch (error) { setError(error.message); } }} canExplore={!alternativesBlocked && project.layers.some(layer => layer.visible && !layer.locked && layer.type !== 'music')} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
+    <Header name={project.name} onChangeName={name => change({ ...project, name })} composition={composition} onNew={() => { setPlaying(false); setNewOpen(true); }} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} onExplore={() => { try { alternatives.explore(); } catch (error) { setError(error.message); } }} canExplore={!alternativesBlocked && project.layers.some(layer => layer.visible && !layer.locked && layer.type !== 'music')} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={() => { if (window.confirm("Discard your local changes and load the latest saved project? Download your project JSON first to keep a copy.")) reload().catch(reloadError => setError(reloadError.message)); }} onDismiss={() => setError('')}/>
     <div className="workspace">
       <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
@@ -98,6 +100,7 @@ function App() {
       <InspectorPanel project={displayedProject} layer={displayedLayer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={editLayer} onPick={target => setAddTarget(target)} onPreview={previewPosition} onRemoveText={removeText}/>
       <TimelinePanel project={project} selected={selected} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
     </div>
+    {newOpen && <NewCompositionDialog onClose={() => setNewOpen(false)} onCreate={async name => { await newComposition(name); setTime(0); setPlaying(false); setSelected(null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }}/>}
     {saveOpen && <SaveCompositionDialog name={project.name} onClose={() => setSaveOpen(false)} onSave={saveCopy}/>}
     {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}

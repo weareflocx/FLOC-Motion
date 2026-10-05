@@ -29,6 +29,9 @@ export const CAROUSEL_EFFECTS = [
   { id: 'dithering', name: 'Image dithering', source: 'Paper Shaders' },
   { id: 'fluted-glass', name: 'Fluted glass', source: 'Paper Shaders' }
 ];
+export function blankProject(name = 'Untitled') {
+  return { version: 1, name, format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT }, images: [], layers: [] };
+}
 export function demoProject() {
   return { version: 1, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT },
     images: Array.from({ length: 6 }, (_, i) => ({ id: `demo-${i}`, src: `/demo/poster-${i + 1}.svg`, name: `Studio study ${String(i + 1).padStart(2, '0')}` })),

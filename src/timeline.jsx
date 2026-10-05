@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { EyeSlash, LockSimple } from '@phosphor-icons/react';
+import { EyeSlash, LockSimple, DiamondsFour } from '@phosphor-icons/react';
 import { editClip, editFade, timeAtPointer } from './editor-controls.js';
 import { fitFades } from './project.js';
-import { moveState } from './choreography.js';
+import { moveState, choreographyFields } from './choreography.js';
 import { LAYER_COLORS } from './editor/layer-colors.js';
+import { TimelineTimingControls } from './editor/components/TimelineTimingControls.jsx';
 import './timeline-choreography.css';
 
 const isFade = kind => kind === 'fadeIn' || kind === 'fadeOut';
 const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model' };
 
-export function TimelineTracks({ project, selected, time, icons, mode = 'timing', onSelect, onSelectState = onSelect, onSeek, onCommit }) {
+export function TimelineTracks({ project, selected, time, icons, mode = 'timing', controlsLayerId = null, rulerControls, onOpenControls, onSelect, onSelectState = onSelect, onSeek, onCommit }) {
   const ruler = useRef(null);
   const [laneWidth, setLaneWidth] = useState(0);
   const context = useRef(null);
@@ -120,7 +121,7 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
   return <>
     <div className="timeline-feedback" role="status">{draft ? status(draft) : ''}</div>
     <div className="timeline-track-scroll" style={{ '--timeline-grid': `${rulerStep / project.duration * 100}%` }}>
-    <div className="timeline-ruler-row"><span className="ruler-track-heading">Layers <small>{project.layers.length}</small></span><div ref={ruler} className="timeline-ruler" role="slider" tabIndex={0} aria-label="Timeline ruler" aria-valuemin={0} aria-valuemax={project.duration} aria-valuenow={Number(time.toFixed(2))} onPointerDown={e => { if (e.button !== 0) return; scrub.current = true; e.currentTarget.setPointerCapture(e.pointerId); seek(e); }} onPointerMove={e => { if (scrub.current) seek(e); }} onPointerUp={e => { scrub.current = false; e.currentTarget.releasePointerCapture(e.pointerId); }} onPointerCancel={() => { scrub.current = false; }} onLostPointerCapture={() => { scrub.current = false; }} onKeyDown={e => { if (['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); onSeek(Math.max(0, Math.min(project.duration - 1 / project.fps, e.key === 'Home' ? 0 : e.key === 'End' ? project.duration - 1 / project.fps : time + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps))); } }}>
+    <div className="timeline-ruler-row"><div className="ruler-track-heading"><span>Layers <small>{project.layers.length}</small></span><div className="ruler-controls">{rulerControls}</div></div><div ref={ruler} className="timeline-ruler" role="slider" tabIndex={0} aria-label="Timeline ruler" aria-valuemin={0} aria-valuemax={project.duration} aria-valuenow={Number(time.toFixed(2))} onPointerDown={e => { if (e.button !== 0) return; scrub.current = true; e.currentTarget.setPointerCapture(e.pointerId); seek(e); }} onPointerMove={e => { if (scrub.current) seek(e); }} onPointerUp={e => { scrub.current = false; e.currentTarget.releasePointerCapture(e.pointerId); }} onPointerCancel={() => { scrub.current = false; }} onLostPointerCapture={() => { scrub.current = false; }} onKeyDown={e => { if (['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); onSeek(Math.max(0, Math.min(project.duration - 1 / project.fps, e.key === 'Home' ? 0 : e.key === 'End' ? project.duration - 1 / project.fps : time + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps))); } }}>
       {ticks.map((tick, i) => <span key={i} className={`timeline-tick ${i % 5 === 0 ? 'major' : ''} ${i % 10 === 5 ? 'secondary' : ''}`} style={{ left: `${tick / project.duration * 100}%` }} aria-hidden="true">{i % 5 === 0 && (tick === 0 || project.duration - tick >= rulerStep * 0.6) && <span className="tick-label">{Number(tick.toFixed(2))}s</span>}</span>)}
       <span className="timeline-tick major endpoint" style={{ left: '100%' }} aria-hidden="true"><span className="tick-label">{project.duration}s</span></span>
       <i className="ruler-playhead" style={{ left: `${time / project.duration * 100}%` }} aria-hidden="true"><span className="playhead-cap"/></i>
@@ -134,16 +135,24 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
       const editingStates = mode === 'choreography' && selected === l.id;
       const activeState = states.findLast(state => state.time <= time - range.start) || states[0];
       return <div className={`track-row ${selected === l.id ? 'selected' : ''} ${l.locked ? 'locked' : ''}`} key={l.id} style={{ '--layer-color': LAYER_COLORS[l.type] }}>
-        <button className="track-name" onClick={() => onSelect(l.id)} aria-label={`Select ${l.name} track`} aria-pressed={selected === l.id} title={`${l.name} · ${layerTypes[l.type]}${l.locked ? ' · Locked' : ''}${!l.visible ? ' · Hidden' : ''}`}>
-          <span className="track-icon"><Icon size={16}/></span>
-          {(l.locked || !l.visible) && <span className="track-state">{l.locked && <LockSimple size={12} aria-hidden="true"/>}{!l.visible && <EyeSlash size={12} aria-hidden="true"/>}</span>}
-        </button>
+        <div className="track-heading">
+          <div className="track-heading-main">
+            <button type="button" className="track-name" onClick={() => onSelect(l.id)} aria-label={`Select ${l.name} track`} aria-pressed={selected === l.id} title={`${l.name} · ${layerTypes[l.type]}${l.locked ? ' · Locked' : ''}${!l.visible ? ' · Hidden' : ''}`}>
+              <span className="track-icon"><Icon size={16}/></span><span className="track-title">{l.name}</span>
+              {(l.locked || !l.visible) && <span className="track-state">{l.locked && <LockSimple size={12} aria-hidden="true"/>}{!l.visible && <EyeSlash size={12} aria-hidden="true"/>}</span>}
+            </button>
+            <div className={`track-actions ${controlsLayerId === l.id ? 'open' : ''}`}>
+              {Object.keys(choreographyFields(l)).length > 0 && <button type="button" className={`track-controls-button ${editingStates ? 'selected' : ''} ${l.choreography?.length ? 'has-states' : ''}`} aria-label={`Choreography for ${l.name}`} title={`Choreography · ${l.choreography?.length || 0} states`} aria-haspopup="dialog" aria-expanded={controlsLayerId === l.id && mode === 'choreography'} aria-controls={controlsLayerId === l.id ? 'timeline-layer-controls' : undefined} onClick={event => onOpenControls?.(l.id, event.currentTarget)}><DiamondsFour size={15} aria-hidden="true"/></button>}
+            </div>
+          </div>
+          <TimelineTimingControls project={project} layer={{ ...l, ...range }} onPatch={onCommit} onFocus={() => onSelect(l.id)}/>
+        </div>
         <div className={`track-lane ${editingStates ? 'choreography-editing' : ''}`} onPointerDown={e => { if (e.button !== 0) return; if (editingStates && e.target.closest('.track-clip')) onSelect(l.id); else if (e.target === e.currentTarget) onSeek(timeAtPointer(e.clientX, e.currentTarget.getBoundingClientRect(), project.duration, project.fps)); }}>
           <div className={`track-clip ${l.type} ${l.type === 'music' && !l.src ? 'empty' : ''} ${!l.visible ? 'muted' : ''} ${draft?.id === l.id && draft.kind !== 'state' ? 'dragging' : ''}`} style={{ left: `${range.start / project.duration * 100}%`, width: `${(range.end - range.start) / project.duration * 100}%` }} role="group" aria-label={`${l.name} timing`} title={`${range.start.toFixed(2)}s — ${range.end.toFixed(2)}s`}>
             <button className="clip-handle start" aria-label={`Trim start of ${l.name}`} {...pointerProps(l, 'start')}/>
             {fades && <><svg className="clip-fade in" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeIn) }}><path className="fade-shade" d="M0 0H100L0 100Z"/><path className="fade-line" d="M0 100L100 0"/></svg><button className="fade-handle in" style={{ '--fade-at': share(fades.fadeIn) }} aria-label={`Fade in of ${l.name}: ${fades.fadeIn.toFixed(2)}s`} title={`Fade in ${fades.fadeIn.toFixed(2)}s`} {...pointerProps(l, 'fadeIn')}/></>}
             <button className="clip-body" aria-label={`Move ${l.name} clip`} {...pointerProps(l, 'move')}>
-              <span className="clip-duration" aria-hidden="true">{span.toFixed(2)}s</span>
+              <span className="clip-label">{l.type === 'text' ? l.text : l.name}</span><span className="clip-duration" aria-hidden="true">{span.toFixed(2)}s</span>
             </button>
             {fades && <><svg className="clip-fade out" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeOut) }}><path className="fade-shade" d="M0 0H100V100Z"/><path className="fade-line" d="M0 0L100 100"/></svg><button className="fade-handle out" style={{ '--fade-at': share(fades.fadeOut) }} aria-label={`Fade out of ${l.name}: ${fades.fadeOut.toFixed(2)}s`} title={`Fade out ${fades.fadeOut.toFixed(2)}s`} {...pointerProps(l, 'fadeOut')}/></>}
             <button className="clip-handle end" aria-label={`Trim end of ${l.name}`} {...pointerProps(l, 'end')}/>
