@@ -61,7 +61,7 @@ test('the inspector edits the selected visual layer opacity, respects locks and 
   const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     useState: () => [false, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] },
     FONTS: [], FONT_WEIGHTS: {}, fontDefinition: () => ({ weights: [600] }), SHADERS: [] };
-  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'MusicNotes', 'UploadSimple', 'PlacementMap', 'TypographyControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'CarouselEffectControls', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls']) context[name] = function() {};
+  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'MusicNotes', 'UploadSimple', 'PlacementMap', 'TypographyControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls']) context[name] = function() {};
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.render = InspectorPanel;', context);
   const nodes = node => node && typeof node === 'object' ? [node, ...(node.children || []).flat(Infinity).flatMap(nodes)] : [];

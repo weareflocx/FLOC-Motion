@@ -9,7 +9,7 @@ import { createCarouselEffect } from './carousel-effects.js';
 import { evaluateChoreography } from './choreography.js';
 import { drawProceduralBackground } from './backgrounds.js';
 import { textTypography, textRevealClip } from './text-style.js';
-import { createNoiseEffects } from './effects.js';
+import { createEffects } from './effects.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -352,7 +352,7 @@ export async function createScene(root, project, options = {}) {
   let disposed = false;
   const carousels = project.layers.filter(layer => layer.type === 'carousel');
   const engines = [];
-  const noise = createNoiseEffects(root, project, FORMATS);
+  const effects = createEffects(root, project, FORMATS, layerAlpha);
   const backgrounds = project.layers.filter(layer => layer.type === 'background' && layer.mode === 'procedural').map(layer => ({ id: layer.id, canvas: root.querySelector(`[id="background-${CSS.escape(layer.id)}"]`) })).filter(background => background.canvas);
   function drawBackgrounds(time) {
     if (disposed) return;
@@ -368,14 +368,15 @@ export async function createScene(root, project, options = {}) {
     for (const layer of carousels.slice(1)) {
       engines.push({ id: layer.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, layer), layers: [layer] }, options) });
     }
-  } catch (error) { engines.forEach(engine => engine.scene.dispose()); noise.dispose(); throw error; }
+  } catch (error) { engines.forEach(engine => engine.scene.dispose()); effects.dispose(); throw error; }
   drawBackgrounds(0);
   return {
     updateLayers: layers => {
       currentProject = { ...currentProject, layers: currentProject.layers.map(previous => layers.find(layer => layer.id === previous.id) ?? previous) };
       engines.forEach(engine => engine.scene.updateLayers(layers));
+      effects.updateLayers(currentProject.layers);
     },
-    seek: (time, playing) => { drawBackgrounds(time); return Promise.all([...engines.map(engine => engine.scene.seek(time, playing)), noise.seek(time)]); },
+    seek: (time, playing) => { drawBackgrounds(time); return Promise.all([...engines.map(engine => engine.scene.seek(time, playing)), effects.seek(time)]); },
     hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,
     setResolution: (w, h) => {
       if (disposed) return;
@@ -388,6 +389,6 @@ export async function createScene(root, project, options = {}) {
     },
     setOrientation: value => engines.forEach(engine => engine.scene.setOrientation(value?.id === engine.id ? value : null)),
     setPlacement: value => engines.forEach(engine => engine.scene.setPlacement(value)),
-    dispose: () => { disposed = true; noise.dispose(); engines.forEach(engine => engine.scene.dispose()); }
+    dispose: () => { disposed = true; effects.dispose(); engines.forEach(engine => engine.scene.dispose()); }
   };
 }

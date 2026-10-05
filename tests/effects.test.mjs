@@ -59,3 +59,27 @@ test('agents discover noise and edit it through the validated layer path', async
   await tools.find(tool => tool.name === 'floc_update_layer').execute({ id: 'headline', patch: { effects: [{ type: 'noise' }] } });
   assert.deepEqual(project.layers.find(layer => layer.id === 'headline').effects, [{ ...DEFAULT_NOISE }]);
 });
+
+test('shared effects validate, stack and survive duplication and linked formats', () => {
+  const project = patchLayer(demoProject(), 'headline', { effects: [{ type: 'blur', mode: 'progressive', direction: 'left', amount: 24 }, { type: 'monochrome', amount: .6 }, { type: 'noise' }] });
+  assert.deepEqual(validateProject(JSON.parse(JSON.stringify(project))), project);
+  assert.equal(project.layers.find(layer => layer.id === 'headline').effects[0].enabled, true);
+  const duplicated = duplicateLayer(project, 'headline', 'copy');
+  assert.deepEqual(duplicated.layers.find(layer => layer.id === 'copy').effects, project.layers.find(layer => layer.id === 'headline').effects);
+  assert.deepEqual(switchFormat(linkFormats(project), 'portrait').layers.find(layer => layer.id === 'headline').effects, project.layers.find(layer => layer.id === 'headline').effects);
+  for (const patch of [{ type: 'blur', amount: 49 }, { type: 'blur', amount: NaN }, { type: 'blur', enabled: null }, { type: 'blur', mode: 'unknown' }, { type: 'blur', direction: 'url(remote)' }, { type: 'monochrome', amount: 2 }, { type: 'monochrome', mode: 'progressive' }, { type: 'blur', code: 'eval' }]) assert.throws(() => patchLayer(project, 'headline', { effects: [patch] }), /Invalid/);
+});
+
+test('new adjustments target below and legacy Noise remains an overlay', () => {
+  const old = effectLayer('old', 12);
+  delete old.effectScope;
+  const source = { ...demoProject(), layers: [...demoProject().layers, old, effectLayer('new', 12)] };
+  const project = validateProject(source);
+  assert.equal(project.layers.at(-2).effectScope, 'overlay');
+  assert.equal(project.layers.at(-1).effectScope, 'below');
+  assert.equal(source.layers.at(-2).effectScope, undefined);
+  assert.throws(() => patchLayer(project, 'old', { effects: [{ type: 'blur' }] }), /only accept Noise/);
+  const converted = patchLayer(project, 'old', { effectScope: 'below', effects: [{ type: 'blur', mode: 'progressive', direction: 'top' }] });
+  assert.equal(converted.layers.at(-2).effects[0].mode, 'progressive');
+  assert.throws(() => patchLayer(project, 'new', { effectScope: 'all' }), /Unknown effect scope/);
+});

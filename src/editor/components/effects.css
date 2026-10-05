@@ -1,11 +1,14 @@
-.noise-effect { border-bottom: 1px solid var(--line); margin-bottom: 12px; padding-bottom: 8px; }
-.noise-effect summary { cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 12px; }
-.noise-effect summary::before { content: '›'; color: #aaa; }
-.noise-effect[open] summary::before { transform: rotate(90deg); }
-.noise-effect-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
-.noise-effect-actions input { accent-color: white; }
-.noise-effect > .field:has(.noise-size) { grid-template-columns: 1fr; gap: 5px; }
+.effect-row { border-bottom: 1px solid var(--line); margin-bottom: 12px; padding-bottom: 8px; }
+.effect-row summary { cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 12px; }
+.effect-row summary::before { content: '›'; color: #aaa; }
+.effect-row[open] summary::before { transform: rotate(90deg); }
+.effect-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.effect-actions input { accent-color: white; }
+.effect-row > .field:has(.noise-size) { grid-template-columns: 1fr; gap: 5px; }
 .noise-size { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); align-items: center; gap: 6px; }
 .noise-size .field { min-width: 0; grid-template-columns: 12px minmax(0, 1fr); margin: 0; }
 .noise-size input { width: 100%; }
 .noise-size .icon-button[aria-pressed='true'] { color: white; }
+
+.effect-scope { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.add-effect { width: 100%; margin-top: 4px; }
