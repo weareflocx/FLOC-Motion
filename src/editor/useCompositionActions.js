@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { duplicateLayer, reorderLayer, demoProject, carouselImages } from '../project.js';
 import { BRAND } from '../brand.js';
+import { effectLayer } from '../effects.js';
 
 export function useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change }) {
   const addText = useCallback(() => {
@@ -61,7 +62,7 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
   const addLayer = useCallback(type => {
     const current = projectRef.current;
     if (current.layers.length >= 20) return;
-    const source = demoProject().layers.find(l => l.type === type);
+    const source = type === 'effect' ? effectLayer(crypto.randomUUID(), current.duration) : demoProject().layers.find(l => l.type === type);
     if (!source) return;
     const layer = { ...source, id: crypto.randomUUID(), end: current.duration, ...(type === 'carousel' ? { images: [], name: `Carousel ${current.layers.filter(l => l.type === type).length + 1}` } : {}) };
     if (change({ ...current, layers: [...current.layers, layer] })) { setSelected(layer.id); setLeftTab('layers'); }

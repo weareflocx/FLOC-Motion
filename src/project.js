@@ -7,6 +7,7 @@ import { CHOREOGRAPHY_EASINGS, choreographyFields, evaluateChoreography } from '
 import { CONTENT_PROPERTIES } from './template-content.js';
 import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from './backgrounds.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from './text-style.js';
+import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
 import { assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
@@ -52,7 +53,7 @@ function validateMotion(motion) {
   if (!['continuous', 'steps'].includes(motion.mode) || !MOTION_CURVES.some(([id]) => id === motion.curve)) fail('Unknown rhythm or curve.');
   finite(motion.action, 0.05, 30, 'Action duration'); finite(motion.pause, 0, 30, 'Pause duration'); finite(motion.intensity, 0, 1, 'Curve intensity');
 }
-const FADE_LAYERS = ['text', 'logo', 'carousel', 'media', 'model'];
+const FADE_LAYERS = ['text', 'logo', 'carousel', 'media', 'model', 'effect'];
 function validateChoreography(layer) {
   const fields = choreographyFields(layer);
   if (!Array.isArray(layer.choreography) || layer.choreography.length > 32) fail('Use up to 32 choreography states.');
@@ -108,6 +109,10 @@ export function validateProject(input) {
     if (typeof l.locked !== 'boolean') fail('Layer lock must be a boolean.');
     if (typeof l.visible !== 'boolean') fail('Layer visibility must be a boolean.');
     finite(l.start, 0, p.duration, 'Layer start'); finite(l.end, l.start + 0.01, p.duration, 'Layer end');
+    if (l.effects !== undefined) {
+      if (!EFFECT_LAYER_TYPES.includes(l.type)) fail('Only visual layers accept effects.');
+      validateEffects(l.effects);
+    }
     if (['text', 'logo', 'media', 'background'].includes(l.type)) {
       l.roll ??= 0;
       finite(l.roll, -180, 180, 'Rotation');
@@ -172,6 +177,8 @@ export function validateProject(input) {
       finite(l.offset, 0, 3600, 'Source offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
       if (l.type === 'model') { finite(l.yaw, -180, 180, 'Model yaw'); finite(l.tilt, -180, 180, 'Model tilt'); finite(l.roll, -180, 180, 'Model roll'); }
     } else if (l.type === 'music') { asset(l.src); if (l.src && !/\.(mp3|wav|m4a|ogg)$/i.test(l.src)) fail('Music requires an audio file.'); finite(l.volume, 0, 1, 'Volume'); finite(l.offset, 0, 3600, 'Audio offset'); finite(l.fade, 0, 5, 'Audio fade'); if (typeof l.loop !== 'boolean') fail('Invalid audio loop.');
+    } else if (l.type === 'effect') {
+      if (!l.effects?.length) fail('An effect layer needs at least one effect.');
     } else fail('Unknown layer type.');
     if (Object.hasOwn(l, 'contentField')) {
       if (!Object.hasOwn(CONTENT_PROPERTIES, l.type)) fail('This layer cannot declare a content field.');
@@ -235,7 +242,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {

@@ -4,6 +4,7 @@ export const CHOREOGRAPHY_EASINGS = [
 
 const COMMON_FIELDS = { x: [0, 95], y: [0, 95], opacity: [0, 1], roll: [-180, 180] };
 const FIELDS = {
+  effect: { opacity: [0, 1] },
   text: { ...COMMON_FIELDS, size: [12, 180] },
   logo: { ...COMMON_FIELDS, size: [2, 35] },
   media: { ...COMMON_FIELDS, size: [2, 100] },

@@ -7,6 +7,7 @@ import { PresetBrowser } from './PresetBrowser.jsx';
 import { MotionControls } from './MotionControls.jsx';
 import { LayerFadeControls } from './LayerFadeControls.jsx';
 import { CarouselEffectControls } from './CarouselEffectControls.jsx';
+import { EffectControls } from './EffectControls.jsx';
 import { TemplateFieldControls } from './TemplateFieldControls.jsx';
 import { BackgroundControls } from './BackgroundControls.jsx';
 import { TypographyControls } from './TypographyControls.jsx';
@@ -35,6 +36,7 @@ export function InspectorPanel({ project, layer, rightTab, uploading, onSetRight
       <NumberField label="Rotation (°)" value={layer.roll ?? 0} min={-180} max={180} onChange={roll => onPatch(layer.id, { roll })}/>
       <button type="button" className="text-button" onClick={() => onPatch(layer.id, { roll: 0 })}>Reset rotation</button>
     </Section>}
+    <EffectControls layer={layer} onPatch={onPatch}/>
     <LayerFadeControls layer={layer} onPatch={onPatch}/>
     {layer.type === 'text' && <button className="text-button danger" onClick={() => onRemoveText(layer.id)}>Remove text layer</button>}
     <TemplateFieldControls key={`content-${layer.id}`} layer={layer} onPatch={onPatch}/>

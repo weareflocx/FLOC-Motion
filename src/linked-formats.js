@@ -11,7 +11,8 @@ export const FORMAT_LOCAL_FIELDS = Object.freeze({
   model: ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'choreography'],
   carousel: ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'gap', 'radius', 'perspective', 'cardAspect', 'choreography'],
   background: ['fit', 'x', 'y', 'roll'],
-  music: []
+  music: [],
+  effect: ['choreography']
 });
 
 const fail = message => { throw new Error(message); };

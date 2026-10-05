@@ -3,7 +3,7 @@ import { Copy, DotsSixVertical, Eye, EyeSlash, LockSimple, LockSimpleOpen, Penci
 import { IconButton } from '../controls.jsx';
 import { LAYER_COLORS } from '../layer-colors.js';
 
-const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model' };
+const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model', effect: 'Effect' };
 
 export function LayerList({ project, selected, icons, onSelect, onPatch, onMove, onDrop, onDuplicate, onRemove }) {
   const [editing, setEditing] = useState(null);

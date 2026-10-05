@@ -39,7 +39,7 @@ function controls({ type = 'text', locked = false, states = false, time = 1 } = 
     Section: props => ({ type: 'section', props, children: props.children }),
     IconButton: props => ({ type: 'button', props: { ...props, 'aria-label': props.label }, children: props.children }),
     TimelineTracks: props => ({ type: 'tracks', props, children: props.project.layers.filter(layer => layer.id === props.selected).map(layer => context.TimelineTimingControls({ project: props.project, layer, onPatch: props.onCommit, onFocus: () => props.onSelect(layer.id) })) }) };
-  for (const name of ['Circle', 'Images', 'CaretDown', 'CaretUp', 'ImageSquare', 'MusicNotes', 'Timer', 'DiamondsFour', 'Sparkle', 'TextT', 'Diamond', 'Trash', 'X']) context[name] = () => null;
+  for (const name of ['DotsNine', 'Circle', 'Images', 'CaretDown', 'CaretUp', 'ImageSquare', 'MusicNotes', 'Timer', 'DiamondsFour', 'Sparkle', 'TextT', 'Diamond', 'Trash', 'X']) context[name] = () => null;
   vm.createContext(context);
   for (const code of compiled) vm.runInContext(code, context);
   vm.runInContext('this.component = TimelinePanel;', context);

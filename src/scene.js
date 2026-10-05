@@ -9,6 +9,7 @@ import { createCarouselEffect } from './carousel-effects.js';
 import { evaluateChoreography } from './choreography.js';
 import { drawProceduralBackground } from './backgrounds.js';
 import { textTypography, textRevealClip } from './text-style.js';
+import { createNoiseEffects } from './effects.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -16,6 +17,7 @@ export function stageMarkup(p, path = src => src) {
   return p.layers.map((l, i) => {
     const timing = `data-start="${l.start}" data-duration="${l.end - l.start}" data-track-index="${i}"`;
     const common = `data-floc-layer="${esc(l.id)}" style="position:absolute;z-index:${i};opacity:${l.visible ? 1 : 0};`;
+    if (l.type === 'effect') return `<canvas ${timing} ${common}inset:0;width:${w}px;height:${h}px;pointer-events:none" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'background') {
       if (l.mode === 'procedural') return `<canvas id="background-${esc(l.id)}" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
       const fill = `<div ${common}inset:0;background:${l.color}"></div>`;
@@ -349,6 +351,7 @@ export async function createScene(root, project, options = {}) {
   let disposed = false;
   const carousels = project.layers.filter(layer => layer.type === 'carousel');
   const engines = [];
+  const noise = createNoiseEffects(root, project, FORMATS);
   const backgrounds = project.layers.filter(layer => layer.type === 'background' && layer.mode === 'procedural').map(layer => ({ id: layer.id, canvas: root.querySelector(`[id="background-${CSS.escape(layer.id)}"]`) })).filter(background => background.canvas);
   function drawBackgrounds(time) {
     if (disposed) return;
@@ -364,23 +367,26 @@ export async function createScene(root, project, options = {}) {
     for (const layer of carousels.slice(1)) {
       engines.push({ id: layer.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, layer), layers: [layer] }, options) });
     }
-  } catch (error) { engines.forEach(engine => engine.scene.dispose()); throw error; }
+  } catch (error) { engines.forEach(engine => engine.scene.dispose()); noise.dispose(); throw error; }
   drawBackgrounds(0);
   return {
     updateLayers: layers => {
       currentProject = { ...currentProject, layers: currentProject.layers.map(previous => layers.find(layer => layer.id === previous.id) ?? previous) };
       engines.forEach(engine => engine.scene.updateLayers(layers));
     },
-    seek: (time, playing) => { drawBackgrounds(time); return Promise.all(engines.map(engine => engine.scene.seek(time, playing))); },
+    seek: (time, playing) => { drawBackgrounds(time); return Promise.all([...engines.map(engine => engine.scene.seek(time, playing)), noise.seek(time)]); },
     hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,
     setResolution: (w, h) => {
       if (disposed) return;
       engines.forEach(engine => engine.scene.setResolution(w, h));
+      root.querySelectorAll('canvas[data-floc-layer]').forEach(canvas => {
+        if (currentProject.layers.some(layer => layer.id === canvas.dataset.flocLayer && layer.type === 'effect') && (canvas.width !== w || canvas.height !== h)) { canvas.width = w; canvas.height = h; }
+      });
       backgrounds.forEach(({ canvas }) => { if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h; });
       drawBackgrounds(currentTime);
     },
     setOrientation: value => engines.forEach(engine => engine.scene.setOrientation(value?.id === engine.id ? value : null)),
     setPlacement: value => engines.forEach(engine => engine.scene.setPlacement(value)),
-    dispose: () => { disposed = true; engines.forEach(engine => engine.scene.dispose()); }
+    dispose: () => { disposed = true; noise.dispose(); engines.forEach(engine => engine.scene.dispose()); }
   };
 }

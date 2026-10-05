@@ -8,7 +8,7 @@ import { TimelineTimingControls } from './editor/components/TimelineTimingContro
 import './timeline-choreography.css';
 
 const isFade = kind => kind === 'fadeIn' || kind === 'fadeOut';
-const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model' };
+const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model', effect: 'Effect' };
 
 export function TimelineTracks({ project, selected, time, icons, mode = 'timing', controlsLayerId = null, rulerControls, onOpenControls, onSelect, onSelectState = onSelect, onSeek, onCommit }) {
   const ruler = useRef(null);

@@ -164,7 +164,7 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
       onPatch(l.id, { x: Math.max(0, Math.min(95, position.x + next.x - visual.x)), y: Math.max(0, Math.min(95, position.y + next.y - visual.y)) });
     }
   }
-  const editable = enabled && layer && layer.type !== 'music' && layer.visible && time >= layer.start && time < layer.end && !layer.locked ? layer : null;
+  const editable = enabled && layer && !['music', 'effect'].includes(layer.type) && layer.visible && time >= layer.start && time < layer.end && !layer.locked ? layer : null;
   const node = editable && nodeFor(editable.id);
   const frame = root.current?.getBoundingClientRect();
   const box = node?.getBoundingClientRect();

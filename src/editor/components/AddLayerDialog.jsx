@@ -1,5 +1,5 @@
 import React from 'react';
-import { ImageSquare, Images, Plus, Sparkle, TextT, UploadSimple, X } from '@phosphor-icons/react';
+import { DotsNine, ImageSquare, Images, Plus, Sparkle, TextT, UploadSimple, X } from '@phosphor-icons/react';
 import { carouselImages } from '../../project.js';
 import { IconButton, Modal } from '../controls.jsx';
 
@@ -20,6 +20,7 @@ export function AddLayerDialog({ project, initialTarget = 'layers', uploading, o
     { id: 'text', Icon: TextT, label: 'Add text layer', action: () => create('text'), disabled: full },
     { id: 'carousel', Icon: Images, label: 'Add carousel · files can be added later', action: () => create('carousel'), disabled: full },
     { id: 'background', Icon: ImageSquare, label: 'Add background layer', action: () => create('background'), disabled: full },
+    { id: 'effect', Icon: DotsNine, label: 'Add effect layer · Noise', action: () => create('effect'), disabled: full },
     { id: 'logo', Icon: Sparkle, label: 'Add studio mark', action: () => create('logo'), disabled: full }
   ] : [{ id: 'source', Icon: cards ? Images : UploadSimple, label: cards ? 'Choose carousel cards · images, SVG or video' : `Choose source for ${existing?.name ?? 'layer'}`, action: chooseFiles, disabled: cards ? !existing || existing.locked || carouselImages(project, existing).length >= 24 : !existing || existing.locked }];
   return <Modal onClose={onClose} labelledBy="add-layer-heading"><section className="modal add-layer-modal">

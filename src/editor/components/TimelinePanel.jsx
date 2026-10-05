@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Circle, Images, CaretDown, CaretUp, ImageSquare, MusicNotes, Sparkle, TextT } from '@phosphor-icons/react';
+import { DotsNine, Circle, Images, CaretDown, CaretUp, ImageSquare, MusicNotes, Sparkle, TextT } from '@phosphor-icons/react';
 import { TimelineTracks } from '../../timeline.jsx';
 import { evaluateChoreography } from '../../choreography.js';
 import { ChoreographyControls, supportsChoreography } from './ChoreographyControls.jsx';
 import { TimelineControlsPopover } from './TimelineControlsPopover.jsx';
 import '../timeline-controls.css';
 
-const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle };
+const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle, effect: DotsNine };
 export function TimelinePanel({ project, selected, time, timelineOpen, onTimeChange, onSetPlaying, onSetTimelineOpen, onSelect, onSeek, onPatch, onEditLayer = onPatch }) {
   const [context, setContext] = useState({ layerId: selected, mode: 'timing', anchor: null });
   useEffect(() => { setContext(current => current.layerId === selected ? current : { layerId: selected, mode: 'timing', anchor: null }); }, [selected]);

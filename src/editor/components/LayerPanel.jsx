@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowDown, ArrowUp, Circle, ImageSquare, Images, MusicNotes, Plus, Sparkle, Stack, TextT, X } from '@phosphor-icons/react';
+import { DotsNine, ArrowDown, ArrowUp, Circle, ImageSquare, Images, MusicNotes, Plus, Sparkle, Stack, TextT, X } from '@phosphor-icons/react';
 import { cardMediaKind, cardVideoSource } from '../../card-media.js';
 import { LayerList } from './LayerList.jsx';
 import { LayoutControls } from './LayoutControls.jsx';
@@ -7,7 +7,7 @@ import { FormatVersionsControls } from './FormatVersionsControls.jsx';
 import { carouselImages } from '../../project.js';
 import { Field, IconButton, NumberField, Section } from '../controls.jsx';
 
-const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle };
+const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle, effect: DotsNine };
 
 export function LayerPanel({ project, selected, leftTab, uploading, onSelectLayer, onSetLeftTab, onPatch, onOpenAdd, onRemoveLayer, onMoveLayer, onDropLayer, onDuplicateLayer, onChangeProject, onChangeDuration, onChangeFps, onReorderImage, onRemoveImage }) {
   const layer = project.layers.find(item => item.id === selected);

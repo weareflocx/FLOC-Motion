@@ -3,7 +3,7 @@ import { Diamond, Trash } from '@phosphor-icons/react';
 import { CHOREOGRAPHY_EASINGS, captureState, moveState, stateAtTime } from '../../choreography.js';
 import { IconButton, NumberField } from '../controls.jsx';
 
-export const supportsChoreography = layer => ['text', 'logo', 'carousel', 'media', 'model'].includes(layer?.type);
+export const supportsChoreography = layer => ['text', 'logo', 'carousel', 'media', 'model', 'effect'].includes(layer?.type);
 const formatTime = time => `${Number(time).toFixed(2)} s`;
 
 export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek }) {
