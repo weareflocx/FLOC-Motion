@@ -68,7 +68,10 @@ function validateChoreography(layer) {
     previousTime = state.time;
     if (!CHOREOGRAPHY_EASINGS.some(([id]) => id === state.easing)) fail('Unknown choreography easing.');
     if (!state.values || typeof state.values !== 'object' || Array.isArray(state.values) || Object.keys(state.values).some(key => !Object.hasOwn(fields, key))) fail('Invalid choreography values.');
-    for (const [field, [min, max]] of Object.entries(fields)) finite(state.values[field], min, max, `State ${field}`);
+    for (const [field, [min, max]] of Object.entries(fields)) {
+      if (field === 'roll' && ['text', 'logo', 'media'].includes(layer.type) && state.values.roll === undefined) state.values.roll = layer.roll ?? 0;
+      finite(state.values[field], min, max, `State ${field}`);
+    }
   }
 }
 // The epsilon keeps re-validation idempotent once fades have been scaled to fit.
@@ -105,6 +108,14 @@ export function validateProject(input) {
     if (typeof l.locked !== 'boolean') fail('Layer lock must be a boolean.');
     if (typeof l.visible !== 'boolean') fail('Layer visibility must be a boolean.');
     finite(l.start, 0, p.duration, 'Layer start'); finite(l.end, l.start + 0.01, p.duration, 'Layer end');
+    if (['text', 'logo', 'media', 'background'].includes(l.type)) {
+      l.roll ??= 0;
+      finite(l.roll, -180, 180, 'Rotation');
+    }
+    if (l.type === 'background') {
+      l.x ??= 0; l.y ??= 0;
+      finite(l.x, -100, 100, 'Background X'); finite(l.y, -100, 100, 'Background Y');
+    }
     if (l.type === 'text') {
       str(l.text, 500, 'text'); finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 12, 180, 'Font size'); finite(l.width, 5, 100, 'Text width'); color(l.color);
       l.font ??= 'geist';
@@ -224,7 +235,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {

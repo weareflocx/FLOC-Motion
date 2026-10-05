@@ -247,3 +247,5 @@ dialog.modal-backdrop:not([open]){display:none}
 .canvas-zoom{display:flex;flex-shrink:0;align-items:center;gap:3px;font-size:10px;color:#aaa}.canvas-zoom>button:not(.icon-button){min-height:32px;padding:0 7px;border-radius:5px}.canvas-zoom button:hover{background:#313131;color:#eee}.canvas-zoom button[aria-pressed=true]{background:#333;color:#eee}.canvas-zoom-value{min-width:44px;text-align:center;font-family:var(--font-data,monospace);font-size:10px}
 .stage-holder.is-panning,.stage-holder.is-panning .canvas-selected,.stage-holder.is-panning .canvas-orientation-ring *{cursor:grab}.stage-holder.is-panning:active{cursor:grabbing}.stage-holder.is-panning{touch-action:none}.stage-holder:focus-visible{outline:1px solid #ffffffa6;outline-offset:-3px}
 .workspace>.timeline-panel{grid-column:1/-1;grid-row:2}
+
+.canvas-layer-rotation{width:160px;height:160px;stroke-dasharray:2 4}.canvas-layer-rotation .canvas-ring-handle{stroke-dasharray:none}

@@ -178,7 +178,7 @@ test('choreography adapts with baseline anchors and shares state timing, easing 
   assert.deepEqual([end.time, end.easing, end.values.opacity, end.values.x], [7, 'ease-out', .4, 60]);
   assert.equal(layer(switchFormat(square, 'landscape'), 'headline').choreography[1].values.x, 80);
   const cached = landscape.linkedFormats.layouts.landscape.layers.headline.choreography.exit;
-  assert.deepEqual(Object.keys(cached).sort(), ['size', 'x', 'y']);
+  assert.deepEqual(Object.keys(cached).sort(), ['roll', 'size', 'x', 'y']);
   const portrait = switchFormat(square, 'portrait');
   near(layer(portrait, 'headline').choreography[1].values.y, 30 + (60 - 30) * .5625);
 });

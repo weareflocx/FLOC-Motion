@@ -5,12 +5,12 @@ import { DEFAULT_LAYOUT } from './layout.js';
 // These are the only per-format properties. Content, timing and motion stay
 // on the effective project; choreography caches only the local pose by state ID.
 export const FORMAT_LOCAL_FIELDS = Object.freeze({
-  text: ['x', 'y', 'size', 'width', 'font', 'weight', 'lineHeight', 'letterSpacing', 'textAlign', 'choreography'],
-  logo: ['x', 'y', 'size', 'choreography'],
-  media: ['x', 'y', 'size', 'choreography'],
+  text: ['x', 'y', 'roll', 'size', 'width', 'font', 'weight', 'lineHeight', 'letterSpacing', 'textAlign', 'choreography'],
+  logo: ['x', 'y', 'roll', 'size', 'choreography'],
+  media: ['x', 'y', 'roll', 'size', 'choreography'],
   model: ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'choreography'],
   carousel: ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'gap', 'radius', 'perspective', 'cardAspect', 'choreography'],
-  background: ['fit'],
+  background: ['fit', 'x', 'y', 'roll'],
   music: []
 });
 
@@ -20,14 +20,15 @@ const record = value => value && typeof value === 'object' && !Array.isArray(val
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const LOCAL_BOUNDS = {
-  text: { x: [0, 95], y: [0, 95], size: [12, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5] },
-  logo: { x: [0, 95], y: [0, 95], size: [2, 35] },
-  media: { x: [0, 95], y: [0, 95], size: [2, 100] },
+  background: { x: [-100, 100], y: [-100, 100], roll: [-180, 180] },
+  text: { roll: [-180, 180], x: [0, 95], y: [0, 95], size: [12, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5] },
+  logo: { roll: [-180, 180], x: [0, 95], y: [0, 95], size: [2, 35] },
+  media: { roll: [-180, 180], x: [0, 95], y: [0, 95], size: [2, 100] },
   model: { x: [0, 95], y: [0, 95], size: [2, 100], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
   carousel: { x: [10, 90], y: [10, 90], size: [0.5, 2.5], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] }
 };
 const ALL_FIELDS = new Set(Object.values(FORMAT_LOCAL_FIELDS).flat());
-const ALL_BOUNDS = { x: [0, 95], y: [0, 95], size: [0.5, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] };
+const ALL_BOUNDS = { x: [-100, 100], y: [-100, 100], size: [0.5, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] };
 const POSE_FIELDS = new Set(['x', 'y', 'size', 'tilt', 'yaw', 'roll']);
 const numeric = (value, bounds) => typeof value === 'number' && Number.isFinite(value) && value >= bounds[0] && value <= bounds[1];
 const validID = id => typeof id === 'string' && id.trim() && id.length <= 80 && !dangerous(id);
@@ -132,6 +133,7 @@ export function assistedFormatSnapshot(project, format, formats) {
     const bounds = LOCAL_BOUNDS[layer.type];
     if (!bounds) return { ...layer };
     const center = ['carousel', 'model'].includes(layer.type);
+    if (layer.type === 'background') return { ...layer };
     const position = (value, axis) => {
       const ratio = axis === 'x' ? ratioX : ratioY;
       // Keep outer-quarter edge margins while moving the baseline anchor

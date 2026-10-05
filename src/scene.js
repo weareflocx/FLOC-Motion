@@ -116,10 +116,16 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   let requestedTime = 0;
   function placeLayers(time) {
     const frame = p.layout?.enabled ? (carousel ? canvas : root).getBoundingClientRect() : null;
-    for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model'].includes(l.type))) {
+    for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model', 'background'].includes(l.type))) {
       const el = layerNodes.find(node => node.dataset.flocLayer === l.id); if (!el) continue;
       const evaluated = evaluateChoreography(l, time);
       const pos = placement?.id === l.id ? { ...evaluated, ...placement } : evaluated;
+      if (l.type === 'background') {
+        for (const node of layerNodes.filter(node => node.dataset.flocLayer === l.id)) {
+          node.style.transform = `translate(${pos.x ?? 0}%,${pos.y ?? 0}%) rotate(${pos.roll ?? 0}deg)`;
+        }
+        continue;
+      }
       const sizeProperty = l.type === 'text' ? 'fontSize' : 'width';
       const sizeValue = l.type === 'text' ? `${pos.size * width / 1080}px` : `${pos.size}%`;
       if (el.style[sizeProperty] !== sizeValue) el.style[sizeProperty] = sizeValue;
@@ -127,21 +133,25 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha({ ...l, opacity: 1, choreography: [] }, time)) * 24 : 0;
       if (p.layout?.enabled && ['text', 'logo'].includes(l.type)) {
         if (frame.width && frame.height) {
-          const key = `${sizeValue}:${frame.width}:${frame.height}`;
+          const key = `${sizeValue}:${frame.width}:${frame.height}:${pos.roll ?? 0}`;
           let bounds = placementBounds.get(el);
           if (bounds?.key !== key) {
-            const rect = el.getBoundingClientRect();
-            bounds = { key, width: rect.width / frame.width * 100, height: rect.height / frame.height * 100 };
+            const angle = (pos.roll ?? 0) * Math.PI / 180;
+            const rotatedWidth = Math.abs(el.offsetWidth * Math.cos(angle)) + Math.abs(el.offsetHeight * Math.sin(angle));
+            const rotatedHeight = Math.abs(el.offsetWidth * Math.sin(angle)) + Math.abs(el.offsetHeight * Math.cos(angle));
+            bounds = { key, width: rotatedWidth / width * 100, height: rotatedHeight / height * 100,
+              x: (el.offsetWidth - rotatedWidth) / 2 / width * 100, y: (el.offsetHeight - rotatedHeight) / 2 / height * 100 };
             placementBounds.set(el, bounds);
           }
           if (renderMode && layerAlpha(l, time) > 0 && !fitsSafeArea(bounds, p.layout)) throw new Error(`${l.name} exceeds the safe area. Reduce its width or size before exporting.`);
-          position = constrainPlacement(pos.x, pos.y, bounds.width, bounds.height, p.layout);
+          const constrained = constrainPlacement(pos.x + bounds.x, pos.y + bounds.y, bounds.width, bounds.height, p.layout);
+          position = { x: constrained.x - bounds.x, y: constrained.y - bounds.y };
           const area = safeArea(p.layout);
-          rise = Math.min(rise, Math.max(0, (area.y + area.height - position.y - bounds.height) * height / 100));
+          rise = Math.min(rise, Math.max(0, (area.y + area.height - constrained.y - bounds.height) * height / 100));
         }
       }
       el.style.left = `${position.x}%`; el.style.top = `${position.y}%`;
-      el.style.transform = rise ? `translateY(${rise}px)` : '';
+      el.style.transform = `${rise ? `translateY(${rise}px) ` : ''}${['text', 'logo', 'media'].includes(l.type) ? `rotate(${pos.roll ?? 0}deg)` : ''}`;
       if (l.type === 'text') el.style.clipPath = textRevealClip(l, time);
     }
   }

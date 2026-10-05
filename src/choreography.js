@@ -2,7 +2,7 @@ export const CHOREOGRAPHY_EASINGS = [
   ['linear', 'Linear'], ['smooth', 'Smooth'], ['ease-in', 'Ease in'], ['ease-out', 'Ease out']
 ];
 
-const COMMON_FIELDS = { x: [0, 95], y: [0, 95], opacity: [0, 1] };
+const COMMON_FIELDS = { x: [0, 95], y: [0, 95], opacity: [0, 1], roll: [-180, 180] };
 const FIELDS = {
   text: { ...COMMON_FIELDS, size: [12, 180] },
   logo: { ...COMMON_FIELDS, size: [2, 35] },
@@ -57,7 +57,7 @@ export function captureState(layer, absoluteTime, fps, patch = {}, id = crypto.r
   // Preserve off-frame imported times when replacing their frame, keeping ordering intact.
   const time = existing?.time ?? frameTime;
   const pose = evaluateChoreography(layer, layer.start + time);
-  const values = Object.fromEntries(Object.keys(fields).map(field => [field, Object.hasOwn(patch, field) ? patch[field] : pose[field] ?? (field === 'opacity' ? 1 : undefined)]));
+  const values = Object.fromEntries(Object.keys(fields).map(field => [field, Object.hasOwn(patch, field) ? patch[field] : pose[field] ?? (field === 'opacity' ? 1 : field === 'roll' ? 0 : undefined)]));
   const state = { id: existing?.id ?? id, time, easing: existing?.easing ?? 'smooth', values };
   return [...(layer.choreography ?? []).filter(entry => entry.id !== existing?.id), state].sort((a, b) => a.time - b.time);
 }

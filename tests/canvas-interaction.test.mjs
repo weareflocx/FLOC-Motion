@@ -107,3 +107,65 @@ test('dragging uses the displayed frame size at different zoom levels and commit
     h.unmount();
   }
 });
+
+test('rotation handle previews one text edit, commits on release and cancels with Escape', () => {
+  for (const cancel of [false, true]) {
+    const h = editor(); h.node.focus = () => {};
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 700, clientY: 500,
+      target: { closest: selector => selector === '[data-canvas-ring]' ? {} : null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render();
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 500, clientY: 700 });
+    assert.equal(h.patches.length, 0);
+    assert.equal(h.previews.at(-1).roll, 90);
+    if (cancel) handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, cancel ? 0 : 1);
+    if (!cancel) assert.equal(h.patches[0].roll, 90);
+    h.unmount();
+  }
+});
+
+test('Alt-arrow rotates visual layers and respects locks', () => {
+  const h = editor();
+  const target = { closest: selector => selector === '[data-floc-layer]' ? h.node : null };
+  const event = { key: 'ArrowRight', altKey: true, target, preventDefault() {} };
+  h.render().handlers.onKeyDown(event);
+  assert.equal(h.patches.at(-1).roll, 1);
+  h.project.layers.find(l => l.id === 'headline').locked = true;
+  h.render().handlers.onKeyDown(event);
+  assert.equal(h.patches.length, 1);
+  h.unmount();
+});
+
+test('selected background drags in both directions without safe-area clamping', () => {
+  const h = editor(); h.node.dataset.flocLayer = 'background'; h.node.focus = () => {};
+  Object.assign(h.project.layers[0], { x: 0, y: 0, roll: 0 });
+  h.project.layers.slice(1).forEach(l => l.visible = false);
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 500, clientY: 500, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render({ selected: 'background' });
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 400, clientY: 550 });
+  handlers.onPointerUp(event);
+  assert.equal(h.patches[0].x, -10);
+  assert.equal(h.patches[0].y, 5);
+  h.unmount();
+});
+
+test('moving rotated text preserves its anchor instead of jumping to its bounding box', () => {
+  const h = editor();
+  Object.assign(h.project.layers.find(l => l.id === 'headline'), { x: 20, y: 25, roll: 30 });
+  Object.assign(h.node.style, { left: '20%', top: '25%' }); h.node.focus = () => {};
+  h.node.getBoundingClientRect = () => ({ left: 150, top: 200, right: 450, bottom: 350, width: 300, height: 150 });
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 250, clientY: 250, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render();
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 300, clientY: 280, shiftKey: true });
+  handlers.onPointerUp(event);
+  assert.equal(h.patches[0].x, 25);
+  assert.equal(h.patches[0].y, 28);
+  h.unmount();
+});

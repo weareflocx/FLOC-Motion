@@ -16,15 +16,14 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
   const layout = project.layout ?? DEFAULT_LAYOUT, area = safeArea(layout);
   const [w, h] = FORMATS[project.format];
   function measure() {
-    const rect = element.current.getBoundingClientRect();
-    return { width: layer.type === 'text' ? layer.width : layer.size, height: rect.height / frame.current.clientHeight * 100 };
+    return { width: layer.type === 'text' ? layer.width : layer.size, height: element.current.offsetHeight / frame.current.clientHeight * 100 };
   }
   useEffect(() => {
     let active = true;
     const update = () => {
       if (!active || !frame.current || !element.current) return;
       setWidth(frame.current.clientWidth); setBounds(measure());
-      setSizes(Object.fromEntries([...frame.current.querySelectorAll('[data-map-layer]')].map(node => { const box = node.getBoundingClientRect(), l = project.layers.find(l => l.id === node.dataset.mapLayer); return [l.id, { width: l.type === 'text' ? l.width : l.size, height: box.height / frame.current.clientHeight * 100 }]; })));
+      setSizes(Object.fromEntries([...frame.current.querySelectorAll('[data-map-layer]')].map(node => { const l = project.layers.find(l => l.id === node.dataset.mapLayer); return [l.id, { width: l.type === 'text' ? l.width : l.size, height: node.offsetHeight / frame.current.clientHeight * 100 }]; })));
     };
     const observer = new ResizeObserver(update);
     observer.observe(frame.current); frame.current.querySelectorAll('[data-map-layer]').forEach(node => observer.observe(node)); update();
@@ -64,11 +63,11 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
   function begin(e) {
     if (e.button !== 0 || gesture.current || e.target.closest('.map-grid-point')) return;
     e.preventDefault(); element.current.focus({ preventScroll: true });
-    const rect = element.current.getBoundingClientRect(); const size = measure();
+    const size = measure();
     const dragging = !!e.target.closest('.map-node.selected');
     const g = { pointerId: e.pointerId, ...size,
-      grabX: (dragging ? e.clientX - rect.left : rect.width * ({ left: 0, center: 0.5, right: 1 }[alignment])) / frame.current.clientWidth * 100,
-      grabY: (dragging ? e.clientY - rect.top : rect.height / 2) / frame.current.clientHeight * 100 };
+      grabX: dragging ? (e.clientX - frame.current.getBoundingClientRect().left - frame.current.clientLeft) / frame.current.clientWidth * 100 - position.x : size.width * ({ left: 0, center: 0.5, right: 1 }[alignment]),
+      grabY: dragging ? (e.clientY - frame.current.getBoundingClientRect().top - frame.current.clientTop) / frame.current.clientHeight * 100 - position.y : size.height / 2 };
     g.latest = null; gesture.current = g; frame.current.setPointerCapture(e.pointerId);
     if (!dragging) move(e);
   }
@@ -105,7 +104,7 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
       <div className={`map-center-anchor ${selected === 36 ? 'active' : ''}`} aria-hidden="true"/>
       {project.layers.filter(l => ['text', 'logo'].includes(l.type) && (l.visible || l.id === layer.id)).map(l => {
         const active = l.id === layer.id; const pos = active && draft ? draft : positionFor(l);
-        return <div key={l.id} data-map-layer={l.id} ref={active ? element : null} className={`map-node ${active ? 'selected' : 'ghost'}`} role={active ? 'button' : undefined} tabIndex={active ? 0 : undefined} aria-label={active ? `Move ${l.name}: arrows 1 pixel, Shift 10 pixels; Escape cancels` : undefined} onKeyDown={active ? e => keys(e) : undefined} style={{ left: `${pos.x}%`, top: `${pos.y}%`, width: `${l.type === 'text' ? l.width : l.size}%`, fontSize: `${l.type === 'text' ? l.size * width / 1080 : 8}px`, fontWeight: l.weight, ...(l.type === 'text' ? textTypography(l) : {}), fontFamily: l.type === 'text' ? fontDefinition(l.font).family : undefined, opacity: active ? 1 : 0.25 }}>
+        return <div key={l.id} data-map-layer={l.id} ref={active ? element : null} className={`map-node ${active ? 'selected' : 'ghost'}`} role={active ? 'button' : undefined} tabIndex={active ? 0 : undefined} aria-label={active ? `Move ${l.name}: arrows 1 pixel, Shift 10 pixels; Escape cancels` : undefined} onKeyDown={active ? e => keys(e) : undefined} style={{ transform: `rotate(${l.roll ?? 0}deg)`, left: `${pos.x}%`, top: `${pos.y}%`, width: `${l.type === 'text' ? l.width : l.size}%`, fontSize: `${l.type === 'text' ? l.size * width / 1080 : 8}px`, fontWeight: l.weight, ...(l.type === 'text' ? textTypography(l) : {}), fontFamily: l.type === 'text' ? fontDefinition(l.font).family : undefined, opacity: active ? 1 : 0.25 }}>
           {l.type === 'logo' ? l.src ? <img src={l.src} alt="" draggable={false}/> : <span>Logo</span> : l.text}
         </div>;
       })}

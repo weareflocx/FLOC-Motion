@@ -4,8 +4,8 @@ export function updatePlacementPreview(current, project) {
     const { linkedFormats, ...renderProject } = value;
     return { ...renderProject, layers: value.layers.map(layer => {
       const { contentField, ...renderLayer } = layer;
-      if (!['text', 'logo', 'media', 'model', 'carousel'].includes(layer.type)) return renderLayer;
-      const { x, y, size, opacity, choreography, ...rest } = renderLayer;
+      if (!['text', 'logo', 'media', 'model', 'carousel', 'background'].includes(layer.type)) return renderLayer;
+      const { x, y, size, opacity, choreography, roll, ...rest } = renderLayer;
       if (['model', 'carousel'].includes(layer.type)) {
         const { tilt, yaw, roll, ...unchanged } = rest;
         return unchanged;

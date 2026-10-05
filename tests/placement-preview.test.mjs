@@ -47,7 +47,7 @@ test('content field names preserve the preview while changed content rebuilds it
   assert.equal(updatePlacementPreview(current, changed), false);
 });
 
-for (const type of ['text', 'logo', 'media', 'model', 'carousel']) {
+for (const type of ['text', 'logo', 'media', 'model', 'carousel', 'background']) {
   test(`${type} placement edits reuse the current scene with validated values`, () => {
     const input = demoProject();
     if (['media', 'model'].includes(type)) input.layers.push(fileLayer({ name: type, src: type === 'model' ? '/assets/00000000-0000-4000-8000-000000000001.glb' : '/demo/poster-1.svg' }, input.duration, 'added'));
@@ -55,7 +55,7 @@ for (const type of ['text', 'logo', 'media', 'model', 'carousel']) {
     const id = project.layers.find(l => l.type === type).id;
     let updated;
     const current = { project, scene: { updateLayers(layers) { updated = layers; } } };
-    const fields = ['x', 'y', 'size', ...(['model', 'carousel'].includes(type) ? ['tilt', 'yaw', 'roll'] : [])];
+    const fields = ['x', 'y', 'roll', ...(type === 'background' ? [] : ['size']), ...(['model', 'carousel'].includes(type) ? ['tilt', 'yaw'] : [])];
     for (const field of fields) {
       const layer = project.layers.find(l => l.id === id);
       const next = patchLayer(project, id, { [field]: layer[field] + (type === 'carousel' && field === 'size' ? 0.1 : 1) });

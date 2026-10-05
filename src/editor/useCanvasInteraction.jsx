@@ -51,13 +51,13 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
   }, [project, selected, time, layer?.size, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
   useEffect(() => {
     for (const l of project.layers) {
-      const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model'].includes(l.type)) continue;
+      const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model', 'background'].includes(l.type)) continue;
       node.classList.toggle('canvas-selected', l.id === selected && l.type !== 'carousel');
       const visible = l.visible && time >= l.start && time < l.end;
       node.tabIndex = visible && enabled ? 0 : -1; node.setAttribute('role', 'button');
       node.setAttribute('aria-disabled', String(!enabled));
       node.setAttribute('aria-hidden', String(!visible));
-      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : l.type === 'carousel' ? ': drag to move; Shift-drag to orient; scroll to resize' : ''}`);
+      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : l.type === 'carousel' ? ': drag to move; Shift-drag to orient; scroll to resize' : ': drag to move; drag rotation handle or Alt-arrow to rotate'}`);
       node.style.pointerEvents = enabled ? 'auto' : 'none';
     }
   }, [project, selected, time, sceneKey, enabled]);
@@ -71,14 +71,14 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
       if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
       if (['text', 'logo', 'media', 'model'].includes(l.type)) return l;
       if (l.type === 'carousel' && engine.current?.hitTest((x - box.left) / box.width, (y - box.top) / box.height, l.id)) return l;
-      if (l.type === 'background') return null;
+      if (l.type === 'background') return l.id === selected ? l : null;
     }
     return null;
   }
   function begin(event) {
     if (!enabled || event.button !== 0 || gesture.current || wheelDraft.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
-    const ringLayer = ring && project.layers.find(l => l.id === selected && l.type === 'carousel');
+    const ringLayer = ring && project.layers.find(l => l.id === selected && l.type !== 'music');
     const l = ringLayer ? evaluateChoreography(ringLayer, playhead.current) : pick(event.clientX, event.clientY);
     if (!l) return;
     event.preventDefault(); onSelect(l.id);
@@ -86,15 +86,18 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     if (l.locked) return;
     const box = root.current.getBoundingClientRect();
     const b = nodeFor(l.id).getBoundingClientRect();
-    const orient = l.type === 'carousel' && (!!ring || event.shiftKey);
-    const initial = orient ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : l.type === 'carousel' ? { x: l.x, y: l.y } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top) };
+    const orient = !!ring || l.type === 'carousel' && event.shiftKey;
+    const spatial = ['carousel', 'model'].includes(l.type);
+    const center = l.type === 'carousel' ? { x: box.left + box.width * l.x / 100, y: box.top + box.height * l.y / 100 } : { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 };
+    const initial = orient ? spatial ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { roll: l.roll ?? 0 } : ['carousel', 'background'].includes(l.type) ? { x: l.x ?? 0, y: l.y ?? 0 } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top) };
+    const visualOffset = !orient && ['text', 'logo', 'media'].includes(l.type) ? { x: (b.left - box.left) / box.width * 100 - initial.x, y: (b.top - box.top) / box.height * 100 - initial.y } : { x: 0, y: 0 };
     const targets = project.layers.filter(other => other.id !== l.id && other.visible && playhead.current >= other.start && playhead.current < other.end).map(other => evaluateChoreography(other, playhead.current)).flatMap(other => {
       if (other.type === 'carousel') return [{ x: other.x, y: other.y, width: 0, height: 0 }];
       const node = nodeFor(other.id); if (!node || !['text', 'logo', 'media', 'model'].includes(other.type)) return [];
       const rect = node.getBoundingClientRect();
       return [{ x: (rect.left - box.left) / box.width * 100, y: (rect.top - box.top) / box.height * 100, width: rect.width / box.width * 100, height: rect.height / box.height * 100 }];
     });
-    gesture.current = { id: event.pointerId, layer: l, project, box, initial, targets, latest: initial, orient, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - (box.top + box.height * l.y / 100), event.clientX - (box.left + box.width * l.x / 100)), delta: 0, moved: false };
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, targets, latest: initial, orient, spatial, center, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event) {
@@ -103,16 +106,19 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     if (!g.moved && Math.hypot(dx, dy) < 3) return;
     g.moved = true;
     if (g.orient) {
-      const angle = Math.atan2(event.clientY - (g.box.top + g.box.height * g.layer.y / 100), event.clientX - (g.box.left + g.box.width * g.layer.x / 100));
+      const angle = Math.atan2(event.clientY - g.center.y, event.clientX - g.center.x);
       g.delta += wrapDegrees((angle - g.angle) * 180 / Math.PI); g.angle = angle;
-      g.latest = dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, g.ring ? g.delta : null);
+      g.latest = g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, g.ring ? g.delta : null) : { roll: wrapDegrees(g.initial.roll + g.delta) };
+    } else if (g.layer.type === 'background') {
+      g.latest = { x: Math.max(-100, Math.min(100, g.initial.x + dx / g.box.width * 100)), y: Math.max(-100, Math.min(100, g.initial.y + dy / g.box.height * 100)) };
     } else if (g.layer.type === 'carousel') {
       g.latest = carouselPlacement(g.initial.x + dx / g.box.width * 100, g.initial.y + dy / g.box.height * 100);
     } else {
-      const x = g.initial.x + dx / g.box.width * 100, y = g.initial.y + dy / g.box.height * 100;
+      const x = g.initial.x + g.visualOffset.x + dx / g.box.width * 100, y = g.initial.y + g.visualOffset.y + dy / g.box.height * 100;
       const point = event.altKey ? gridPlacement(nearestGridPoint(x + g.width / 2, y + g.height / 2), g.width, g.height) : { x, y };
       g.latest = { ...point, ...freePlacement(point.x, point.y, g.width, g.height, project.layout) };
       if (!event.altKey && !event.shiftKey && layout.guides) g.latest = alignmentPlacement(g.latest, g, g.targets, layout, { x: 600 / g.box.width, y: 600 / g.box.height });
+      g.latest = { ...g.latest, x: Math.max(0, Math.min(95, g.latest.x - g.visualOffset.x)), y: Math.max(0, Math.min(95, g.latest.y - g.visualOffset.y)) };
     }
     setDraft(g.latest); onPreview({ id: g.layer.id, ...g.latest });
   }
@@ -138,7 +144,12 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     commitWheel();
     const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
     const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
-    if (l.type === 'carousel' && (event.shiftKey || event.altKey || event.target.closest('[data-canvas-ring]'))) {
+    if (l.type !== 'carousel' && l.type !== 'music' && (event.altKey || event.target.closest('[data-canvas-ring]'))) {
+      onPatch(l.id, { roll: wrapDegrees((l.roll ?? 0) + (dx || dy) * (event.shiftKey ? 5 : 1)) });
+    } else if (l.type === 'background') {
+      const [w, h] = FORMATS[project.format], step = event.shiftKey ? 10 : 1;
+      onPatch(l.id, { x: Math.max(-100, Math.min(100, l.x + dx * step / w * 100)), y: Math.max(-100, Math.min(100, l.y + dy * step / h * 100)) });
+    } else if (l.type === 'carousel' && (event.shiftKey || event.altKey || event.target.closest('[data-canvas-ring]'))) {
       const step = event.shiftKey ? 5 : 1;
       onPatch(l.id, dragOrientation({ tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll }, dx * step / 180, dy * step / 180, event.altKey || event.target.closest('[data-canvas-ring]') ? (dx || dy) * step : null));
     } else if (l.type === 'carousel') {
@@ -148,10 +159,19 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
       const box = root.current.getBoundingClientRect(), b = nodeFor(l.id).getBoundingClientRect();
       const w = b.width / box.width * 100, h = b.height / box.height * 100;
       const node = nodeFor(l.id), position = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };
-      onPatch(l.id, nudgePlacement(position, dx, dy, FORMATS[project.format], { width: w, height: h }, event.shiftKey ? 10 : 1, project.layout));
+      const visual = { x: (b.left - box.left) / box.width * 100, y: (b.top - box.top) / box.height * 100 };
+      const next = nudgePlacement(visual, dx, dy, FORMATS[project.format], { width: w, height: h }, event.shiftKey ? 10 : 1, project.layout);
+      onPatch(l.id, { x: Math.max(0, Math.min(95, position.x + next.x - visual.x)), y: Math.max(0, Math.min(95, position.y + next.y - visual.y)) });
     }
   }
-  const carousel = enabled && layer?.type === 'carousel' && layer.visible && time >= layer.start && time < layer.end ? layer : null;
-  const ring = carousel && !carousel.locked ? <svg className="canvas-orientation-ring" style={{ left: `${draft?.x ?? carousel.x}%`, top: `${draft?.y ?? carousel.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label="Rotate carousel Z: drag ring or use arrow keys; Escape cancels"><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos((draft?.roll ?? carousel.roll) * Math.PI / 180)} cy={50 + 45 * Math.sin((draft?.roll ?? carousel.roll) * Math.PI / 180)} r="2"/></svg> : null;
+  const editable = enabled && layer && layer.type !== 'music' && layer.visible && time >= layer.start && time < layer.end && !layer.locked ? layer : null;
+  const node = editable && nodeFor(editable.id);
+  const frame = root.current?.getBoundingClientRect();
+  const box = node?.getBoundingClientRect();
+  const center = editable?.type === 'carousel' ? { x: draft?.x ?? editable.x, y: draft?.y ?? editable.y }
+    : box && frame ? { x: (box.left + box.width / 2 - frame.left) / frame.width * 100, y: (box.top + box.height / 2 - frame.top) / frame.height * 100 } : null;
+  const angle = (draft?.roll ?? editable?.roll ?? 0) * Math.PI / 180;
+  const ring = editable && center ? editable.type === 'carousel' ? <svg className="canvas-orientation-ring" style={{ left: `${center.x}%`, top: `${center.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label="Rotate carousel Z: drag ring or use arrow keys; Escape cancels"><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos(angle)} cy={50 + 45 * Math.sin(angle)} r="2"/></svg>
+    : <svg className="canvas-orientation-ring canvas-layer-rotation" style={{ left: `${center.x}%`, top: `${center.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label={`Rotate ${editable.name}: drag handle or use arrow keys; Escape cancels`}><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos(angle)} cy={50 + 45 * Math.sin(angle)} r="3"/></svg> : null;
   return { ring, handlers: { onPointerDown: begin, onPointerMove: move, onPointerUp: finish, onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: keys } };
 }
