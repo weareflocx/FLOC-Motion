@@ -154,12 +154,12 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
     engine.current?.setPlacement(synchronized ? positionPreview : null);
     const ready = engine.current?.seek(time, playing);
     Promise.resolve(ready).then(() => {
-      if (cancelled || !synchronized || playing || !(activeProject.layout ?? DEFAULT_LAYOUT).guides) return;
+      if (cancelled || !synchronized || playing) return;
       const frame = root.current.getBoundingClientRect(); if (!frame.width || !frame.height) return;
       const nodes = [...root.current.querySelectorAll('[data-floc-layer]')];
       const rects = activeProject.layers.filter(l => l.visible && time >= l.start && time < l.end).map(l => evaluateChoreography(l, time)).flatMap(l => {
         if (l.type === 'carousel') return [{ id: l.id, x: l.x, y: l.y, width: 0, height: 0 }];
-        if (!['text', 'logo'].includes(l.type)) return [];
+        if (!['text', 'logo', 'media', 'model'].includes(l.type)) return [];
         const node = nodes.find(n => n.dataset.flocLayer === l.id); if (!node) return [];
         const box = node.getBoundingClientRect();
         return [{ id: l.id, x: (box.left - frame.left) / frame.width * 100, y: (box.top - frame.top) / frame.height * 100, width: box.width / frame.width * 100, height: box.height / frame.height * 100 }];

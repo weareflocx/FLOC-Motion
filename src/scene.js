@@ -133,7 +133,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       if (el.style[sizeProperty] !== sizeValue) el.style[sizeProperty] = sizeValue;
       if (l.type === 'model') el.style.height = `${pos.size * width / 100}px`;
       let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha({ ...l, opacity: 1, choreography: [] }, time)) * 24 : 0;
-      if (p.layout?.enabled && ['text', 'logo'].includes(l.type)) {
+      if (p.layout?.enabled && l.type === 'text') {
         if (frame.width && frame.height) {
           const key = `${sizeValue}:${frame.width}:${frame.height}:${pos.roll ?? 0}`;
           let bounds = placementBounds.get(el);

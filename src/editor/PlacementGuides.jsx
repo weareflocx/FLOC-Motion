@@ -2,7 +2,7 @@ import React from 'react';
 import { alignmentPlacement, DEFAULT_LAYOUT, safeArea, spacingGuides } from '../layout.js';
 
 export function PlacementGuides({ layout = DEFAULT_LAYOUT, rect, targets = [], dimensions, lines, scale = 1, fontSize }) {
-  if (!layout?.guides) return null;
+  if (!layout?.guides && !lines?.length) return null;
   const area = safeArea(layout);
   const guides = lines ?? (rect ? alignmentPlacement(rect, rect, targets, layout, { x: .001, y: .001 }).guides : []);
   const gaps = rect ? spacingGuides(rect, targets, layout) : [];

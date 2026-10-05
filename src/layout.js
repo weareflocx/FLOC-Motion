@@ -22,12 +22,13 @@ export function fitsSafeArea(bounds, layout) {
 
 // Guides are editor-only. Their tolerance is supplied in surface pixels,
 // converted to percentages so small maps and large previews feel consistent.
-export function alignmentPlacement(position, bounds, targets, layout, tolerance) {
+export function alignmentPlacement(position, bounds, targets, layout, tolerance, { constrain = true } = {}) {
   const area = safeArea(layout);
   const result = { ...position }, lines = [];
   for (const [axis, size] of [['x', 'width'], ['y', 'height']]) {
     const anchors = [0, bounds[size] / 2, bounds[size]];
     const references = [area[axis], area[axis] + area[size] / 2, area[axis] + area[size]];
+    if (!constrain) references.push(0, 100);
     for (const target of targets) references.push(target[axis], target[axis] + target[size] / 2, target[axis] + target[size]);
     let best;
     for (const reference of references) for (const anchor of anchors) {
@@ -36,7 +37,7 @@ export function alignmentPlacement(position, bounds, targets, layout, tolerance)
     }
     if (best) { result[axis] += best.delta; lines.push({ axis, value: best.reference }); }
   }
-  const bounded = constrainPlacement(result.x, result.y, bounds.width, bounds.height, layout);
+  const bounded = constrain ? constrainPlacement(result.x, result.y, bounds.width, bounds.height, layout) : result;
   return { ...bounded, guides: lines.filter(line => Math.abs(bounded[line.axis] - result[line.axis]) < 1e-5) };
 }
 

@@ -249,3 +249,10 @@ dialog.modal-backdrop:not([open]){display:none}
 .workspace>.timeline-panel{grid-column:1/-1;grid-row:2}
 
 .canvas-layer-rotation{width:160px;height:160px;stroke-dasharray:2 4}.canvas-layer-rotation .canvas-ring-handle{stroke-dasharray:none}
+
+.canvas-transform-box{position:absolute;box-sizing:border-box;border:var(--selection-line) solid #eee;pointer-events:auto;cursor:move;touch-action:none}
+.canvas-resize-handle,.canvas-rotate-handle{position:absolute;box-sizing:border-box;width:var(--handle-size);height:var(--handle-size);min-width:0;min-height:0;padding:0;border:var(--selection-line) solid #333;background:#fff;pointer-events:auto;transform:translate(-50%,-50%)}
+.canvas-resize-handle.nw{left:0;top:0;cursor:nwse-resize}.canvas-resize-handle.ne{left:100%;top:0;cursor:nesw-resize}.canvas-resize-handle.sw{left:0;top:100%;cursor:nesw-resize}.canvas-resize-handle.se{left:100%;top:100%;cursor:nwse-resize}
+.canvas-rotate-handle{left:50%;top:calc(-1 * var(--handle-offset));border-radius:50%;cursor:crosshair}.canvas-transform-box::before{content:"";position:absolute;left:50%;top:calc(-1 * var(--handle-offset));height:var(--handle-offset);border-left:var(--selection-line) solid #eee;pointer-events:none}
+.canvas-resize-handle:focus-visible,.canvas-rotate-handle:focus-visible{outline:calc(2 * var(--selection-line)) solid #fff;outline-offset:calc(3 * var(--selection-line))}
+.canvas-fit-label { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: var(--fit-padding); font-size: var(--fit-font-size); line-height: 1; color: white; background: #181818; border-radius: var(--fit-padding); white-space: nowrap; pointer-events: none; }

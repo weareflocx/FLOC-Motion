@@ -6,9 +6,9 @@ const COMMON_FIELDS = { x: [0, 95], y: [0, 95], opacity: [0, 1], roll: [-180, 18
 const FIELDS = {
   effect: { opacity: [0, 1] },
   text: { ...COMMON_FIELDS, size: [12, 180] },
-  logo: { ...COMMON_FIELDS, size: [2, 35] },
-  media: { ...COMMON_FIELDS, size: [2, 100] },
-  model: { ...COMMON_FIELDS, size: [2, 100], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
+  logo: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
+  media: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
+  model: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
   carousel: { x: [10, 90], y: [10, 90], size: [0.5, 2.5], opacity: [0, 1], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180] }
 };
 

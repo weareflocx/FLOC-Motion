@@ -169,11 +169,11 @@ export function validateProject(input) {
       if (!Number.isInteger(l.patternSeed)) fail('Pattern seed must be an integer.');
       finite(l.patternSeed, 0, 65535, 'Pattern seed');
       color(l.color); asset(l.src); if (l.src && !(l.mode === 'video' ? /\.(mp4|webm)$/i : l.mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid background asset type.'); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
-    } else if (l.type === 'logo') { asset(l.src); if (l.src && !/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(l.src)) fail('Logo requires an image.'); finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 2, 35, 'Logo size');
+    } else if (l.type === 'logo') { asset(l.src); if (l.src && !/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(l.src)) fail('Logo requires an image.'); finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Logo size');
     } else if (l.type === 'media' || l.type === 'model') {
       asset(l.src);
       if (!l.src || !(l.type === 'model' ? /\.glb$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid layer asset type.');
-      finite(l.x, 0, 95, 'X'); finite(l.y, 0, 95, 'Y'); finite(l.size, 2, 100, 'Size');
+      finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Size');
       finite(l.offset, 0, 3600, 'Source offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
       if (l.type === 'model') { finite(l.yaw, -180, 180, 'Model yaw'); finite(l.tilt, -180, 180, 'Model tilt'); finite(l.roll, -180, 180, 'Model roll'); }
     } else if (l.type === 'music') { asset(l.src); if (l.src && !/\.(mp3|wav|m4a|ogg)$/i.test(l.src)) fail('Music requires an audio file.'); finite(l.volume, 0, 1, 'Volume'); finite(l.offset, 0, 3600, 'Audio offset'); finite(l.fade, 0, 5, 'Audio fade'); if (typeof l.loop !== 'boolean') fail('Invalid audio loop.');

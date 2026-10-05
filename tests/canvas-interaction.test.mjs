@@ -8,6 +8,7 @@ import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, neare
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../src/layout.js';
 import { dragOrientation, wrapDegrees } from '../src/orientation.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
+import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useCanvasInteraction.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -24,7 +25,7 @@ function editor() {
     removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
-    gridPlacement, nearestGridPoint, nudgePlacement, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography,
+    gridPlacement, nearestGridPoint, nudgePlacement, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -168,4 +169,95 @@ test('moving rotated text preserves its anchor instead of jumping to its boundin
   assert.equal(h.patches[0].x, 25);
   assert.equal(h.patches[0].y, 28);
   h.unmount();
+});
+
+test('oversized media can move past both canvas edges with safe margins enabled', () => {
+  const h = editor();
+  const layer = h.project.layers.find(l => l.id === 'headline');
+  Object.assign(layer, { type: 'media', x: -20, y: -40, size: 100 });
+  h.project.layout = { enabled: true, marginX: 5, marginY: 5, guides: true };
+  Object.assign(h.node.style, { left: '-20%', top: '-40%' }); h.node.focus = () => {};
+  h.node.getBoundingClientRect = () => ({ left: -200, top: -400, right: 800, bottom: 1100, width: 1000, height: 1500 });
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 250, clientY: 250, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render();
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 150, clientY: 350 });
+  handlers.onPointerUp(event);
+  assert.equal(h.patches[0].x, -30);
+  assert.equal(h.patches[0].y, -30);
+  handlers.onKeyDown({ key: 'ArrowLeft', target: { closest: () => null }, preventDefault() {} });
+  assert(h.patches[1].x < -20);
+  assert.equal(h.patches[1].y, -40);
+  h.unmount();
+});
+
+test('handles and Command/Control-dragging object corners preserve the center and Escape cancels', () => {
+  for (const gesture of ['handle', 'metaKey', 'ctrlKey']) for (const cancel of [false, true]) {
+    const h = editor();
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type: 'media', x: 25, y: 25, size: 20 });
+    Object.assign(h.node.style, { left: '25%', top: '25%' });
+    Object.assign(h.node, { offsetWidth: 200, offsetHeight: 300, focus() {} });
+    h.node.getBoundingClientRect = () => ({ left: 250, top: 250, right: 450, bottom: 550, width: 200, height: 300 });
+    // The DOM measurements use composition pixels, independent of preview zoom.
+    const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 450, clientY: 550, [gesture]: true, target: { closest: selector => gesture === 'handle' && selector === '[data-canvas-resize]' ? {} : null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render({ root: { current: frame } });
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 550, clientY: 700 });
+    assert.equal(h.previews.at(-1).size, 40);
+    assert.equal(h.previews.at(-1).x, 15);
+    assert.equal(h.previews.at(-1).y, 10);
+    assert.equal(h.patches.length, 0);
+    if (cancel) handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, cancel ? 0 : 1);
+    h.unmount();
+  }
+});
+
+test('Command-drag inside an image moves it without resizing or invalid center math', () => {
+  const h = editor();
+  Object.assign(h.project.layers.find(l => l.id === 'headline'), { type: 'media', x: 25, y: 25, size: 20 });
+  Object.assign(h.node.style, { left: '25%', top: '25%' });
+  Object.assign(h.node, { offsetWidth: 200, offsetHeight: 300, focus() {} });
+  h.node.getBoundingClientRect = () => ({ left: 250, top: 250, right: 450, bottom: 550, width: 200, height: 300 });
+  const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 350, clientY: 400, metaKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render({ root: { current: frame } });
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 400, clientY: 420 });
+  handlers.onPointerUp(event);
+  assert.equal(h.patches[0].x, 30);
+  assert.equal(h.patches[0].y, 27);
+  assert.equal(h.patches[0].size, undefined);
+  h.unmount();
+});
+
+test('corner drag shows both height guides and releases past the edge; Shift bypasses the magnet', () => {
+  for (const shiftKey of [false, true]) {
+    const h = editor();
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type: 'media', x: 30, y: 25, size: 40 });
+    Object.assign(h.node.style, { left: '30%', top: '25%' });
+    Object.assign(h.node, { offsetWidth: 400, offsetHeight: 500, focus() {} });
+    h.node.getBoundingClientRect = () => ({ left: 300, top: 250, right: 700, bottom: 750, width: 400, height: 500 });
+    const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 700, clientY: 750, shiftKey, target: { closest: selector => selector === '[data-canvas-resize]' ? {} : null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render({ root: { current: frame } });
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 898, clientY: 997.5 });
+    const preview = h.previews.at(-1);
+    assert(Math.abs(preview.size - (shiftKey ? 79.6 : 80)) < 1e-8);
+    if (!shiftKey) assert.equal(preview.guides.filter(g => g.axis === 'y' && [0, 100].includes(g.value)).length, 2);
+    handlers.onPointerMove({ ...event, clientX: 915, clientY: 1018.75 });
+    assert.equal(h.previews.at(-1).size, 83);
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, 1);
+    assert.equal(h.patches[0].size, 83);
+    assert.equal(h.patches[0].guides, undefined);
+    h.unmount();
+  }
 });

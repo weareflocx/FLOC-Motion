@@ -7,7 +7,7 @@ export function carouselPlacement(x, y) {
 }
 
 export function canvasWheelSize(layer, deltaY, size = layer.size) {
-  const limits = { text: [12, 180, 2], logo: [2, 35, 1], media: [2, 100, 1], model: [2, 100, 1], carousel: [0.5, 2.5, 0.05] };
+  const limits = { text: [12, 180, 2], logo: [2, 500, 1], media: [2, 500, 1], model: [2, 500, 1], carousel: [0.5, 2.5, 0.05] };
   if (!limits[layer.type] || !Number.isFinite(deltaY) || !Number.isFinite(size)) throw new Error('Invalid canvas size gesture.');
   const [min, max, step] = limits[layer.type];
   return rounded(clamp(size + (deltaY < 0 ? step : deltaY > 0 ? -step : 0), min, max));

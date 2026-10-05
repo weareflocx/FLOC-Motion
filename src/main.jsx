@@ -9,6 +9,7 @@ import './style.css';
 import { resizeDuration } from './project.js';
 import { evaluateChoreography } from './choreography.js';
 import { choreographyPatch } from './editor/choreography-edit.js';
+import { centeredResize, layerResizeBounds } from './editor/canvas-resize.js';
 import { contentFields } from './template-content.js';
 import { useProject } from './editor/useProject.js';
 import { useCompositionActions } from './editor/useCompositionActions.js';
@@ -54,6 +55,11 @@ function App() {
     const target = current.layers.find(item => item.id === id);
     if (!target) return;
     try {
+      if (Object.keys(fields).length === 1 && Object.hasOwn(fields, 'size') && ['logo', 'media', 'model'].includes(target.type)) {
+        const displayed = evaluateChoreography(target, time);
+        const bounds = layerResizeBounds(displayed, document.querySelector('.workspace .stage[aria-busy="false"]'));
+        if (bounds) fields = centeredResize(displayed, fields.size, bounds);
+      }
       const next = choreographyPatch(target, fields, time, current.fps);
       setPlaying(false);
       return patch(id, next);

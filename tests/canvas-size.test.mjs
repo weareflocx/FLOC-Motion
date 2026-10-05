@@ -15,7 +15,7 @@ test('canvas wheel changes the same validated size fields as the inspector', () 
   }
 });
 test('wheel limits prevent invalid text, logo and carousel sizes', () => {
-  for (const [type, min, max] of [['text', 12, 180], ['logo', 2, 35], ['carousel', 0.5, 2.5]]) {
+  for (const [type, min, max] of [['text', 12, 180], ['logo', 2, 500], ['media', 2, 500], ['model', 2, 500], ['carousel', 0.5, 2.5]]) {
     assert.equal(canvasWheelSize({ type, size: max }, -1), max);
     assert.equal(canvasWheelSize({ type, size: min }, 1), min);
   }

@@ -23,9 +23,9 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const LOCAL_BOUNDS = {
   background: { x: [-100, 100], y: [-100, 100], roll: [-180, 180] },
   text: { roll: [-180, 180], x: [0, 95], y: [0, 95], size: [12, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5] },
-  logo: { roll: [-180, 180], x: [0, 95], y: [0, 95], size: [2, 35] },
-  media: { roll: [-180, 180], x: [0, 95], y: [0, 95], size: [2, 100] },
-  model: { x: [0, 95], y: [0, 95], size: [2, 100], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
+  logo: { roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
+  media: { roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
+  model: { x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
   carousel: { x: [10, 90], y: [10, 90], size: [0.5, 2.5], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] }
 };
 const ALL_FIELDS = new Set(Object.values(FORMAT_LOCAL_FIELDS).flat());
