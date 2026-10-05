@@ -21,7 +21,7 @@ function controls() {
   const text = node => (node.children || []).flat(Infinity).map(child => typeof child === 'object' ? text(child) : child ?? '').join('');
   const render = () => context.component({ project, onChangeProject(next) { changes.push(next); project = validateProject(next); } });
   const find = predicate => nodes(render()).find(predicate);
-  const button = label => find(node => node.type === 'button' && text(node) === label);
+  const button = label => find(node => node.type === 'button' && (node.props['aria-label'] || text(node)) === label);
   const checkbox = () => find(node => node.type === 'input' && node.props.type === 'checkbox');
   return {
     find, button, checkbox, changes,
