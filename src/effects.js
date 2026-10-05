@@ -60,7 +60,7 @@ export function createNoiseEffects(root, project, formats) {
   const entries = [];
   const drawn = new Map();
   project.layers.forEach((layer, layerIndex) => {
-    const nodes = [...root.querySelectorAll('[data-floc-layer]')].filter(node => node.dataset.flocLayer === layer.id);
+    const nodes = [...root.querySelectorAll('[data-floc-layer]')].filter(node => node.dataset.flocLayer === layer.id && !node.hasAttribute('data-floc-background-content'));
     const ids = [];
     (layer.effects ?? []).forEach((effect, index) => {
       const id = `floc-noise-${sceneId}-${layerIndex}-${index}`;

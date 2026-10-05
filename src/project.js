@@ -187,15 +187,17 @@ export function validateProject(input) {
       str(l.contentField, 60, 'content field name');
       if (!l.contentField) delete l.contentField;
     }
-    if (FADE_LAYERS.includes(l.type)) {
+    if (EFFECT_LAYER_TYPES.includes(l.type)) {
       if (l.opacity === undefined) l.opacity = 1;
-      if (l.choreography === undefined) l.choreography = [];
       finite(l.opacity, 0, 1, 'Opacity');
+    } else if (Object.hasOwn(l, 'opacity')) fail('Only visual layers accept opacity.');
+    if (FADE_LAYERS.includes(l.type)) {
+      if (l.choreography === undefined) l.choreography = [];
       validateChoreography(l);
       l.fadeIn ??= 0; l.fadeOut ??= 0; finite(l.fadeIn, 0, 30, 'Fade in'); finite(l.fadeOut, 0, 30, 'Fade out');
       Object.assign(l, fitFades(l.fadeIn, l.fadeOut, l.end - l.start));
     } else {
-      if (Object.hasOwn(l, 'opacity') || Object.hasOwn(l, 'choreography')) fail('Only visual layers accept opacity and choreography.');
+      if (Object.hasOwn(l, 'choreography')) fail('This layer cannot have choreography.');
       delete l.fadeIn; delete l.fadeOut;
     }
   }
@@ -242,7 +244,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {

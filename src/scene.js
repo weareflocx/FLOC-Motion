@@ -20,10 +20,10 @@ export function stageMarkup(p, path = src => src) {
     if (l.type === 'effect') return `<canvas ${timing} ${common}inset:0;width:${w}px;height:${h}px;pointer-events:none" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'background') {
       if (l.mode === 'procedural') return `<canvas id="background-${esc(l.id)}" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
-      const fill = `<div ${common}inset:0;background:${l.color}"></div>`;
-      if (l.mode === 'color' || !l.src) return fill;
-      const style = `${common}inset:0;width:100%;height:100%;object-fit:${l.fit}">`;
-      return fill + (l.mode === 'video' ? `<video id="media-${esc(l.id)}" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(l.src))}" ${style}</video>` : `<img alt="" src="${esc(path(l.src))}" ${style}`);
+      if (l.mode === 'color' || !l.src) return `<div ${timing} ${common}inset:0;background:${l.color}"></div>`;
+      const fill = `<div style="position:absolute;inset:0;background:${l.color}"></div>`;
+      const style = `data-floc-layer="${esc(l.id)}" data-floc-background-content style="position:absolute;inset:0;width:100%;height:100%;object-fit:${l.fit}">`;
+      return `<div ${timing} ${common}inset:0">` + fill + (l.mode === 'video' ? `<video id="media-${esc(l.id)}" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(l.src))}" ${style}</video>` : `<img alt="" src="${esc(path(l.src))}" ${style}`) + '</div>';
     }
     if (l.type === 'carousel') return `<canvas id="carousel-${esc(l.id)}" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'text') {
@@ -95,6 +95,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   let placement = null;
   const layerNodes = [...root.querySelectorAll('[data-floc-layer]')].filter(node => p.layers.some(l => l.id === node.dataset.flocLayer));
   const mediaNodes = layerNodes.filter(node => ['AUDIO', 'VIDEO'].includes(node.tagName));
+  const opacityNodes = layerNodes.filter(node => !node.hasAttribute('data-floc-background-content'));
   const mediaErrors = renderMode ? [] : mediaNodes.map(media => {
     let reported = false;
     const failed = () => {
@@ -123,7 +124,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       const evaluated = evaluateChoreography(l, time);
       const pos = placement?.id === l.id ? { ...evaluated, ...placement } : evaluated;
       if (l.type === 'background') {
-        for (const node of layerNodes.filter(node => node.dataset.flocLayer === l.id)) {
+        for (const node of opacityNodes.filter(node => node.dataset.flocLayer === l.id)) {
           node.style.transform = `translate(${pos.x ?? 0}%,${pos.y ?? 0}%) rotate(${pos.roll ?? 0}deg)`;
         }
         continue;
@@ -271,10 +272,10 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     else renderer.render(scene, camera);
     p.layers.forEach(l => {
       const alpha = layerAlpha(l, time);
-      layerNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) el.style.opacity = alpha; });
+      opacityNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) el.style.opacity = alpha; });
       const media = mediaNodes.find(el => el.dataset.flocLayer === l.id);
       if (!media) return;
-      if (media.tagName === 'VIDEO') media.style.opacity = alpha;
+      if (media.tagName === 'VIDEO' && l.type !== 'background') media.style.opacity = alpha;
       if (renderMode || !Number.isFinite(media.duration)) return;
       const desired = audioTime(l, time, media.duration);
       const active = alpha > 0 && (l.loop || desired < media.duration - 0.02);

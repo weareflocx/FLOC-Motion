@@ -21,7 +21,8 @@ test('version-one projects migrate visual defaults without changing legacy geome
       assert.equal(evaluateChoreography(layer, 7), layer);
       for (const field of ['x', 'y', 'size', 'start', 'end']) assert.equal(layer[field], getLayer(raw, layer.id)[field]);
     } else {
-      assert.equal(Object.hasOwn(layer, 'opacity'), false);
+      assert.equal(Object.hasOwn(layer, 'opacity'), layer.type === 'background');
+      if (layer.type === 'background') assert.equal(layer.opacity, 1);
       assert.equal(Object.hasOwn(layer, 'choreography'), false);
     }
   }
@@ -48,10 +49,10 @@ test('imports reject malformed states, unsupported fields, duplicate identities 
   const malformed = [null, {}, 'states', [null], [{ ...first, id: '' }], [{ ...first, id: '  ' }], [{ ...first, id: 'x'.repeat(81) }], [{ ...first, time: -1 }], [{ ...first, time: 31 }], [{ ...first, time: NaN }], [{ ...first, time: Infinity }], [{ ...first, easing: 'script' }], [{ ...first, values: null }], [{ ...first, values: [] }], [{ ...first, values: { x: 50 } }], [{ ...first, values: { ...first.values, shader: 'wave' } }], [{ ...first, eval: 'code' }], [first, { ...first, time: 1 }], [first, { ...first, id: 'second' }], [state(layer, 'late', 4), first], Array.from({ length: 33 }, (_, i) => state(layer, `s${i}`, i * 0.1))];
   for (const choreography of malformed) assert.throws(() => patchLayer(p, layer.id, { choreography }));
   for (const id of ['background', 'music']) {
-    for (const patch of [{ opacity: 0.5 }, { choreography: [] }, { choreography: [first] }]) {
+    for (const patch of [...(id === 'music' ? [{ opacity: 0.5 }] : []), { choreography: [] }, { choreography: [first] }]) {
       assert.throws(() => patchLayer(p, id, patch), /Unknown layer property/);
       const raw = structuredClone(p); Object.assign(getLayer(raw, id), patch);
-      assert.throws(() => validateProject(raw), /Only visual layers/);
+      assert.throws(() => validateProject(raw), /Only visual layers|cannot have choreography/);
     }
   }
   const textState = state(getLayer(p, 'headline'), 'first', 0); textState.values.yaw = 20;

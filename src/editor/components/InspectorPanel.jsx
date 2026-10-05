@@ -36,6 +36,7 @@ export function InspectorPanel({ project, layer, rightTab, uploading, onSetRight
       <NumberField label="Rotation (°)" value={layer.roll ?? 0} min={-180} max={180} onChange={roll => onPatch(layer.id, { roll })}/>
       <button type="button" className="text-button" onClick={() => onPatch(layer.id, { roll: 0 })}>Reset rotation</button>
     </Section>}
+    {layer.type !== 'music' && <Range label="Opacity" ariaLabel="Layer opacity" value={(layer.opacity ?? 1) * 100} min={0} max={100} suffix="%" onChange={opacity => onPatch(layer.id, { opacity: opacity / 100 })}/>}
     <EffectControls layer={layer} onPatch={onPatch}/>
     <LayerFadeControls layer={layer} onPatch={onPatch}/>
     {layer.type === 'text' && <button className="text-button danger" onClick={() => onRemoveText(layer.id)}>Remove text layer</button>}
