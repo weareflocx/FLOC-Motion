@@ -166,6 +166,74 @@ test('rotation handle previews one text edit, commits on release and cancels wit
   }
 });
 
+test('Shift-drag orients carousel and model X/Y without moving them', () => {
+  for (const type of ['carousel', 'model']) for (const cancelled of [false, true]) {
+    const h = editor();
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: type === 'model' ? 100 : 10, yaw: 170, roll: 20 });
+    h.node.focus = () => {};
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 500, clientY: 500, shiftKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render({ engine: { current: { hitTest: () => true } } });
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 600, clientY: 600 });
+    assert.equal(h.previews.at(-1).tilt, type === 'model' ? 118 : 28);
+    assert.equal(h.previews.at(-1).yaw, -172);
+    assert.equal(h.previews.at(-1).roll, 20);
+    assert.equal(h.previews.at(-1).x, undefined);
+    if (cancelled) handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, cancelled ? 0 : 1);
+    h.unmount();
+  }
+});
+
+test('Shift+Alt-drag rotates only Z across spatial and flat layers', () => {
+  for (const type of ['carousel', 'model', 'text', 'logo', 'media']) {
+    const h = editor();
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: 10, yaw: 20, roll: 170 });
+    h.node.focus = () => {};
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 500, clientY: 500, shiftKey: true, altKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render({ engine: { current: { hitTest: () => true } } });
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 600, clientY: 650 });
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, 1, type);
+    assert.equal(h.patches[0].roll, -172, type);
+    assert.equal(h.patches[0].x, undefined, type);
+    assert.equal(h.patches[0].size, undefined, type);
+    if (['carousel', 'model'].includes(type)) {
+      assert.equal(h.patches[0].tilt, 10);
+      assert.equal(h.patches[0].yaw, 20);
+    } else {
+      assert.equal(h.patches[0].tilt, undefined);
+      assert.equal(h.patches[0].yaw, undefined);
+    }
+    h.unmount();
+  }
+});
+
+test('Shift+Alt on a model resize handle still resizes from the center', () => {
+  const h = editor();
+  Object.assign(h.project.layers.find(l => l.id === 'headline'), { type: 'model', x: 25, y: 25, size: 20, tilt: 100, yaw: 20, roll: 30 });
+  Object.assign(h.node.style, { left: '25%', top: '25%' });
+  Object.assign(h.node, { offsetWidth: 200, offsetHeight: 300, focus() {} });
+  h.node.getBoundingClientRect = () => ({ left: 250, top: 250, right: 450, bottom: 550, width: 200, height: 300 });
+  const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 450, clientY: 550, shiftKey: true, altKey: true, target: { closest: selector => selector === '[data-canvas-resize]' ? {} : null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render({ root: { current: frame } });
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 550, clientY: 700 });
+  handlers.onPointerUp(event);
+  assert.equal(h.patches[0].size, 40);
+  assert.equal(h.patches[0].x, 15);
+  assert.equal(h.patches[0].y, 10);
+  assert.equal(h.patches[0].tilt, undefined);
+  assert.equal(h.patches[0].roll, undefined);
+  h.unmount();
+});
+
 test('Alt-arrow rotates visual layers and respects locks', () => {
   const h = editor();
   const target = { closest: selector => selector === '[data-floc-layer]' ? h.node : null };

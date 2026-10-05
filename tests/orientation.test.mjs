@@ -16,12 +16,14 @@ test('old projects gain neutral Y orientation without changing X/Z or input', ()
   assert.throws(() => patchLayer(migrated, 'carousel', { yaw: 181 }));
 });
 
-test('sphere gestures clamp tilt, wrap Y/Z and do not mutate initial orientation', () => {
+test('orientation gestures clamp tilt, wrap Y/Z and do not mutate initial orientation', () => {
   const initial = { tilt: 10, yaw: 170, roll: -175 };
   assert.deepEqual(dragOrientation(initial, 0.2, 1), { tilt: 65, yaw: -154, roll: -175 });
   assert.deepEqual(dragOrientation(initial, 1, 1, -20), { tilt: 10, yaw: 170, roll: 165 });
   assert.deepEqual(initial, { tilt: 10, yaw: 170, roll: -175 });
   assert.equal(wrapDegrees(360), 0);
+  assert.deepEqual(dragOrientation({ tilt: 100, yaw: 0, roll: 0 }, 0, 0.1, null, 180), { tilt: 118, yaw: 0, roll: 0 });
+  assert.equal(dragOrientation({ tilt: 175, yaw: 0, roll: 0 }, 0, 1, null, 180).tilt, 180);
 });
 
 test('perspective migrates without changing old framing and validates edits', () => {
