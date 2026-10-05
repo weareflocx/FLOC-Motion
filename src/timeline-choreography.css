@@ -1,9 +1,10 @@
-.track-lane.has-choreography{height:46px}
-.has-choreography .track-clip{bottom:16px}
-.choreography-mark{position:absolute;top:30px;width:16px;height:16px;padding:0;border:0;background:transparent;transform:translateX(-50%);z-index:5;cursor:ew-resize;touch-action:none}
+.choreography-mark{position:absolute;top:4px;width:24px;height:24px;padding:0;border:0;background:transparent;transform:translateX(-50%);z-index:3;cursor:ew-resize;touch-action:none}
 .choreography-mark span{display:block;width:7px;height:7px;margin:auto;border:1px solid #929292;background:#363636;transform:rotate(45deg);pointer-events:none}
 .choreography-mark:hover span,.choreography-mark:focus-visible span{border-color:#fff;background:#aaa}
 .choreography-mark.current span{border-color:#fff;background:#e8e8e8}
 .choreography-mark.dragging span{border-color:#fff;background:#fff}
+.choreography-mark.passive{display:flex;align-items:center;pointer-events:none}
+.choreography-editing .track-clip button{pointer-events:none}
+.choreography-editing .clip-handle,.choreography-editing .fade-handle{visibility:hidden}
 .track-row.locked .choreography-mark{cursor:pointer}
 .track-clip.muted~.choreography-mark{opacity:.5}

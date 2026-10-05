@@ -1,0 +1,25 @@
+.transport.timeline-expanded{flex-wrap:nowrap;padding:2px 0;gap:12px}
+.timeline-context{display:flex;align-items:center;gap:10px;flex:1;min-width:0;height:38px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#424242 transparent;overscroll-behavior:contain}
+.timeline-context>*{flex-shrink:0}
+.timeline-context .timeline-modes{flex:none;gap:2px;padding:2px}
+.timeline-context .timeline-modes button{display:flex;align-items:center;justify-content:center;flex:none;min-width:28px;min-height:28px;padding:0}
+.timeline-edit-fields,.timeline-choreography-controls{display:flex;align-items:center;gap:10px;min-width:0;margin:0;padding:0;border:0}
+.timeline-edit-fields:disabled{opacity:.55}
+.timeline-context .field{display:flex;align-items:center;gap:5px;margin:0;min-height:28px;flex-shrink:0}
+.timeline-context .field-label{font-size:10px;white-space:nowrap}
+.timeline-context .field input{width:64px;min-width:0;height:28px;padding:3px 5px;font-size:11px;font-variant-numeric:tabular-nums}
+.timeline-context .check-field{display:flex;align-items:center;gap:5px;margin:0;font-size:10px;white-space:nowrap}
+.timeline-context .check-field input{width:13px;height:13px;margin:0}
+.timeline-state-picker{display:flex;align-items:center;gap:5px;font-size:10px;white-space:nowrap;color:#b8b8b8}
+.timeline-state-picker select{width:126px;height:28px;padding:3px 5px;font-size:11px}
+.timeline-context .timeline-save-state{width:auto;min-height:28px;padding:3px 7px;border-radius:5px;white-space:nowrap;font-size:10px}
+.timeline-context-hint{font-size:10px;color:var(--muted);white-space:nowrap}
+.timeline-context button:disabled{cursor:default}
+.timeline-context select:focus-visible{outline:1px solid #b9b9b9;outline-offset:2px}
+@media(max-width:600px){
+  .transport.timeline-expanded{gap:8px;min-height:38px;padding:2px 0 3px}
+  .transport.timeline-expanded .timeline-toggle{margin-left:0}
+  .transport.timeline-expanded .timeline-context{height:30px;gap:8px}
+  .timeline-context .timeline-modes{padding:0}
+  .timeline-context input:focus-visible,.timeline-context select:focus-visible,.timeline-context button:focus-visible{outline-offset:-2px}
+}

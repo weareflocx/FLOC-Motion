@@ -6,20 +6,22 @@ import { transform } from 'esbuild';
 import { editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
 import { fitFades } from '../src/project.js';
 import { moveState } from '../src/choreography.js';
+import { LAYER_COLORS } from '../src/editor/layer-colors.js';
 
 const source = fs.readFileSync(new URL('../src/timeline.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
 
-function timeline({ locked = false, time = 3 } = {}) {
+function timeline({ locked = false, time = 3, mode = 'choreography', width = 800 } = {}) {
   const slots = [], patches = [], seeks = [], selections = [];
   let cursor = 0;
   const layer = { id: 'title', type: 'text', name: 'Title', text: 'Hello', visible: true, locked, start: 2, end: 6, fadeIn: .2, fadeOut: .2,
     choreography: [{ id: 'a', time: 0 }, { id: 'b', time: 1 }, { id: 'c', time: 3 }].map(state => ({ ...state, easing: 'smooth', values: { x: 5, y: 5, size: 40, opacity: 1 } })) };
-  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, editClip, editFade, timeAtPointer, fitFades, moveState,
+  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, editClip, editFade, timeAtPointer, fitFades, moveState, LAYER_COLORS,
+    useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
-    useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; } };
+    useState(value) { const i = cursor++; slots[i] ??= { value: value === 0 ? width : value }; return [slots[i].value, next => { slots[i].value = next; }]; } };
   vm.createContext(context); vm.runInContext(compiled + '\nthis.component = TimelineTracks;', context);
-  let props = { project: { duration: 8, fps: 24, layers: [layer] }, time, selected: layer.id, icons: { text() {} },
+  let props = { project: { duration: 8, fps: 24, layers: [layer] }, time, mode, selected: layer.id, icons: { text() {} },
     onSelect(id) { selections.push(id); }, onSeek(value) { seeks.push(value); }, onCommit(id, patch) { patches.push({ id, patch }); } };
   const render = (next = {}) => { cursor = 0; props = { ...props, ...next }; return context.component(props); };
   const nodes = node => [node, ...(node?.children || []).flat(Infinity).flatMap(child => child && typeof child === 'object' ? nodes(child) : [])];
@@ -88,7 +90,7 @@ test('locked states remain selectable and seekable but cannot be dragged, nudged
 });
 
 test('state marks follow clip movement drafts and disappear beyond a trimmed span', () => {
-  const h = timeline();
+  const h = timeline({ mode: 'timing' });
   const clip = h.find(p => p['aria-label'] === 'Move Title clip');
   clip.props.onPointerDown(h.event()); clip.props.onPointerMove(h.event({ clientX: 400 }));
   assert.equal(h.find(p => p['aria-label']?.includes('Title state at 4.00')).props.style.left, '50%');
@@ -97,4 +99,61 @@ test('state marks follow clip movement drafts and disappear beyond a trimmed spa
   trim.props.onPointerDown(h.event()); trim.props.onPointerMove(h.event({ clientX: 100 }));
   assert.equal(h.find(p => p['aria-label']?.includes('Title state at 5.00')), undefined);
   assert.equal(h.patches.length, 0);
+});
+
+
+test('Timing markers are passive and preserve clip gestures; Choreography reserves selected row for states', () => {
+  const h = timeline({ mode: 'timing' });
+  assert.equal(h.mark('b').type, 'span');
+  assert.equal(h.find(p => p['aria-label'] === 'Move Title clip').props.disabled, false);
+  h.render({ mode: 'choreography' });
+  assert.equal(h.mark('b').type, 'button');
+  assert.equal(h.find(p => p['aria-label'] === 'Move Title clip').props.disabled, true);
+});
+
+test('crowded states remain passive instead of overlapping state hit targets', () => {
+  const h = timeline({ width: 100 });
+  assert.equal(h.mark('a').type, 'span');
+  assert.equal(h.mark('b').type, 'span');
+  assert.equal(h.mark('c').type, 'button');
+});
+
+test('changing editing mode or selected layer cancels a pending gesture before release', () => {
+  for (const next of [{ mode: 'timing' }, { selected: 'different' }]) {
+    const h = timeline(), mark = h.mark('b');
+    mark.props.onPointerDown(h.event());
+    mark.props.onPointerMove(h.event({ clientX: 350 }));
+    h.render(next);
+    mark.props.onPointerUp(h.event());
+    assert.equal(h.patches.length, 0);
+    assert.equal(h.seeks.length, 0);
+  }
+});
+
+test('state selection uses the choreography context callback rather than clip selection', () => {
+  const h = timeline(), selections = [];
+  h.render({ onSelectState: id => selections.push(id) });
+  h.mark('b').props.onClick(h.event({ detail: 0 }));
+  assert.deepEqual(selections, ['title']);
+  assert.deepEqual(h.selections, []);
+});
+
+
+test('an active state drag keeps its captured button near neighbors and falls back after release', () => {
+  const h = timeline(), mark = h.mark('b');
+  mark.props.onPointerDown(h.event());
+  mark.props.onPointerMove(h.event({ clientX: 220 }));
+  const active = h.find(p => p.className?.includes('choreography-mark') && p.className.includes('dragging'));
+  assert.equal(active.type, 'button');
+  assert.equal(typeof active.props.onPointerUp, 'function');
+  assert.equal(h.patches.length, 0);
+  active.props.onPointerUp(h.event({ clientX: 220 }));
+  active.props.onLostPointerCapture(h.event());
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.patches[0].patch.choreography[1].time, 5 / 24);
+  assert.deepEqual(h.seeks, [2 + 5 / 24]);
+  h.layer.choreography = h.patches[0].patch.choreography;
+  const crowded = h.find(p => p['aria-label'] === 'Title state at 2.21 seconds');
+  assert.equal(crowded.type, 'span');
+  assert(crowded.props.className.includes('passive'));
 });
