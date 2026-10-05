@@ -9,6 +9,7 @@ import { alignmentPlacement, DEFAULT_LAYOUT } from '../src/layout.js';
 import { dragOrientation, wrapDegrees } from '../src/orientation.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
+import { nudgeAmount } from '../src/editor/nudge.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useCanvasInteraction.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -25,7 +26,7 @@ function editor() {
     removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
-    gridPlacement, nearestGridPoint, nudgePlacement, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
+    gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -190,6 +191,22 @@ test('oversized media can move past both canvas edges with safe margins enabled'
   assert(h.patches[1].x < -20);
   assert.equal(h.patches[1].y, -40);
   h.unmount();
+});
+
+test('custom small and big nudges move every positioned layer in composition pixels', () => {
+  for (const type of ['text', 'logo', 'media', 'model', 'background', 'carousel']) {
+    const h = editor();
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 20 });
+    Object.assign(h.node.style, { left: '25%', top: '25%' });
+    h.node.getBoundingClientRect = () => ({ left: 250, top: 250, right: 350, bottom: 350, width: 100, height: 100 });
+    const { handlers } = h.render({ nudge: { small: 3, big: 12 } });
+    for (const shiftKey of [false, true]) handlers.onKeyDown({ key: 'ArrowRight', shiftKey, target: { closest: () => null }, preventDefault() {} });
+    assert(Math.abs(h.patches[0].x - (25 + 3 / 1080 * 100)) < 1e-6, type);
+    assert(Math.abs(h.patches[1].x - (25 + 12 / 1080 * 100)) < 1e-6, type);
+    assert.equal(h.patches[1].y, 25);
+    assert.equal(h.patches[1].tilt, undefined);
+    h.unmount();
+  }
 });
 
 test('handles and Command/Control-dragging object corners preserve the center and Escape cancels', () => {

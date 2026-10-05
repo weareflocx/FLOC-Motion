@@ -42,7 +42,7 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
       {layer.src && <p className="helper">Media loaded</p>}
       <Field label="Fit"><select aria-label="Background fit" value={layer.fit} onChange={event => onPatch(layer.id, { fit: event.target.value })}><option value="cover">Fill / crop</option><option value="contain">Fit inside</option></select></Field>
       {layer.mode === 'video' && <>
-        <NumberField label="Video source offset" value={layer.offset} min={0} max={3600} step={0.1} onChange={offset => onPatch(layer.id, { offset })}/>
+        <NumberField scale={1000} suffix="ms" label="Video source offset" value={layer.offset} min={0} max={3600} step={0.1} onChange={offset => onPatch(layer.id, { offset })}/>
         <label className="check-field"><input type="checkbox" checked={layer.loop} onChange={event => onPatch(layer.id, { loop: event.target.checked })}/>Loop video</label>
       </>}
     </>}

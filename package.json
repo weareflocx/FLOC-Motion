@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server/index.mjs",
-    "build": "vite build && node server/build-scene.mjs",
+    "build": "vite build && node server/build-scene.mjs && node scripts/package-renderer.mjs",
+    "build:renderer": "node scripts/package-renderer.mjs",
     "start": "NODE_ENV=production node server/index.mjs",
     "test": "node --test tests/*.test.mjs",
     "previews:templates": "node scripts/generate-motion-previews.mjs",

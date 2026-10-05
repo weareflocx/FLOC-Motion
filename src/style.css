@@ -114,9 +114,9 @@ dialog.modal-backdrop:not([open]){display:none}
 .range-fill{position:absolute;inset:2px auto 2px 2px;width:calc(25px + (100% - 90px)*var(--range-progress));border-radius:4px;background:#0000ff1f;pointer-events:none}
 .range-ticks{position:absolute;left:15px;right:75px;display:flex;justify-content:space-between;align-items:center;pointer-events:none}
 .range-ticks i{width:1px;height:8px;background:#ffffff16}
-.range-label{position:relative;max-width:calc(100% - 60px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#c5c5cb;pointer-events:none}
-.integrated-range output{position:relative;margin-left:auto;font-size:13px;font-weight:600;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums;color:#ffffff;pointer-events:none}
-.integrated-range input[type=range]{appearance:none;-webkit-appearance:none;position:absolute;left:0;top:0;width:calc(100% - 60px);height:100%;margin:0;padding:0 12px;border:0;border-radius:6px;background:transparent;cursor:ew-resize;outline:none}
+.range-label{position:relative;max-width:calc(100% - 90px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#c5c5cb;pointer-events:none}
+.numeric-field{position:relative;display:flex;align-items:center;min-width:0;gap:4px}.numeric-field input{width:100%;min-width:0;font-variant-numeric:tabular-nums}.numeric-unit{font-size:11px;color:#aaa;white-space:nowrap}.numeric-error{position:absolute;top:100%;right:0;width:200px;padding:8px;background:#303030;border:1px solid #777;border-radius:5px;z-index:6;font-size:11px;color:#eee}.numeric-field input[aria-invalid=true]{outline:1px solid #bd7878}.integrated-range .numeric-field{margin-left:auto;width:82px;flex-shrink:0;z-index:1}.integrated-range .numeric-field input{padding:6px 2px;background:transparent;border:0;text-align:right;color:#fff;font-size:13px;font-weight:600}.integrated-range .numeric-field input:focus{background:#333;border-radius:4px}.integrated-range .numeric-unit{color:#ddd}
+.integrated-range input[type=range]{appearance:none;-webkit-appearance:none;position:absolute;left:0;top:0;width:calc(100% - 94px);height:100%;margin:0;padding:0 12px;border:0;border-radius:6px;background:transparent;cursor:ew-resize;outline:none}
 .integrated-range input[type=range]::-webkit-slider-runnable-track{height:22px;background:transparent;border:0}
 .integrated-range input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:4px;height:22px;margin:0;border:0;border-radius:2px;background:#8e8e98}
 .integrated-range input[type=range]::-moz-range-track{height:22px;background:transparent;border:0}
@@ -256,3 +256,13 @@ dialog.modal-backdrop:not([open]){display:none}
 .canvas-rotate-handle{left:50%;top:calc(-1 * var(--handle-offset));border-radius:50%;cursor:crosshair}.canvas-transform-box::before{content:"";position:absolute;left:50%;top:calc(-1 * var(--handle-offset));height:var(--handle-offset);border-left:var(--selection-line) solid #eee;pointer-events:none}
 .canvas-resize-handle:focus-visible,.canvas-rotate-handle:focus-visible{outline:calc(2 * var(--selection-line)) solid #fff;outline-offset:calc(3 * var(--selection-line))}
 .canvas-fit-label { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: var(--fit-padding); font-size: var(--fit-font-size); line-height: 1; color: white; background: #181818; border-radius: var(--fit-padding); white-space: nowrap; pointer-events: none; }
+
+.nudge-dialog{width:min(360px,calc(100vw - 48px));padding:20px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.nudge-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid var(--line)}.nudge-heading h2{font-size:18px}.nudge-dialog .field{grid-template-columns:1fr 1fr;margin-top:12px}.nudge-dialog .helper{margin-top:14px}
+.renderer-connection{padding:12px 0;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.renderer-status,.renderer-actions{display:flex;align-items:center;gap:8px;font-size:13px}
+.renderer-actions{justify-content:space-between;margin-top:10px}
+.renderer-actions a{color:inherit;text-underline-offset:3px}
+.renderer-actions button{padding:6px 10px}
+.renderer-pairing{margin-top:14px}
+.renderer-pairing p{font-size:13px;margin:6px 0}
+.renderer-code{font-size:24px;letter-spacing:2px;font-family:var(--font-data)}

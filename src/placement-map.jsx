@@ -1,3 +1,4 @@
+import { nudgeAmount } from './editor/nudge.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { fontDefinition } from './fonts.js';
 import { textTypography } from './text-style.js';
@@ -8,7 +9,7 @@ import { alignmentPlacement, DEFAULT_LAYOUT, fitsSafeArea, safeArea } from './la
 import { PlacementGuides } from './editor/PlacementGuides.jsx';
 import { canvasMediaPlacement } from './editor/canvas-resize.js';
 
-export function PlacementMap({ project, layer, onCommit, onPreview }) {
+export function PlacementMap({ nudge, project, layer, onCommit, onPreview }) {
   const frame = useRef(); const element = useRef(); const gesture = useRef(null);
   const [width, setWidth] = useState(200); const [bounds, setBounds] = useState({ width: 0, height: 0 });
   const [draft, setDraft] = useState(null); const [alignment, setAlignment] = useState('center'); const [chosen, setChosen] = useState(null);
@@ -90,7 +91,7 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
     e.preventDefault();
     const size = measure();
     if (!e.target.closest('.map-grid-point')) {
-      if (directions[e.key]) commit(nudgePlacement(position, ...directions[e.key], [w, h], size, e.shiftKey ? 10 : 1, layout));
+      if (directions[e.key]) commit(nudgePlacement(position, ...directions[e.key], [w, h], size, nudgeAmount(nudge, e.shiftKey), layout));
       return;
     }
     const current = index ?? nearestGridPoint(layer.x + size.width * ({ left: 0, center: 0.5, right: 1 }[alignment]), layer.y + size.height / 2);
@@ -105,14 +106,14 @@ export function PlacementMap({ project, layer, onCommit, onPreview }) {
       <div className={`map-center-anchor ${selected === 36 ? 'active' : ''}`} aria-hidden="true"/>
       {project.layers.filter(l => ['text', 'logo'].includes(l.type) && (l.visible || l.id === layer.id)).map(l => {
         const active = l.id === layer.id; const pos = active && draft ? draft : positionFor(l);
-        return <div key={l.id} data-map-layer={l.id} ref={active ? element : null} className={`map-node ${active ? 'selected' : 'ghost'}`} role={active ? 'button' : undefined} tabIndex={active ? 0 : undefined} aria-label={active ? `Move ${l.name}: arrows 1 pixel, Shift 10 pixels; Escape cancels` : undefined} onKeyDown={active ? e => keys(e) : undefined} style={{ transform: `rotate(${l.roll ?? 0}deg)`, left: `${pos.x}%`, top: `${pos.y}%`, width: `${l.type === 'text' ? l.width : l.size}%`, fontSize: `${l.type === 'text' ? l.size * width / 1080 : 8}px`, fontWeight: l.weight, ...(l.type === 'text' ? textTypography(l) : {}), fontFamily: l.type === 'text' ? fontDefinition(l.font).family : undefined, opacity: active ? 1 : 0.25 }}>
+        return <div key={l.id} data-map-layer={l.id} ref={active ? element : null} className={`map-node ${active ? 'selected' : 'ghost'}`} role={active ? 'button' : undefined} tabIndex={active ? 0 : undefined} aria-label={active ? `Move ${l.name}: arrows ${nudgeAmount(nudge)} pixels, Shift ${nudgeAmount(nudge, true)} pixels; Escape cancels` : undefined} onKeyDown={active ? e => keys(e) : undefined} style={{ transform: `rotate(${l.roll ?? 0}deg)`, left: `${pos.x}%`, top: `${pos.y}%`, width: `${l.type === 'text' ? l.width : l.size}%`, fontSize: `${l.type === 'text' ? l.size * width / 1080 : 8}px`, fontWeight: l.weight, ...(l.type === 'text' ? textTypography(l) : {}), fontFamily: l.type === 'text' ? fontDefinition(l.font).family : undefined, opacity: active ? 1 : 0.25 }}>
           {l.type === 'logo' ? l.src ? <img src={l.src} alt="" draggable={false}/> : <span>Logo</span> : l.text}
         </div>;
       })}
       <PlacementGuides layout={layout} rect={{ ...(draft ?? position), ...bounds }} targets={targets} dimensions={[w, h]} lines={draft?.guides} scale={width / w}/>
     </div>
     <div className="map-position-actions"><span className="map-coordinates" aria-live="polite">{snap && selected !== undefined ? selected === 36 ? 'Exact center' : `Row ${GRID_POINTS[selected].row + 1} · Column ${GRID_POINTS[selected].column + 1}` : 'Free position'}</span><button type="button" className="text-button" aria-pressed={selected === 36} onClick={() => { const size = measure(); commit(freePlacement(50 - size.width / 2, 50 - size.height / 2, size.width, size.height, layout)); }}>Center</button></div>
-    <div className="two-fields placement-coordinates">{[['x', w, 'width'], ['y', h, 'height']].map(([axis, dimension, size]) => <NumberField key={axis} label={`Position ${axis.toUpperCase()} (px)`} value={Math.round((draft ?? position)[axis] / 100 * dimension * 10) / 10} min={layer.type === 'logo' ? -10 * dimension : area[axis] * dimension / 100} max={layer.type === 'logo' ? 10 * dimension : Math.max(area[axis], Math.min(95, area[axis] + area[size] - bounds[size])) * dimension / 100} step={1} onChange={value => { const x = axis === 'x' ? value / dimension * 100 : position.x, y = axis === 'y' ? value / dimension * 100 : position.y; commit(layer.type === 'logo' ? canvasMediaPlacement(x, y) : freePlacement(x, y, bounds.width, bounds.height, layout)); }}/>)}</div>
+    <div className="two-fields placement-coordinates">{[['x', w, 'width'], ['y', h, 'height']].map(([axis, dimension, size]) => <NumberField key={axis} label={`Position ${axis.toUpperCase()} (px)`} value={(draft ?? position)[axis] / 100 * dimension} min={layer.type === 'logo' ? -10 * dimension : area[axis] * dimension / 100} max={layer.type === 'logo' ? 10 * dimension : Math.max(area[axis], Math.min(95, area[axis] + area[size] - bounds[size])) * dimension / 100} step={1} onChange={value => { const x = axis === 'x' ? value / dimension * 100 : position.x, y = axis === 'y' ? value / dimension * 100 : position.y; commit(layer.type === 'logo' ? canvasMediaPlacement(x, y) : freePlacement(x, y, bounds.width, bounds.height, layout)); }}/>)}</div>
     {snap && <div className="map-alignment"><span>Element anchor</span><div className="segmented" role="group" aria-label="Horizontal element anchor">{['left', 'center', 'right'].map(value => <button type="button" key={value} aria-pressed={alignment === value} className={alignment === value ? 'selected' : ''} onClick={() => { setAlignment(value); if (selected !== undefined) choose(selected, value); }}>{value}</button>)}</div></div>}
     {layout.enabled && !fitsSafeArea(bounds, layout) && <p className="helper layout-warning" role="alert">This layer exceeds the safe area. Reduce its width or size before exporting.</p>}
 

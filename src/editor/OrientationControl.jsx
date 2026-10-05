@@ -50,7 +50,7 @@ export function OrientationControl({ layer, onCommit, onPreview }) {
   }
   return <div className="orientation-control">
     <div className="orientation-fields">
-      {['tilt', 'yaw', 'roll'].map((axis, index) => <NumberField key={axis} label={`Orientation ${'XYZ'[index]}`} value={Math.round(value[axis])} min={axis === 'tilt' ? -65 : -180} max={axis === 'tilt' ? 65 : 180} onChange={number => onCommit({ [axis]: number })}/>)}
+      {['tilt', 'yaw', 'roll'].map((axis, index) => <NumberField key={axis} label={`Orientation ${'XYZ'[index]}`} value={value[axis]} min={axis === 'tilt' ? -65 : -180} max={axis === 'tilt' ? 65 : 180} onChange={number => onCommit({ [axis]: number })}/>)}
     </div>
     <div className="orientation-sphere" role="button" tabIndex={0} aria-label="Carousel orientation: drag center for X and Y, outer ring for Z. Arrow keys adjust X and Y; Alt adjusts Z; Escape cancels." onPointerDown={begin} onPointerMove={move} onPointerUp={finish} onPointerCancel={event => finish(event, true)} onLostPointerCapture={event => finish(event, true)} onKeyDown={keys}>
       <svg viewBox="0 0 120 120" aria-hidden="true">

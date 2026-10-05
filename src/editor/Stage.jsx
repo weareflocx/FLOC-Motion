@@ -10,7 +10,7 @@ import { DEFAULT_LAYOUT } from '../layout.js';
 import { canvasViewport } from './canvas-viewport.js';
 import { evaluateChoreography } from '../choreography.js';
 
-export function Stage({ project, time, playing, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
+export function Stage({ nudge, project, time, playing, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
   const [activeProject, setActiveProject] = useState(project);
   const [sceneReady, setSceneReady] = useState(false);
   const [geometry, setGeometry] = useState({ rect: null, targets: [] });
@@ -169,6 +169,6 @@ export function Stage({ project, time, playing, onError, onReady, positionPrevie
     return () => { cancelled = true; };
   }, [positionPreview, project, activeProject, selected, time, playing, synchronized]);
 
-  const { ring, handlers } = useCanvasInteraction({ root, engine, project: activeProject, sceneKey: activeProject, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled: synchronized });
+  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled: synchronized });
   return <div ref={holder} className={`stage-holder${panning ? ' is-panning' : ''}`} tabIndex={panning ? 0 : undefined} aria-label={panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : undefined} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
 }

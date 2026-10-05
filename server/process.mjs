@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process';
 import { stripVTControlCharacters } from 'node:util';
+const children = new Set();
+export function terminateProcesses() { for (const child of children) child.kill('SIGTERM'); }
 
 export function run(command, args, options = {}, onData = () => {}) {
   const { timeoutMs = 20 * 60 * 1000, ...spawnOptions } = options;
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { ...spawnOptions, env: { ...process.env, HYPERFRAMES_NO_TELEMETRY: '1', HYPERFRAMES_SKIP_SKILLS: '1', HYPERFRAMES_NO_UPDATE_CHECK: '1', HYPERFRAMES_NO_AUTO_INSTALL: '1', ...options.env } });
+    children.add(child);
     let output = '', timedOut = false, killTimer;
     for (const stream of [child.stdout, child.stderr]) stream?.on('data', chunk => {
       const text = stripVTControlCharacters(chunk.toString());
@@ -14,7 +17,7 @@ export function run(command, args, options = {}, onData = () => {}) {
       timedOut = true; child.kill('SIGTERM');
       killTimer = setTimeout(() => child.kill('SIGKILL'), 2000); killTimer.unref();
     }, timeoutMs);
-    const cleanup = () => { clearTimeout(timer); clearTimeout(killTimer); };
+    const cleanup = () => { children.delete(child); clearTimeout(timer); clearTimeout(killTimer); };
     child.on('error', error => { cleanup(); reject(error); });
     child.on('close', code => {
       cleanup();

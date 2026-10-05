@@ -1,21 +1,40 @@
-import { mkdir, readFile, rename, rm, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, copyFile, open, appendFile, stat } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { configureRenderer, trustedOrigin } from './renderer-runtime.mjs';
+import { rendererVersion } from '../server/renderer-version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const config = JSON.parse(await readFile(process.argv[2] || path.join(root, '.data/render-worker/config.json'), 'utf8'));
-const origin = new URL(config.origin);
-if (origin.pathname !== '/' || origin.search || origin.hash || origin.username || origin.password || (origin.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(origin.hostname))) throw new Error('A trusted HTTPS editor origin is required.');
+const origin = trustedOrigin(config.origin);
 if (typeof config.token !== 'string' || config.token.length < 32) throw new Error('A renderer token is required.');
 process.env.FLOC_DATA_DIR = path.join(root, '.data/render-worker/data');
-// The native Mac backend is required; do not silently benchmark SwiftShader.
-process.env.PRODUCER_BROWSER_GPU_MODE = 'hardware';
+await configureRenderer(config);
+const version = await rendererVersion();
+const personal = config.token.includes('.');
 const { startExport } = await import('../server/export.mjs');
 const { validateProject } = await import('../src/project.js');
 await mkdir(path.join(process.env.FLOC_DATA_DIR, 'assets'), { recursive: true });
+const lock = path.join(root, '.data/render-worker/worker.pid');
+try { const pid = Number(await readFile(lock, 'utf8')); if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, 0); throw new Error('The renderer is already running.'); } catch (cause) { if (cause.code !== 'ESRCH') throw cause; } } await rm(lock, { force: true }); }
+catch (cause) { if (cause.code !== 'ENOENT') throw cause; }
+const handle = await open(lock, 'wx'); await handle.writeFile(String(process.pid)); await handle.close();
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
+  if (stopping) return; stopping = true;
+  const { terminateProcesses } = await import('../server/process.mjs');
+  terminateProcesses();
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  await rm(lock, { force: true }); process.exit(0);
+});
+async function log(message) {
+  console.log(message);
+  const filename = path.join(root, '.data/render-worker/worker.log');
+  try { if ((await stat(filename).catch(() => ({ size: 0 }))).size > 1e6) await rename(filename, `${filename}.previous`); await appendFile(filename, `${new Date().toISOString()} ${message}\n`); } catch {}
+}
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function request(route, body, stream = false) {
   const response = await fetch(new URL(route, origin), { method: 'POST', headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': stream ? 'video/mp4' : 'application/json' }, body: stream ? body : JSON.stringify(body), ...(stream ? { duplex: 'half' } : {}), signal: AbortSignal.timeout(stream ? 120000 : 15000), redirect: 'error' });
@@ -44,10 +63,10 @@ async function downloadAssets(project) {
   }
 }
 let connected = false;
-for (;;) {
+while (!stopping) {
   try {
-    const input = await request('/api/render-worker/claim', {});
-    if (!connected) { console.log(`Local renderer connected to ${origin.origin}`); connected = true; }
+    const input = await request('/api/render-worker/claim', personal ? { version } : {});
+    if (!connected) { await log(`Renderer connected to ${origin.origin}`); connected = true; }
     if (input) {
       const route = `/api/render-worker/${input.id}`;
       let heartbeat;
@@ -57,7 +76,7 @@ for (;;) {
         let localJob, updating = false;
         heartbeat = setInterval(async () => {
           if (updating) return; updating = true;
-          try { await request(`${route}/progress`, { progress: localJob?.progress || 0, message: localJob?.message || 'Downloading assets on the Mac' }); }
+          try { await request(`${route}/progress`, { progress: localJob?.progress || 0, message: localJob?.message || 'Downloading assets on your computer' }); }
           catch (error) { console.error(error.message); }
           finally { updating = false; }
         }, 5000);
@@ -70,21 +89,21 @@ for (;;) {
         let uploaded = false;
         for (let attempt = 0; attempt < 3; attempt++) {
           if (attempt) {
-            const status = await fetch(new URL(`/api/exports/${input.id}`, origin), { signal: AbortSignal.timeout(15000), redirect: 'error' });
+            const status = await fetch(new URL(`/api/exports/${input.id}`, origin), { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(15000), redirect: 'error' });
             if (status.ok && (await status.json()).state === 'done') { uploaded = true; break; }
           }
           try { await request(`${route}/result`, createReadStream(filename), true); uploaded = true; break; }
           catch (error) { if (attempt === 2) throw error; await sleep(3000); }
         }
         if (uploaded) {
-          console.log(`Export completed: ${input.id}`);
+          await log(`Export completed: ${input.id}`);
           await rm(path.dirname(filename), { recursive: true, force: true });
         }
       } catch (error) {
-        console.error(`Export failed: ${error.message}`);
+        await log(`Export failed: ${error.message}`);
         await request(`${route}/progress`, { state: 'failed', message: error.message }).catch(() => {});
       } finally { clearInterval(heartbeat); }
     }
-  } catch (error) { connected = false; console.error(error.message); }
+  } catch (error) { connected = false; await log(error.message); }
   await sleep(5000);
 }

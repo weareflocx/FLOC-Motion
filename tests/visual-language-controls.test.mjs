@@ -22,6 +22,7 @@ function controls(component, initial) {
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     UploadSimple() {}, DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawProceduralBackground, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
+    useState: value => [value, () => {}],
     useRef: value => ({ current: value }), useEffect: effect => effects.push(effect)
   };
   vm.createContext(context);
@@ -38,7 +39,8 @@ function controls(component, initial) {
   const text = node => (node.children || []).flat(Infinity).map(child => typeof child === 'object' ? text(child) : child ?? '').join('');
   const button = label => find(node => node.type === 'button' && (node.props['aria-label'] === label || text(node) === label));
   const input = label => find(node => ['input', 'select'].includes(node.type) && node.props['aria-label'] === label);
-  return { context, effects, changes, uploads, layer: () => layer, find, button, input, render };
+  const editInput = (label, value) => { const node = input(label); node.props.onChange({ target: { value } }); node.props.onBlur({ currentTarget: { value } }); };
+  return { editInput, context, effects, changes, uploads, layer: () => layer, find, button, input, render };
 }
 
 const background = { id: 'background', type: 'background', mode: 'image', color: '#080808', src: '/demo/poster-1.svg', fit: 'cover', offset: 0, loop: true };
@@ -74,13 +76,13 @@ test('pattern selection and bounded controls keep other background settings inta
   assert.equal(h.layer().color, background.color);
   assert.equal(h.layer().src, background.src);
   for (const [label, value, field] of [['Pattern scale', 2.25, 'patternScale'], ['Pattern intensity', 0.7, 'patternIntensity'], ['Pattern speed', -0.5, 'patternSpeed']]) {
-    h.input(label).props.onChange({ target: { value } });
+    h.input(label).props.onChange({ target: { value: value * 100 } });
     assert.equal(h.layer()[field], value);
   }
   const changes = h.changes.length;
-  for (const value of [-1, 65536, 2.5]) h.input('Pattern seed').props.onChange({ target: { value } });
+  for (const value of [-1, 65536, 2.5]) h.editInput('Pattern seed', String(value));
   assert.equal(h.changes.length, changes);
-  h.input('Pattern seed').props.onChange({ target: { value: '42' } });
+  h.editInput('Pattern seed', '42');
   assert.equal(h.layer().patternSeed, 42);
   h.input('Pattern color').props.onChange({ target: { value: '#ff0000' } });
   assert.equal(h.layer().patternColor, '#ff0000');
@@ -110,24 +112,24 @@ test('preview cards draw their selected pattern through the real supplied-time r
 
 test('typography preserves precise spacing and reveal duration when a reveal is disabled', () => {
   const h = controls('typography', textLayer);
-  assert.equal(h.input('Letter spacing (em)').props.value, -0.035);
-  assert.equal(h.input('Letter spacing (em)').props.step, 0.005);
-  assert.equal(h.input('Reveal duration (s)'), undefined);
-  h.input('Letter spacing (em)').props.onChange({ target: { value: '0.025' } });
+  assert.equal(h.input('Tracking (1/1000 em)').props.value, '-35');
+  assert.equal(h.input('Tracking (1/1000 em)').props.inputMode, 'numeric');
+  assert.equal(h.input('Reveal duration'), undefined);
+  h.editInput('Tracking (1/1000 em)', '25');
   assert.equal(h.layer().letterSpacing, 0.025);
   const changes = h.changes.length;
-  for (const value of ['-0.151', '0.501']) h.input('Letter spacing (em)').props.onChange({ target: { value } });
+  for (const value of ['-151', '501']) h.editInput('Tracking (1/1000 em)', value);
   assert.equal(h.changes.length, changes);
   h.button('center').props.onClick();
   assert.equal(h.layer().textAlign, 'center');
   assert.equal(h.button('center').props['aria-pressed'], true);
   h.input('Text reveal').props.onChange({ target: { value: 'up' } });
-  assert.equal(h.input('Reveal duration (s)').props.value, 0.6);
-  h.input('Reveal duration (s)').props.onChange({ target: { value: '1.25' } });
+  assert.equal(h.input('Reveal duration').props.value, '600');
+  h.editInput('Reveal duration', '1250');
   h.input('Text reveal').props.onChange({ target: { value: 'none' } });
-  assert.equal(h.input('Reveal duration (s)'), undefined);
+  assert.equal(h.input('Reveal duration'), undefined);
   h.input('Text reveal').props.onChange({ target: { value: 'right' } });
-  assert.equal(h.input('Reveal duration (s)').props.value, 1.25);
+  assert.equal(h.input('Reveal duration').props.value, '1250');
   assert.equal(h.layer().letterSpacing, 0.025);
   assert.equal(h.layer().text, textLayer.text);
 });

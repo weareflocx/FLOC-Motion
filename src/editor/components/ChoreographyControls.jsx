@@ -28,7 +28,7 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
 
   return <div className="timeline-choreography-controls" role="group" aria-label="Choreography">
     <fieldset className="timeline-edit-fields" disabled={layer.locked}>
-      <NumberField label="Opacity" value={Number((layer.opacity ?? 1).toFixed(4))} min={0} max={1} step={0.01} onChange={opacity => onPatch(layer.id, { opacity })}/>
+      <NumberField scale={100} suffix="%" label="Opacity" value={layer.opacity ?? 1} min={0} max={1} step={0.01} onChange={opacity => onPatch(layer.id, { opacity })}/>
       <button type="button" className="outline-button timeline-save-state" disabled={!insideClip || (!selected && states.length >= 32)} onClick={saveState}><Diamond size={15} aria-hidden="true"/>{selected ? 'Update state' : 'Save state'}</button>
     </fieldset>
     <label className="timeline-state-picker" title="Select any state, including overlapping markers"><span>State</span><select aria-label="Choreography state" value={selected?.id ?? ''} disabled={!states.length} onChange={event => {
@@ -39,7 +39,7 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
       {states.map((state, index) => <option key={state.id} value={state.id}>{index + 1} · {formatTime(layer.start + state.time)}</option>)}
     </select></label>
     {selected && <fieldset className="timeline-edit-fields" disabled={layer.locked}>
-      <NumberField label="State time (s)" value={Number((layer.start + selected.time).toFixed(4))} min={layer.start} max={layer.end} step={1 / fps} onChange={changeTime}/>
+      <NumberField scale={1000} suffix="ms" label="State time" value={layer.start + selected.time} min={layer.start} max={layer.end} step={1 / fps} onChange={changeTime}/>
       <label className="timeline-state-picker"><span>Easing</span><select aria-label="Transition into state" value={selected.easing} onChange={event => onPatch(layer.id, { choreography: states.map(state => state.id === selected.id ? { ...state, easing: event.target.value } : state) })}>{CHOREOGRAPHY_EASINGS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <IconButton label={`Remove state at ${formatTime(layer.start + selected.time)}`} onClick={() => onPatch(layer.id, { choreography: states.filter(state => state.id !== selected.id) })}><Trash size={15} aria-hidden="true"/></IconButton>
     </fieldset>}

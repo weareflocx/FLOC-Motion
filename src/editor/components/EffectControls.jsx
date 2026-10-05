@@ -22,9 +22,9 @@ export function EffectControls({ layer, onPatch }) {
       </span></summary>
       <Field label="Mode"><div className="segmented" role="group" aria-label="Noise mode">{['mono', 'duo', 'multi'].map(mode => <button type="button" key={mode} aria-pressed={effect.mode === mode} className={effect.mode === mode ? 'selected' : ''} onClick={() => update(index, { mode })}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}</div></Field>
       <Field label="Noise size"><div className="noise-size">
-        <NumberField label="X" ariaLabel="Noise size X" value={effect.sizeX} min={0.5} max={32} step={0.5} onChange={sizeX => update(index, { sizeX, ...(effect.linked ? { sizeY: sizeX } : {}) })}/>
+        <NumberField scale={100} suffix="%" label="X" ariaLabel="Noise size X" value={effect.sizeX} min={0.5} max={32} step={0.5} onChange={sizeX => update(index, { sizeX, ...(effect.linked ? { sizeY: sizeX } : {}) })}/>
         <IconButton label="Link noise size" aria-pressed={effect.linked} onClick={() => update(index, { linked: !effect.linked, ...(!effect.linked ? { sizeY: effect.sizeX } : {}) })}>{effect.linked ? <LinkSimple size={16}/> : <LinkSimpleBreak size={16}/>}</IconButton>
-        <NumberField label="Y" ariaLabel="Noise size Y" value={effect.sizeY} min={0.5} max={32} step={0.5} onChange={sizeY => update(index, { sizeY, ...(effect.linked ? { sizeX: sizeY } : {}) })}/>
+        <NumberField scale={100} suffix="%" label="Y" ariaLabel="Noise size Y" value={effect.sizeY} min={0.5} max={32} step={0.5} onChange={sizeY => update(index, { sizeY, ...(effect.linked ? { sizeX: sizeY } : {}) })}/>
       </div></Field>
       <Range label="Density" ariaLabel="Noise density" value={effect.density * 100} min={0} max={100} suffix="%" onChange={density => update(index, { density: density / 100 })}/>
       <Range label="Opacity" ariaLabel="Noise opacity" value={effect.opacity * 100} min={0} max={100} suffix="%" onChange={opacity => update(index, { opacity: opacity / 100 })}/>

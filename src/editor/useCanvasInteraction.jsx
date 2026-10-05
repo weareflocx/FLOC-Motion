@@ -1,3 +1,4 @@
+import { nudgeAmount } from './nudge.js';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../editor-controls.js';
 import { FORMATS } from '../project.js';
@@ -7,7 +8,7 @@ import { evaluateChoreography } from '../choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from './canvas-resize.js';
 
 // Drag previews commit on release; wheel previews commit after scrolling or before history/selection changes.
-export function useCanvasInteraction({ root, engine, project, sceneKey, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled = true }) {
+export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled = true }) {
   const gesture = useRef(null);
   const wheelDraft = useRef(null);
   const playhead = useRef(time); playhead.current = time;
@@ -180,23 +181,23 @@ export function useCanvasInteraction({ root, engine, project, sceneKey, selected
     } else if (l.type !== 'carousel' && l.type !== 'music' && (event.altKey || event.target.closest('[data-canvas-ring]'))) {
       onPatch(l.id, { roll: wrapDegrees((l.roll ?? 0) + (dx || dy) * (event.shiftKey ? 5 : 1)) });
     } else if (l.type === 'background') {
-      const [w, h] = FORMATS[project.format], step = event.shiftKey ? 10 : 1;
+      const [w, h] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
       onPatch(l.id, { x: Math.max(-100, Math.min(100, l.x + dx * step / w * 100)), y: Math.max(-100, Math.min(100, l.y + dy * step / h * 100)) });
-    } else if (l.type === 'carousel' && (event.shiftKey || event.altKey || event.target.closest('[data-canvas-ring]'))) {
+    } else if (l.type === 'carousel' && (event.altKey || event.target.closest('[data-canvas-ring]'))) {
       const step = event.shiftKey ? 5 : 1;
       onPatch(l.id, dragOrientation({ tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll }, dx * step / 180, dy * step / 180, event.altKey || event.target.closest('[data-canvas-ring]') ? (dx || dy) * step : null));
     } else if (l.type === 'carousel') {
       const [w, h] = FORMATS[project.format];
-      onPatch(l.id, carouselPlacement(l.x + dx / w * 100, l.y + dy / h * 100));
+      onPatch(l.id, carouselPlacement(l.x + dx * nudgeAmount(nudge, event.shiftKey) / w * 100, l.y + dy * nudgeAmount(nudge, event.shiftKey) / h * 100));
     } else if (['logo', 'media', 'model'].includes(l.type)) {
-      const [w, h] = FORMATS[project.format], step = event.shiftKey ? 10 : 1;
+      const [w, h] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
       onPatch(l.id, canvasMediaPlacement(l.x + dx * step / w * 100, l.y + dy * step / h * 100));
     } else if (l.type === 'text') {
       const box = root.current.getBoundingClientRect(), b = nodeFor(l.id).getBoundingClientRect();
       const w = b.width / box.width * 100, h = b.height / box.height * 100;
       const node = nodeFor(l.id), position = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };
       const visual = { x: (b.left - box.left) / box.width * 100, y: (b.top - box.top) / box.height * 100 };
-      const next = nudgePlacement(visual, dx, dy, FORMATS[project.format], { width: w, height: h }, event.shiftKey ? 10 : 1, project.layout);
+      const next = nudgePlacement(visual, dx, dy, FORMATS[project.format], { width: w, height: h }, nudgeAmount(nudge, event.shiftKey), project.layout);
       onPatch(l.id, { x: Math.max(0, Math.min(95, position.x + next.x - visual.x)), y: Math.max(0, Math.min(95, position.y + next.y - visual.y)) });
     }
   }

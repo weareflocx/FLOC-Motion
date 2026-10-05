@@ -11,10 +11,13 @@ import { startExport, jobs, run } from './export.mjs';
 import { ensureGifVideo } from './card-media.mjs';
 import { createTemplateStore } from './template-store.mjs';
 import { createRenderWorker } from './render-worker.mjs';
+import { createPersonalRenderers, rendererCookie } from './personal-renderers.mjs';
+import { rendererVersion } from './renderer-version.mjs';
 const config = runtimeConfig();
 const { port, data } = config;
 const templates = createTemplateStore(data);
 const renderWorker = createRenderWorker({ data, jobs, token: process.env.FLOC_RENDER_WORKER_TOKEN });
+const personalRenderers = createPersonalRenderers({ data, jobs, version: await rendererVersion() });
 await mkdir(path.join(data, 'assets'), { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
 let project = demoProject(); let revision = 0; let writing = false; let composition = null;
@@ -36,7 +39,21 @@ const server = http.createServer(async (req, res) => {
     if (!origin) return json(res, { error: config.publicOrigin ? 'Host not allowed.' : 'Local access only.' }, 403);
     if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== origin) return json(res, { error: 'Cross-origin mutations are not allowed.' }, 403);
     const url = new URL(req.url, origin); const route = url.pathname;
+    if (route === '/api/renderers/status' && req.method === 'GET') return json(res, { required: Boolean(config.publicOrigin), ...await personalRenderers.status(await personalRenderers.browser(req.headers.cookie)) });
+    if (route === '/api/renderers/pair' && req.method === 'POST') {
+      const pairing = await personalRenderers.startPairing(req.headers.cookie);
+      res.setHeader('Set-Cookie', rendererCookie(pairing.key, origin.startsWith('https:')));
+      return json(res, { code: pairing.code, expiresAt: pairing.expiresAt }, 201);
+    }
+    if (route === '/api/renderers/connect' && req.method === 'POST') return json(res, await personalRenderers.finishPairing(JSON.parse(await body(req))));
     if (route.startsWith('/api/render-worker/')) {
+      const device = await personalRenderers.engine(req.headers.authorization);
+      if (device) {
+        if (route === '/api/render-worker/claim' && req.method === 'POST') return json(res, await personalRenderers.claim(device, JSON.parse(await body(req))));
+        const match = route.match(/^\/api\/render-worker\/([a-f0-9-]{36})\/(progress|result)$/);
+        if (match && req.method === 'POST') return json(res, match[2] === 'result' ? await personalRenderers.complete(device, match[1], req) : await personalRenderers.update(device, match[1], JSON.parse(await body(req))));
+        return json(res, { error: 'Not found.' }, 404);
+      }
       if (!renderWorker.authorize(req.headers.authorization)) return json(res, { error: 'Renderer authentication required.' }, 401);
       if (route === '/api/render-worker/claim' && req.method === 'POST') return json(res, await renderWorker.claim());
       const workerJob = route.match(/^\/api\/render-worker\/([a-f0-9-]{36})\/(progress|result)$/);
@@ -77,10 +94,18 @@ const server = http.createServer(async (req, res) => {
       if (ext === 'gif') await ensureGifVideo(path.join(data, 'assets', `${id}.gif`), path.join(data, 'assets', `${id}.webm`), run);
       return json(res, { id, src: `/assets/${id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
     }
-    if (route === '/api/exports' && req.method === 'POST') { const input = JSON.parse(await body(req)); return json(res, await (renderWorker.enabled ? renderWorker.enqueue(input.project, input.settings) : startExport(input.project, input.settings)), 202); }
+    if (route === '/api/exports' && req.method === 'POST') {
+      const input = JSON.parse(await body(req));
+      const device = await personalRenderers.browser(req.headers.cookie);
+      if (device) return json(res, await personalRenderers.enqueue(device, input.project, input.settings), 202);
+      if (config.publicOrigin) return json(res, { error: 'Connect this computer’s renderer in Export before rendering.' }, 503);
+      return json(res, await (renderWorker.enabled ? renderWorker.enqueue(input.project, input.settings) : startExport(input.project, input.settings)), 202);
+    }
     const jobMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})$/);
     if (jobMatch) {
-      let job = await renderWorker.status(jobMatch[1]);
+      const device = await personalRenderers.browser(req.headers.cookie) || await personalRenderers.engine(req.headers.authorization);
+      let job = await personalRenderers.job(device, jobMatch[1]);
+      if (!job?.rendererId) job = await renderWorker.status(jobMatch[1]) || job;
       if (!job) {
         try {
           const filename = path.join(data, 'renders', jobMatch[1], 'job.json');
@@ -106,7 +131,11 @@ const server = http.createServer(async (req, res) => {
       return await file(req, res, filename);
     }
     const exportMatch = route.match(/^\/exports\/([a-f0-9-]{36})\/video\.mp4$/);
-    if (exportMatch) return await file(req, res, path.join(data, 'renders', exportMatch[1], 'video.mp4'));
+    if (exportMatch) {
+      const device = await personalRenderers.browser(req.headers.cookie);
+      await personalRenderers.job(device, exportMatch[1]);
+      return await file(req, res, path.join(data, 'renders', exportMatch[1], 'video.mp4'));
+    }
     // Vite's production bundles share /assets/ with uploaded media.
     if (!vite && route.startsWith('/assets/')) {
       const directory = path.join(root, 'dist', 'assets');

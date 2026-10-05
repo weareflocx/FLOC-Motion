@@ -8,14 +8,16 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { demoProject } from '../src/project.js';
 import { root } from '../server/runtime-config.mjs';
+import { rendererVersion } from '../server/renderer-version.mjs';
 
 test('production serves frontend bundles and uploaded media without mixing namespaces', async () => {
   const folder = await mkdtemp(path.join(tmpdir(), 'floc-http-'));
   let child;
   try {
     await mkdir(path.join(folder, 'server'));
-    for (const name of ['index.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
-    for (const name of ['node_modules', 'src']) await symlink(path.join(root, name), path.join(folder, name));
+    for (const name of ['index.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
+    await copyFile(path.join(root, 'package-lock.json'), path.join(folder, 'package-lock.json'));
+    for (const name of ['node_modules', 'src', 'scripts']) await symlink(path.join(root, name), path.join(folder, name));
     await mkdir(path.join(folder, 'dist/assets'), { recursive: true });
     await writeFile(path.join(folder, 'dist/index.html'), '<script src="/assets/index-test.js"></script>');
     await writeFile(path.join(folder, 'dist/assets/index-test.js'), 'window.testBundle = true;');
@@ -60,6 +62,24 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.equal(current.composition.id, composition.id);
     assert.equal(current.project.duration, 15);
     assert.equal((await (await fetch(`${base}/api/templates`)).json()).templates[0].project.duration, 15);
+
+    assert.equal((await fetch(`${base}/api/exports`, { method: 'POST', body: JSON.stringify({ project: demoProject() }) })).status, 503, 'public exports cannot fall back to somebody else’s Mac');
+    const pairingResponse = await fetch(`${base}/api/renderers/pair`, { method: 'POST' });
+    const cookie = pairingResponse.headers.get('set-cookie').split(';')[0];
+    assert.match(pairingResponse.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
+    const pairing = await pairingResponse.json();
+    const version = await rendererVersion(folder);
+    const connected = await (await fetch(`${base}/api/renderers/connect`, { method: 'POST', body: JSON.stringify({ code: pairing.code, version, name: 'Test computer' }) })).json();
+    const engineHeaders = { Authorization: `Bearer ${connected.token}` };
+    assert.equal((await fetch(`${base}/api/render-worker/claim`, { method: 'POST', headers: engineHeaders, body: JSON.stringify({ version }) })).status, 200);
+    const renderer = await (await fetch(`${base}/api/renderers/status`, { headers: { Cookie: cookie } })).json();
+    assert.equal(renderer.online, true); assert.equal(renderer.compatible, true);
+    const personalJob = await (await fetch(`${base}/api/exports`, { method: 'POST', headers: { Cookie: cookie }, body: JSON.stringify({ project: demoProject() }) })).json();
+    assert.equal((await fetch(`${base}/api/exports/${personalJob.id}`)).status, 404);
+    assert.equal((await fetch(`${base}/exports/${personalJob.id}/video.mp4`)).status, 404);
+    assert.equal((await fetch(`${base}/api/exports/${personalJob.id}`, { headers: { Cookie: cookie } })).status, 200);
+    assert.equal((await fetch(`${base}/api/exports/${personalJob.id}`, { headers: engineHeaders })).status, 200, 'engine can check whether a retried upload already completed');
+    assert.equal((await fetch(`${base}/api/renderers/pair`, { method: 'POST', headers: { Origin: 'https://untrusted.example' } })).status, 403);
     const stale = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), revision: original.revision, composition: receipt.composition }) });
     assert.equal(stale.status, 409);
     const draft = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), revision: receipt.revision, composition: null }) });

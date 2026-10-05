@@ -28,11 +28,16 @@ import { CanvasPanel } from './editor/components/CanvasPanel.jsx';
 import { ErrorBanner, Header } from './editor/components/Header.jsx';
 import { InspectorPanel } from './editor/components/InspectorPanel.jsx';
 import { LayerPanel } from './editor/components/LayerPanel.jsx';
+import { NudgeDialog } from './editor/components/NudgeDialog.jsx';
+import { loadNudge, saveNudge } from './editor/nudge.js';
 import { TimelinePanel } from './editor/components/TimelinePanel.jsx';
 
 function App() {
   const { project, composition, openComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject();
   const [selected, setSelected] = useState('carousel'); const [leftTab, setLeftTab] = useState('layers'); const [rightTab, setRightTab] = useState('composition');
+  const [nudge, setNudge] = useState(loadNudge);
+  const [nudgeOpen, setNudgeOpen] = useState(false);
+  useEffect(() => saveNudge(nudge), [nudge]);
   const [ready, setReady] = useState(false);
   const [positionPreview, setPositionPreview] = useState(null);
   const [timelineOpen, setTimelineOpen] = useState(true);
@@ -67,7 +72,7 @@ function App() {
   }, [patch, projectRef, time, setPlaying, setError]);
   const seek = useCallback(value => { setTime(Math.max(0, Math.min(projectRef.current.duration, value))); setPlaying(false); }, [projectRef, setTime, setPlaying]);
   const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
-  const alternativesBlocked = canvasEditing || exportOpen || newOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
+  const alternativesBlocked = canvasEditing || nudgeOpen || exportOpen || newOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
   const alternatives = useVisualAlternatives({ projectRef, change, setPlaying, blocked: alternativesBlocked });
   const proposeAlternatives = useCallback(proposal => { alternatives.propose(proposal); setAgentOpen(false); }, [alternatives.propose]);
   const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef, proposeAlternatives });
@@ -102,10 +107,11 @@ function App() {
     <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={() => { if (window.confirm("Discard your local changes and load the latest saved project? Download your project JSON first to keep a copy.")) reload().catch(reloadError => setError(reloadError.message)); }} onDismiss={() => setError('')}/>
     <div className="workspace">
       <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
-      <CanvasPanel selected={selected} onSelect={selectCanvasLayer} onPatch={editLayer} onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo}/>
-      <InspectorPanel project={displayedProject} layer={displayedLayer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={editLayer} onPick={target => setAddTarget(target)} onPreview={previewPosition} onRemoveText={removeText}/>
+      <CanvasPanel nudge={nudge} onOpenNudge={() => { setPlaying(false); setNudgeOpen(true); }} selected={selected} onSelect={selectCanvasLayer} onPatch={editLayer} onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo}/>
+      <InspectorPanel key={displayedLayer?.id} nudge={nudge} project={displayedProject} layer={displayedLayer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={editLayer} onPick={target => setAddTarget(target)} onPreview={previewPosition} onRemoveText={removeText}/>
       <TimelinePanel project={project} selected={selected} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
     </div>
+    {nudgeOpen && <NudgeDialog value={nudge} onChange={setNudge} onClose={() => setNudgeOpen(false)}/>}
     {newOpen && <NewCompositionDialog onClose={() => setNewOpen(false)} onCreate={async name => { await newComposition(name); setTime(0); setPlaying(false); setSelected(null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }}/>}
     {saveOpen && <SaveCompositionDialog name={project.name} onClose={() => setSaveOpen(false)} onSave={saveCopy}/>}
     {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}

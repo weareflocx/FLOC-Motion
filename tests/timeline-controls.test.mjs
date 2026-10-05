@@ -79,7 +79,7 @@ test('expanded timeline edits Start and Duration directly in a row and moving St
   assert.equal(h.layer().start, 1.5);
   assert.equal(h.layer().end, 3.75);
   assert(h.field('Start')); assert.equal(h.field('End (s)'), undefined);
-  assert.equal(h.field('Fade in (s)'), undefined); assert.equal(h.field('Fade out (s)'), undefined);
+  assert.equal(h.field('Fade in'), undefined); assert.equal(h.field('Fade out'), undefined);
   assert.equal(h.find(node => node.props.type === 'checkbox'), undefined);
   h.render({ timelineOpen: false });
   assert(h.find(node => node.props['aria-label'] === 'Timeline playhead'));
@@ -128,7 +128,7 @@ test('Save state captures the current evaluated pose; Update state preserves ID 
   assert.equal(h.layer().choreography.at(-1).id, 'last');
   assert.equal(h.layer().choreography.at(-1).easing, 'linear');
   assert.equal(h.layer().choreography.length, 3);
-  h.field('State time (s)').props.onChange(2.5);
+  h.field('State time').props.onChange(2.5);
   assert.equal(h.layer().choreography.at(-1).time, 2.5);
   assert.equal(h.seeks.at(-1), 2.5);
   h.find(node => node.props['aria-label'] === 'Remove state at 2.50 s').props.onClick();
@@ -142,7 +142,7 @@ test('focusing inline timing restores clip gestures and state selection activate
   tracks().props.onSelectState(h.layer().id);
   assert.equal(tracks().props.mode, 'choreography');
   tracks().props.onSeek(2);
-  assert(h.field('State time (s)'));
+  assert(h.field('State time'));
   h.find(node => node.props.className === 'track-timing-fields').props.onFocus();
   assert.equal(tracks().props.mode, 'timing');
   assert.equal(h.field('Opacity'), undefined);
@@ -185,8 +185,8 @@ test('changing timing preserves relative choreography, fitted fades, and recover
 test('fade properties retain numeric editing and Rise during fades in the element inspector', () => {
   const h = controls();
   const fadeNodes = () => h.nodes(h.fades());
-  fadeNodes().find(node => node.props.label === 'Fade in (s)').props.onChange(.7);
-  fadeNodes().find(node => node.props.label === 'Fade out (s)').props.onChange(.4);
+  fadeNodes().find(node => node.props.label === 'Fade in').props.onChange(.7);
+  fadeNodes().find(node => node.props.label === 'Fade out').props.onChange(.4);
   fadeNodes().find(node => node.props.type === 'checkbox').props.onChange({ target: { checked: true } });
   assert.equal(h.layer().fadeIn, .7);
   assert.equal(h.layer().fadeOut, .4);

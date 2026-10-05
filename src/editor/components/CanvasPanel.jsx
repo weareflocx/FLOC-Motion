@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { ArrowCounterClockwise, ArrowClockwise, Hand, Minus, Plus, Play, Pause, SkipBack } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, ArrowClockwise, SlidersHorizontal, Hand, Minus, Plus, Play, Pause, SkipBack } from '@phosphor-icons/react';
 import { FORMATS } from '../../project.js';
 import { IconButton } from '../controls.jsx';
 import { Stage } from '../Stage.jsx';
@@ -12,7 +12,7 @@ const timeLabel = (seconds, fps) => {
   return [minutes, wholeSeconds, frames].map(value => value.toString().padStart(2, '0')).join(':');
 };
 
-export function CanvasPanel({ project, carousel, history, future, canvasEditing, ready, positionPreview, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, onSelect, onPatch, onPreview, onPendingEdit }) {
+export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, onSelect, onPatch, onPreview, onPendingEdit }) {
   const [zoom, setZoom] = useState('fit');
   const [panning, setPanning] = useState(false);
   const [viewport, setViewport] = useState({ scale: 1, canPan: false });
@@ -27,10 +27,11 @@ export function CanvasPanel({ project, carousel, history, future, canvasEditing,
   const totalTime = timeLabel(project.duration, project.fps);
   return <section className="center-panel">
     <div className="preview-wrap">
-      <Stage selected={selected} onSelect={onSelect} onPatch={onPatch} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} time={time} playing={playing} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
+      <Stage nudge={nudge} selected={selected} onSelect={onSelect} onPatch={onPatch} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} time={time} playing={playing} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
       <div className="canvas-toolbar">
         <div className="canvas-meta" role="group" aria-label="Edit history"><IconButton label="Undo last edit (⌘/Ctrl+Z)" disabled={!history.length && !canvasEditing} onClick={onUndo}><ArrowCounterClockwise size={17}/></IconButton><IconButton label="Redo last edit (⌘/Ctrl+Shift+Z)" disabled={!future.length || canvasEditing} onClick={onRedo}><ArrowClockwise size={17}/></IconButton></div>
+        <IconButton label="Nudge amount" onClick={onOpenNudge}><SlidersHorizontal size={17}/></IconButton>
         <div className="canvas-zoom" role="group" aria-label="Canvas view">
           <button type="button" title={`Fit ${FORMATS[project.format].join(' × ')} canvas to view`} aria-pressed={zoom === 'fit'} onClick={() => changeZoom('fit')}>Fit</button>
           <IconButton label="Zoom out" disabled={viewport.scale <= 0.05} onClick={() => changeZoom(Math.max(0.05, viewport.scale / 1.25))}><Minus size={14}/></IconButton>
