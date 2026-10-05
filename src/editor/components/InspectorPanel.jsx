@@ -21,7 +21,7 @@ export function InspectorPanel({ nudge, project, layer, rightTab, uploading, onS
   const images = carouselImages(project, layer?.type === 'carousel' ? layer : null);
   const currentTemplate = TEMPLATES.find(template => template.id === layer?.template);
   function closeLibrary() { setLibraryOpen(false); libraryButton.current?.focus(); }
-  if (!layer) return <aside className="right-panel panel"><p className="helper">Add a layer to start composing.</p></aside>;
+  if (!layer) return <aside className="right-panel panel"><p className="helper">{project.layers.length ? 'Select a layer to edit its properties.' : 'Add a layer to start composing.'}</p></aside>;
   return <aside className="right-panel panel"><div className="tabs"><button className={rightTab === 'composition' ? 'selected' : ''} onClick={() => onSetRightTab('composition')}>Composition</button><button className={rightTab === 'animation' ? 'selected' : ''} onClick={() => onSetRightTab('animation')}>Animation</button></div>{layer.type !== 'carousel' && <div className="section-heading"><h2>{layer.name}</h2></div>}
     {layer.locked && <p className="helper layer-lock-notice">This layer is locked. Unlock it in Layers to edit.</p>}
     <fieldset className="layer-properties" disabled={layer.locked} inert={layer.locked ? true : undefined}>

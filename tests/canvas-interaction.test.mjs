@@ -79,6 +79,43 @@ test('Escape and unmount cancel pending wheel edits', () => {
   }
 });
 
+test('clicking empty workspace deselects without changing the project', () => {
+  for (const point of [[1100, 500], [900, 900]]) {
+    const h = editor(), selections = [];
+    h.node.getBoundingClientRect = () => ({ left: 100, top: 100, right: 300, bottom: 300, width: 200, height: 200 });
+    const { handlers } = h.render({ onSelect: id => selections.push(id) });
+    handlers.onPointerDown({ button: 0, clientX: point[0], clientY: point[1], target: { closest: () => null } });
+    assert.deepEqual(selections, [null]);
+    assert.equal(h.patches.length, 0);
+    assert.equal(h.previews.at(-1), null);
+    h.unmount();
+  }
+});
+
+test('deselecting commits a pending wheel resize exactly once', () => {
+  const h = editor(), selections = [];
+  const { handlers } = h.render({ onSelect: id => selections.push(id) });
+  h.scroll();
+  handlers.onPointerDown({ button: 0, clientX: 1100, clientY: 500, target: { closest: () => null } });
+  assert.equal(selections.at(-1), null);
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.timers.size, 0);
+  h.flush(); assert.equal(h.patches.length, 1);
+  h.unmount();
+});
+
+test('Escape cancels an edit first and deselects only when no gesture is pending', () => {
+  const h = editor(), selections = [];
+  const { handlers } = h.render({ onSelect: id => selections.push(id) });
+  h.scroll(); selections.length = 0;
+  handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+  assert.deepEqual(selections, []);
+  assert.equal(h.patches.length, 0);
+  handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+  assert.deepEqual(selections, [null]);
+  h.unmount();
+});
+
 test('loading a new scene cancels old drafts and blocks wheel, pointer and keyboard edits', () => {
   const h = editor(); h.scroll();
   const { handlers } = h.render({ enabled: false, project: { ...h.project, format: 'portrait' } });

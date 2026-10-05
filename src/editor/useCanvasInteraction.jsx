@@ -81,13 +81,14 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     return null;
   }
   function begin(event) {
-    if (!enabled || event.button !== 0 || gesture.current || wheelDraft.current) return;
+    if (!enabled || event.button !== 0 || gesture.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
     const resize = event.target.closest('[data-canvas-resize]');
     const selection = event.target.closest('[data-canvas-move]');
     const ringLayer = (ring || resize || selection) && project.layers.find(l => l.id === selected && l.type !== 'music');
     const l = ringLayer ? evaluateChoreography(ringLayer, playhead.current) : pick(event.clientX, event.clientY);
-    if (!l) return;
+    if (!l) { commitWheel(); onSelect(null); onPreview(null); return; }
+    if (wheelDraft.current) return;
     event.preventDefault(); onSelect(l.id);
     nodeFor(l.id)?.focus({ preventScroll: true });
     if (l.locked) return;
@@ -162,8 +163,14 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     }
   }
   function keys(event) {
-    if (event.key === 'Escape') { event.preventDefault(); cancel(); return; }
     if (!enabled) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      const editing = gesture.current || wheelDraft.current;
+      cancel();
+      if (!editing) onSelect(null);
+      return;
+    }
     const target = event.target.closest('[data-floc-layer]');
     const source = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : sourceLayer;
     const l = source && evaluateChoreography(source, playhead.current);

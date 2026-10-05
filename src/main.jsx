@@ -48,9 +48,9 @@ function App() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [contentTarget, setContentTarget] = useState(null);
-  const layer = project.layers.find(l => l.id === selected) || project.layers[0];
+  const layer = project.layers.find(l => l.id === selected);
   const carousel = project.layers.find(l => l.type === 'carousel');
-  useEffect(() => { if (!project.layers.some(layer => layer.id === selected)) setSelected(project.layers[0]?.id ?? null); }, [project.layers, selected]);
+  useEffect(() => { if (selected !== null && !project.layers.some(layer => layer.id === selected)) setSelected(project.layers[0]?.id ?? null); }, [project.layers, selected]);
   const { time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: project.duration });
   const displayedProject = useMemo(() => project.layers.some(item => item.choreography?.length)
     ? { ...project, layers: project.layers.map(item => evaluateChoreography(item, time)) } : project, [project, time]);
