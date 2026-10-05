@@ -19,15 +19,21 @@
 .track-controls-button:hover,.track-controls-button.selected{background:#ffffff0d;color:#eee}
 .track-controls-button.has-states::after{content:'';position:absolute;width:3px;height:3px;right:3px;bottom:3px;border-radius:50%;background:#d4d4d4}
 .track-timing-fields{display:flex;align-items:center;gap:8px;min-width:0;margin:0;padding:0 4px;border:0}
-.track-timing-fields .field{display:flex;align-items:center;gap:4px;flex:1;min-width:0;margin:0}
+.track-timing-fields .field{display:flex;align-items:center;gap:4px;flex:1.1;min-width:0;min-height:22px;margin:0}
+.track-timing-fields .field:first-child{flex:.9}
 .track-timing-fields .field-label{flex-shrink:0;margin:0;font-size:9px;color:#858585}
-.track-timing-fields input{width:100%;min-width:0;height:22px;padding:2px 3px;border-color:transparent;background:transparent;font-family:var(--font-data);font-size:10px;color:#bcbcbc;font-variant-numeric:tabular-nums;appearance:textfield}
+.track-timing-fields .numeric-field{flex:1;gap:2px}
+.track-timing-fields .numeric-unit{font-size:9px}
+.track-timing-fields .field input:not([type=range]){width:100%;min-width:0;height:22px;padding:2px 3px;border-color:transparent;background:transparent;font-family:var(--font-data);font-size:10px;color:#bcbcbc;font-variant-numeric:tabular-nums;appearance:textfield}
 .track-timing-fields input::-webkit-inner-spin-button,.track-timing-fields input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .track-timing-fields input:hover,.track-timing-fields input:focus{border-color:#ffffff26;background:#ffffff05}
 .track-timing-fields:disabled{opacity:.55}
-.clip-body{padding-top:13px}
-.clip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
-.clip-duration{align-self:flex-end;margin-bottom:6px}
+.clip-body{padding-top:24px}
+.clip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.clip-duration{align-self:center;margin-bottom:0}
+.clip-fade{height:16px}
+.clip-handle{top:24px}
+.clip-drag-feedback{position:absolute;top:26px;z-index:5;max-width:calc(100% - 8px);padding:4px 7px;border:1px solid #777;border-radius:4px;background:#171717;color:#eee;font-family:var(--font-data);font-size:10px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 .choreography-mark{top:2px}
 .timeline-controls-popover{position:fixed;inset:auto;margin:0;width:min(360px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;padding:14px;border:1px solid #454545;border-radius:10px;background:#222;color:#e8e8e8;box-shadow:0 12px 36px #0008;font-family:var(--font-ui)}
 .timeline-controls-popover::backdrop{background:transparent}
@@ -49,7 +55,7 @@
 .timeline-controls-note{margin:0;font-size:10px;line-height:1.5;color:#aaa}
 .timeline-controls-popover button:disabled{cursor:default}
 .timeline-controls-popover :is(input,select,button):focus-visible{outline:1px solid #b9b9b9;outline-offset:2px}
-@container(max-width:170px){.clip-label{font-size:9px}}
+@container(max-width:90px){.clip-type-icon{display:none}.clip-body{gap:0}}
 @media(max-width:850px){.timeline-panel{--timeline-label-width:200px}.timeline-track-scroll{max-height:244px}}
 @media(max-width:600px){
   .timeline-panel{--timeline-label-width:172px}
@@ -58,6 +64,8 @@
   .track-timing-fields{gap:5px}
   .track-timing-fields .field{gap:2px}
   .track-timing-fields .field-label{font-size:8px}
+  .track-timing-fields .numeric-unit{font-size:8px}
+  .track-timing-fields .field input:not([type=range]){font-size:9px;padding:2px}
   .track-controls-button{width:24px;height:26px}
   .ruler-track-heading{padding-left:4px}
   .ruler-controls{gap:0}

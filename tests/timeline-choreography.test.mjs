@@ -121,6 +121,31 @@ test('state marks follow clip movement drafts and disappear beyond a trimmed spa
   assert.equal(h.patches.length, 0);
 });
 
+test('clip drag feedback follows fitted fade values and clears without saving on cancellation', () => {
+  const h = timeline({ mode: 'timing' });
+  const fade = h.find(p => p['aria-label'] === 'Fade in of Title: 0.20s');
+  fade.props.onPointerDown(h.event());
+  fade.props.onPointerMove(h.event({ clientX: 400 }));
+  let feedback = h.find(p => p.className === 'clip-drag-feedback');
+  assert.equal(feedback.children[0], 'Fade in 1.20s');
+  assert.equal(h.patches.length, 0);
+  fade.props.onPointerCancel(h.event());
+  assert.equal(h.find(p => p.className === 'clip-drag-feedback'), undefined);
+  assert.equal(h.patches.length, 0);
+
+  const trim = h.find(p => p['aria-label'] === 'Trim end of Title');
+  trim.props.onPointerDown(h.event());
+  trim.props.onPointerMove(h.event({ clientX: 200 }));
+  feedback = h.find(p => p.className === 'clip-drag-feedback');
+  assert.equal(feedback.children[0], 'End 5.00s · Duration 3.00s');
+  trim.props.onPointerUp(h.event());
+  assert.equal(h.find(p => p.className === 'clip-drag-feedback'), undefined);
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.patches[0].id, 'title');
+  assert.equal(h.patches[0].patch.start, 2);
+  assert.equal(h.patches[0].patch.end, 5);
+});
+
 
 test('Timing markers are passive and preserve clip gestures; Choreography reserves selected row for states', () => {
   const h = timeline({ mode: 'timing' });

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { EyeSlash, LockSimple, DiamondsFour } from '@phosphor-icons/react';
+import { EyeSlash, LockSimple, DiamondsFour, FilmStrip } from '@phosphor-icons/react';
 import { editClip, editFade, timeAtPointer } from './editor-controls.js';
 import { fitFades } from './project.js';
 import { moveState, choreographyFields } from './choreography.js';
@@ -127,9 +127,11 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
       <i className="ruler-playhead" style={{ left: `${time / project.duration * 100}%` }} aria-hidden="true"><span className="playhead-cap"/></i>
     </div></div>
     <div className="track-list">{project.layers.map(l => {
-      const Icon = icons[l.type]; const range = draft?.id === l.id ? draft : l; const span = range.end - range.start;
+      const Icon = l.type === 'media' && /\.(mp4|webm)$/i.test(l.src) ? FilmStrip : icons[l.type]; const range = draft?.id === l.id ? draft : l; const span = range.end - range.start;
       // Trimming previews the fitted fades that validation will store.
       const fades = l.fadeIn !== undefined && fitFades(range.fadeIn, range.fadeOut, span);
+      const draggingClip = draft?.id === l.id && draft.kind !== 'state';
+      const dragAt = draggingClip && (isFade(draft.kind) ? draft.kind === 'fadeIn' ? range.start + fades.fadeIn : range.end - fades.fadeOut : draft.kind === 'end' ? range.end : range.start);
       const share = value => `${value / span * 100}%`;
       const states = (draft?.id === l.id && draft.kind === 'state' ? draft.choreography : l.choreography || []).filter(state => state.time >= 0 && state.time <= span);
       const editingStates = mode === 'choreography' && selected === l.id;
@@ -149,14 +151,17 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
         </div>
         <div className={`track-lane ${editingStates ? 'choreography-editing' : ''}`} onPointerDown={e => { if (e.button !== 0) return; if (editingStates && e.target.closest('.track-clip')) onSelect(l.id); else if (e.target === e.currentTarget) onSeek(timeAtPointer(e.clientX, e.currentTarget.getBoundingClientRect(), project.duration, project.fps)); }}>
           <div className={`track-clip ${l.type} ${l.type === 'music' && !l.src ? 'empty' : ''} ${!l.visible ? 'muted' : ''} ${draft?.id === l.id && draft.kind !== 'state' ? 'dragging' : ''}`} style={{ left: `${range.start / project.duration * 100}%`, width: `${(range.end - range.start) / project.duration * 100}%` }} role="group" aria-label={`${l.name} timing`} title={`${range.start.toFixed(2)}s — ${range.end.toFixed(2)}s`}>
-            <button className="clip-handle start" aria-label={`Trim start of ${l.name}`} {...pointerProps(l, 'start')}/>
-            {fades && <><svg className="clip-fade in" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeIn) }}><path className="fade-shade" d="M0 0H100L0 100Z"/><path className="fade-line" d="M0 100L100 0"/></svg><button className="fade-handle in" style={{ '--fade-at': share(fades.fadeIn) }} aria-label={`Fade in of ${l.name}: ${fades.fadeIn.toFixed(2)}s`} title={`Fade in ${fades.fadeIn.toFixed(2)}s`} {...pointerProps(l, 'fadeIn')}/></>}
+            <button className="clip-handle start" aria-label={`Trim start of ${l.name}`} title={`Trim start · ${range.start.toFixed(2)}s`} {...pointerProps(l, 'start')}/>
+            {fades && <><svg className="clip-fade in" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeIn) }}><path className="fade-shade" d="M0 0H100C65 0 35 100 0 100Z"/><path className="fade-line" d="M0 100C35 100 65 0 100 0"/></svg><button className="fade-handle in" style={{ '--fade-at': share(fades.fadeIn) }} aria-label={`Fade in of ${l.name}: ${fades.fadeIn.toFixed(2)}s`} title={`Fade in ${fades.fadeIn.toFixed(2)}s`} {...pointerProps(l, 'fadeIn')}/></>}
             <button className="clip-body" aria-label={`Move ${l.name} clip`} {...pointerProps(l, 'move')}>
-              <span className="clip-label">{l.type === 'text' ? l.text : l.name}</span><span className="clip-duration" aria-hidden="true">{span.toFixed(2)}s</span>
+              <Icon size={14} className="clip-type-icon" aria-hidden="true"/><span className="clip-label">{l.type === 'text' ? l.text : l.name}</span><span className="clip-duration" aria-hidden="true">{span.toFixed(2)}s</span>
             </button>
-            {fades && <><svg className="clip-fade out" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeOut) }}><path className="fade-shade" d="M0 0H100V100Z"/><path className="fade-line" d="M0 0L100 100"/></svg><button className="fade-handle out" style={{ '--fade-at': share(fades.fadeOut) }} aria-label={`Fade out of ${l.name}: ${fades.fadeOut.toFixed(2)}s`} title={`Fade out ${fades.fadeOut.toFixed(2)}s`} {...pointerProps(l, 'fadeOut')}/></>}
-            <button className="clip-handle end" aria-label={`Trim end of ${l.name}`} {...pointerProps(l, 'end')}/>
+            {fades && <><svg className="clip-fade out" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeOut) }}><path className="fade-shade" d="M0 0C35 0 65 100 100 100V0Z"/><path className="fade-line" d="M0 0C35 0 65 100 100 100"/></svg><button className="fade-handle out" style={{ '--fade-at': share(fades.fadeOut) }} aria-label={`Fade out of ${l.name}: ${fades.fadeOut.toFixed(2)}s`} title={`Fade out ${fades.fadeOut.toFixed(2)}s`} {...pointerProps(l, 'fadeOut')}/></>}
+            <button className="clip-handle end" aria-label={`Trim end of ${l.name}`} title={`Trim end · ${range.end.toFixed(2)}s`} {...pointerProps(l, 'end')}/>
           </div>
+          {draggingClip && <span className="clip-drag-feedback" aria-hidden="true" style={{ left: `clamp(4px, calc(${dragAt / project.duration * 100}% - 56px), max(4px, calc(100% - 180px)))` }}>
+            {isFade(draft.kind) ? `Fade ${draft.kind === 'fadeIn' ? 'in' : 'out'} ${fades[draft.kind].toFixed(2)}s` : `${draft.kind === 'end' ? `End ${range.end.toFixed(2)}` : `Start ${range.start.toFixed(2)}`}s · Duration ${span.toFixed(2)}s`}
+          </span>}
           {states.map((state, index) => {
             const at = range.start + state.time;
             const current = time >= range.start && time < range.end && activeState?.id === state.id;
