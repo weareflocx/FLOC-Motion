@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { blankProject, demoProject, patchLayer, validateProject } from '../project.js';
+import { blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
 import { request } from './request.js';
 import { historyShortcut } from './history-shortcut.js';
 
@@ -183,8 +183,7 @@ export function useProject() {
     return change(valid);
   }, [change]);
 
-  const newComposition = useCallback(async name => {
-    const next = validateProject(blankProject(name.trim()));
+  const preserveCurrent = useCallback(async () => {
     canvasEdit.current?.();
     const current = projectRef.current;
     await save();
@@ -193,13 +192,34 @@ export function useProject() {
       await request('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: current.name.trim() || 'Untitled', tags: [], project: current }) });
     }
     if (projectRef.current !== current) throw new Error('The composition changed while it was being saved. Try again.');
+  }, [save]);
+
+  const newComposition = useCallback(async (name, { format = 'square', assets = [] } = {}) => {
+    if (assets.length > 20) throw new Error('Use up to 20 layers.');
+    const draft = blankProject(name.trim());
+    const next = validateProject({ ...draft, format, layers: assets.map(asset => fileLayer(asset, draft.duration, crypto.randomUUID())) });
+    await preserveCurrent();
     importDraft(next);
     clearHistory();
     // The previous work is safe. Keep a new draft save failure in the normal
     // retry flow without archiving another copy on a repeated form submission.
     await save().catch(() => {});
     return next;
-  }, [save, importDraft, clearHistory]);
+  }, [save, importDraft, clearHistory, preserveCurrent]);
+
+  const openSavedComposition = useCallback(async entry => {
+    validateProject({ ...entry.project, name: entry.name });
+    if (compositionRef.current?.id === entry.id) {
+      canvasEdit.current?.();
+      await save();
+      return projectRef.current;
+    }
+    await preserveCurrent();
+    const next = openComposition(entry);
+    if (!next) throw new Error('Unable to open composition.');
+    await save().catch(() => {});
+    return next;
+  }, [preserveCurrent, openComposition, save]);
 
   useEffect(() => {
     const warn = event => { if (dirty.current) { event.preventDefault(); event.returnValue = ''; } };
@@ -227,6 +247,7 @@ export function useProject() {
     updateCompositionMetadata,
     saveCopy,
     newComposition,
+    openSavedComposition,
     importDraft,
     projectRef,
     loaded,

@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { webcrypto } from 'node:crypto';
 import { transform } from 'esbuild';
-import { blankProject, demoProject, patchLayer, validateProject } from '../src/project.js';
+import { blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../src/project.js';
 import { captureState } from '../src/choreography.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
 
@@ -18,7 +19,7 @@ function editor({ linked = true } = {}) {
   const identity = linked ? { id: 'current-composition', updatedAt: '2026-10-04T01:00:00Z' } : null;
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = {
-    blankProject, demoProject, patchLayer, validateProject, historyShortcut,
+    blankProject, demoProject, fileLayer, patchLayer, validateProject, historyShortcut, crypto: webcrypto,
     request: async (url, options) => {
       const body = options?.body && JSON.parse(options.body);
       requests.push({ url, method: options?.method || 'GET', body });
@@ -180,6 +181,71 @@ test('new composition archives the current draft before replacing it', async () 
   assert.equal(h.render().project.layers.length, 0);
   assert.equal(h.render().project.images.length, 0);
   assert.equal(h.render().composition, null);
+});
+
+test('new composition persists the selected format and mixed files as independent layers', async () => {
+  const h = editor({ linked: false });
+  await h.render().reload();
+  const assets = ['png', 'mp4', 'wav', 'glb'].map((ext, i) => ({ id: `asset-${i}`, name: `File ${i}.${ext}`, src: `/assets/00000000-0000-0000-0000-00000000000${i}.${ext}` }));
+  const next = await h.render().newComposition('Mixed media', { format: 'portrait', assets });
+  assert.equal(next.format, 'portrait');
+  assert.deepEqual(plain(next.layers.map(layer => layer.type)), ['media', 'media', 'music', 'model']);
+  assert.equal(new Set(next.layers.map(layer => layer.id)).size, 4);
+  assert(next.layers.every(layer => layer.start === 0 && layer.end === next.duration));
+  assert.deepEqual(plain(next.layers.map(layer => layer.src)), assets.map(asset => asset.src));
+  const writes = h.requests.filter(item => item.method !== 'GET');
+  assert.deepEqual(writes[1].body.project, h.current);
+  assert.deepEqual(writes[2].body.project, plain(next));
+  assert.equal(h.render().history.length, 0);
+});
+
+test('invalid new composition settings leave current work untouched before saving', async () => {
+  const h = editor();
+  await h.render().reload();
+  const asset = { name: 'Remote.png', src: 'https://example.com/image.png' };
+  for (const options of [{ format: 'unknown' }, { assets: [asset] }, { assets: Array(21).fill(asset) }]) {
+    await assert.rejects(h.render().newComposition('Invalid', options));
+  }
+  assert.equal(h.requests.some(item => item.method !== 'GET'), false);
+  assert.deepEqual(plain(h.render().project), h.current);
+  assert.deepEqual(plain(h.render().composition), h.identity);
+});
+
+test('opening from the new-file library archives the current draft and links the chosen composition', async () => {
+  const h = editor({ linked: false });
+  await h.render().reload();
+  h.render().patch('headline', { text: 'Keep this draft' });
+  const previous = plain(h.render().project);
+  const entry = { id: 'chosen-composition', updatedAt: '2026-10-05T01:00:00Z', name: 'Chosen', project: { ...demoProject(), format: 'portrait' } };
+  await h.render().openSavedComposition(entry);
+  const writes = h.requests.filter(item => item.method !== 'GET');
+  assert.deepEqual(writes.map(item => [item.method, item.url]), [['PUT', '/api/project'], ['POST', '/api/templates'], ['PUT', '/api/project']]);
+  assert.deepEqual(writes[1].body.project, previous);
+  assert.equal(writes[2].body.composition.id, entry.id);
+  assert.equal(h.render().project.name, 'Chosen');
+  assert.equal(h.render().project.format, 'portrait');
+  assert.equal(h.render().history.length, 0);
+});
+
+test('opening the current saved composition keeps edits newer than the library snapshot', async () => {
+  const h = editor();
+  await h.render().reload();
+  h.render().patch('headline', { text: 'Latest local text' });
+  await h.render().openSavedComposition({ ...h.identity, name: h.current.name, project: h.current });
+  assert.equal(h.render().project.layers.find(layer => layer.id === 'headline').text, 'Latest local text');
+  assert.equal(h.requests.filter(item => item.method === 'PUT').length, 1);
+  assert.equal(h.requests.some(item => item.method === 'POST'), false);
+});
+
+test('a save failure prevents switching compositions and preserves the current draft', async () => {
+  const h = editor();
+  await h.render().reload();
+  h.render().patch('headline', { text: 'Keep this edit' });
+  const previous = plain(h.render().project);
+  h.failNextSave(new Error('Save conflict'));
+  await assert.rejects(h.render().openSavedComposition({ id: 'chosen', name: 'Chosen', project: demoProject() }), /Save conflict/);
+  assert.deepEqual(plain(h.render().project), previous);
+  assert.deepEqual(plain(h.render().composition), h.identity);
 });
 
 test('a failed save or draft archive never clears the current composition', async () => {

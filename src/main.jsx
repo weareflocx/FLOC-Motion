@@ -33,7 +33,7 @@ import { loadNudge, saveNudge } from './editor/nudge.js';
 import { TimelinePanel } from './editor/components/TimelinePanel.jsx';
 
 function App() {
-  const { project, composition, openComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject();
+  const { project, composition, openComposition, openSavedComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject();
   const [selected, setSelected] = useState('carousel'); const [leftTab, setLeftTab] = useState('layers'); const [rightTab, setRightTab] = useState('composition');
   const [nudge, setNudge] = useState(loadNudge);
   const [nudgeOpen, setNudgeOpen] = useState(false);
@@ -112,7 +112,7 @@ function App() {
       <TimelinePanel project={project} selected={selected} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
     </div>
     {nudgeOpen && <NudgeDialog value={nudge} onChange={setNudge} onClose={() => setNudgeOpen(false)}/>}
-    {newOpen && <NewCompositionDialog onClose={() => setNewOpen(false)} onCreate={async name => { await newComposition(name); setTime(0); setPlaying(false); setSelected(null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }}/>}
+    {newOpen && <NewCompositionDialog project={project} onClose={() => setNewOpen(false)} onCreate={async (name, options) => { const next = await newComposition(name, options); setTime(0); setPlaying(false); setSelected(next.layers.at(-1)?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }} onOpen={async entry => { const next = await openSavedComposition(entry); setTime(0); setPlaying(false); setSelected(next.layers[0]?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); return true; }}/>}
     {saveOpen && <SaveCompositionDialog name={project.name} onClose={() => setSaveOpen(false)} onSave={saveCopy}/>}
     {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}
