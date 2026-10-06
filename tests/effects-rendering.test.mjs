@@ -6,9 +6,11 @@ import { demoProject, validateProject, layerAlpha, FORMATS, reorderLayer } from 
 // Minimal DOM adapter: assertions exercise composite ownership and timeline
 // behavior. Actual filter pixels are also checked in a real browser.
 class Node {
-  constructor(tag = 'div') { this.tagName = tag; this.childNodes = []; this.style = { filter: '' }; this.dataset = {}; this.attributes = {}; }
+  constructor(tag = 'div') { this.tagName = tag; this.childNodes = []; this.style = { filter: '' }; this.dataset = {}; this.attributes = {}; this.offsetWidth = 1080; this.offsetHeight = 1080; }
   setAttribute(key, value) { this.attributes[key] = String(value); }
   hasAttribute(key) { return Object.hasOwn(this.attributes, key); }
+  getContext() { return { createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }), putImageData() {} }; }
+  toDataURL() { return 'data:image/png;base64,fixture'; }
   append(...nodes) { for (const node of nodes) { node.remove(); node.parentElement = this; this.childNodes.push(node); } }
   prepend(node) { this.append(node); this.childNodes.splice(this.childNodes.indexOf(node), 1); this.childNodes.unshift(node); }
   before(node) { node.remove(); node.parentElement = this.parentElement; this.parentElement.childNodes.splice(this.parentElement.childNodes.indexOf(this), 0, node); }
@@ -78,4 +80,25 @@ test('progressive blur radii track opacity without fading the underlying composi
   assert.equal(nodes.background.parentElement.style.opacity, undefined);
   await effects.seek(8); assert.equal(nodes.background.parentElement.style.filter, '');
   effects.dispose();
+});
+
+test('optical warp respects adjustment fades, reverses deterministically and bypasses disabled or zero effects', async () => {
+  const source = projectWithAdjustment();
+  const project = validateProject({ ...source, layers: source.layers.map(layer => layer.id === 'adjustment' ? { ...layer, effects: [{ type: 'optical-warp' }, { type: 'optical-warp', amount: 0 }, { type: 'optical-warp', enabled: false }, { type: 'monochrome' }] } : layer) });
+  const { root, nodes, effects } = fixture(project);
+  const collect = node => [node, ...node.childNodes.flatMap(collect)];
+  const displacement = collect(root).find(node => node.tagName === 'feDisplacementMap');
+  const composite = nodes.background.parentElement;
+  await effects.seek(4);
+  const active = composite.style.filter;
+  assert.match(active, /^url\(#floc-warp-[\d-]+\) grayscale\(1\)$/);
+  const fullScale = Number(displacement.attributes.scale);
+  assert.ok(fullScale > 0);
+  assert.equal(nodes.headline.style.filter, '');
+  await effects.seek(2.5); assert.equal(Number(displacement.attributes.scale), fullScale * .5);
+  composite.offsetHeight = 360;
+  await effects.seek(4); assert.equal(Number(displacement.attributes.scale), fullScale / 3);
+  await effects.seek(8); assert.equal(composite.style.filter, '');
+  await effects.seek(4); assert.equal(composite.style.filter, active);
+  effects.dispose(); assert.deepEqual(root.childNodes.map(node => node.dataset.flocLayer), project.layers.map(layer => layer.id));
 });

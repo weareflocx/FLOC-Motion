@@ -1,10 +1,11 @@
-export const EFFECTS = [{ id: 'noise', name: 'Noise' }, { id: 'blur', name: 'Blur' }, { id: 'monochrome', name: 'Monochrome' }];
+export const EFFECTS = [{ id: 'noise', name: 'Noise' }, { id: 'blur', name: 'Blur' }, { id: 'monochrome', name: 'Monochrome' }, { id: 'optical-warp', name: 'Optical Warp' }];
 export const EFFECT_LAYER_TYPES = ['background', 'text', 'logo', 'media', 'model', 'carousel', 'effect'];
 export const DEFAULT_NOISE = Object.freeze({ type: 'noise', enabled: true, mode: 'mono', sizeX: 1, sizeY: 1, linked: true, density: 1, opacity: 0.15, color1: '#000000', color2: '#ffffff', animated: false, seed: 42 });
 
 export const DEFAULT_FILTERS = Object.freeze({
   blur: Object.freeze({ type: 'blur', enabled: true, amount: 8, mode: 'uniform', direction: 'bottom' }),
   monochrome: Object.freeze({ type: 'monochrome', enabled: true, amount: 1 }),
+  'optical-warp': Object.freeze({ type: 'optical-warp', enabled: true, amount: 0.5, axis: 'horizontal', center: 0.5 }),
 });
 
 export function newEffect(type, index = 0) {
@@ -24,6 +25,7 @@ export function validateEffects(effects) {
       for (const [key, value] of Object.entries(defaults)) if (effect[key] === undefined) effect[key] = value;
       if (typeof effect.enabled !== 'boolean' || typeof effect.amount !== 'number' || !Number.isFinite(effect.amount) || effect.amount < 0 || effect.amount > (effect.type === 'blur' ? 48 : 1)) throw new Error('Invalid effect settings.');
       if (effect.type === 'blur' && (!['uniform', 'progressive'].includes(effect.mode) || !['top', 'bottom', 'left', 'right'].includes(effect.direction))) throw new Error('Invalid blur settings.');
+      if (effect.type === 'optical-warp' && (!['horizontal', 'vertical'].includes(effect.axis) || typeof effect.center !== 'number' || !Number.isFinite(effect.center) || effect.center < 0.1 || effect.center > 0.9)) throw new Error('Invalid optical warp settings.');
       continue;
     }
     if (Object.keys(effect).some(key => !Object.hasOwn(DEFAULT_NOISE, key))) fail();
@@ -36,6 +38,39 @@ export function validateEffects(effects) {
     if (!Number.isInteger(effect.seed) || ![effect.color1, effect.color2].every(color => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))) fail();
     if (effect.linked && effect.sizeX !== effect.sizeY) fail();
   }
+}
+
+// Inverse sampling stretches the sides while leaving the center at its native
+// scale. Coordinates are relative to the layer, including transparent padding.
+export function opticalWarpOffset(effect, x, y) {
+  const along = effect.axis === 'horizontal' ? x : y;
+  const across = effect.axis === 'horizontal' ? y : x;
+  const distance = along - effect.center;
+  const edge = Math.min(1, Math.abs(distance) / (distance < 0 ? effect.center : 1 - effect.center));
+  const stretch = 1 + 2 * effect.amount * edge ** 4;
+  const offset = (across - 0.5) * (1 / stretch - 1);
+  return effect.axis === 'horizontal' ? [0, offset] : [offset, 0];
+}
+
+// Padded coordinates can displace up to one layer dimension in either
+// direction. Leave half a channel step of headroom around the neutral 128.
+const WARP_MAP_SCALE = 2.01;
+function opticalWarpMap(effect) {
+  const horizontal = effect.axis === 'horizontal';
+  const canvas = document.createElement('canvas');
+  canvas.width = horizontal ? 256 : 768;
+  canvas.height = horizontal ? 768 : 256;
+  const context = canvas.getContext('2d');
+  const pixels = context.createImageData(canvas.width, canvas.height);
+  for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+    const [dx, dy] = opticalWarpOffset(effect, horizontal ? x / (canvas.width - 1) : -1 + 3 * x / (canvas.width - 1), horizontal ? -1 + 3 * y / (canvas.height - 1) : y / (canvas.height - 1));
+    const index = (y * canvas.width + x) * 4;
+    pixels.data[index] = 128 + Math.round(dx / WARP_MAP_SCALE * 255);
+    pixels.data[index + 1] = 128 + Math.round(dy / WARP_MAP_SCALE * 255);
+    pixels.data[index + 2] = 0; pixels.data[index + 3] = 255;
+  }
+  context.putImageData(pixels, 0, 0);
+  return canvas.toDataURL();
 }
 
 function sample(seed, index) {
@@ -111,6 +146,24 @@ export function createEffects(root, project, formats, layerAlpha) {
     if (nodes.length > 1 && layer.effects?.length) nodes = [wrap(nodes, layerIndex)];
     const filters = [];
     (layer.effects ?? []).forEach((effect, index) => {
+      if (effect.type === 'optical-warp') {
+        const id = `floc-warp-${sceneId}-${layerIndex}-${index}`;
+        const horizontal = effect.axis === 'horizontal';
+        const bounds = { x: horizontal ? 0 : -1, y: horizontal ? -1 : 0, width: horizontal ? 1 : 3, height: horizontal ? 3 : 1 };
+        const filter = element('filter', { id, ...bounds, filterUnits: 'objectBoundingBox', primitiveUnits: 'userSpaceOnUse', 'color-interpolation-filters': 'sRGB' });
+        const source = opticalWarpMap(effect);
+        const image = element('feImage', { href: source, preserveAspectRatio: 'none', result: 'warpMap' });
+        // PNG channels use 128 as neutral. Correct it to exactly 0.5 to avoid
+        // translating the untouched axis or the center of the layer. Offset
+        // the source rather than rounding the map again in a color transfer.
+        const sourceOffset = element('feOffset', { in: 'SourceGraphic', result: 'centeredSource' });
+        const displacement = element('feDisplacementMap', { in: 'centeredSource', in2: 'warpMap', xChannelSelector: 'R', yChannelSelector: 'G' });
+        // Antialias the displacement's pixel sampling at curved edges.
+        filter.append(image, sourceOffset, displacement, element('feGaussianBlur', { stdDeviation: 0.35 })); defs.append(filter);
+        const decoded = new Image(); decoded.src = source; masksReady.push(decoded.decode());
+        filters.push({ effect, url: `url(#${id})`, displacement, image, sourceOffset });
+        return;
+      }
       if (effect.type === 'blur' && effect.mode === 'progressive') {
         const id = `floc-blur-${sceneId}-${layerIndex}-${index}`;
         const filter = element('filter', { id, x: 0, y: 0, width: '100%', height: '100%', 'color-interpolation-filters': 'sRGB' });
@@ -158,8 +211,26 @@ export function createEffects(root, project, formats, layerAlpha) {
   async function seek(time) {
     for (const target of targets) {
       const strength = target.adjustment ? layerAlpha(current(target.id), time) : 1;
-      const filters = target.filters.flatMap(({ effect, url, alpha, blurs }) => {
+      const filters = target.filters.flatMap(filter => {
+        const { effect, url, alpha, blurs, displacement, image, sourceOffset } = filter;
         if (!effect.enabled || strength <= 0) return [];
+        if (effect.type === 'optical-warp') {
+          if (!effect.amount) return [];
+          const width = target.nodes[0].offsetWidth, height = target.nodes[0].offsetHeight;
+          if (!width || !height) return [];
+          const key = `${width}:${height}:${strength}`;
+          if (filter.key !== key) {
+            const horizontal = effect.axis === 'horizontal';
+            const bounds = { x: horizontal ? 0 : -width, y: horizontal ? -height : 0, width: horizontal ? width : width * 3, height: horizontal ? height * 3 : height };
+            for (const node of [image, sourceOffset, displacement]) for (const [key, value] of Object.entries(bounds)) node.setAttribute(key, value);
+            const scale = WARP_MAP_SCALE * (horizontal ? height : width) * strength;
+            displacement.setAttribute('scale', scale);
+            sourceOffset.setAttribute('dx', scale * 0.5 / 255);
+            sourceOffset.setAttribute('dy', scale * 0.5 / 255);
+            filter.key = key;
+          }
+          return [url];
+        }
         if (effect.type === 'blur') {
           const radius = effect.amount * strength * Math.min(width, height) / 1080;
           if (!radius) return [];

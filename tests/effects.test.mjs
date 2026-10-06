@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_NOISE, EFFECTS, effectLayer, noisePixels } from '../src/effects.js';
+import { DEFAULT_NOISE, EFFECTS, effectLayer, noisePixels, newEffect, opticalWarpOffset } from '../src/effects.js';
 import { demoProject, validateProject, patchLayer, duplicateLayer, reorderLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
 import { fileLayer } from '../src/project.js';
 import { createTools } from '../src/webmcp.js';
@@ -82,4 +82,31 @@ test('new adjustments target below and legacy Noise remains an overlay', () => {
   const converted = patchLayer(project, 'old', { effectScope: 'below', effects: [{ type: 'blur', mode: 'progressive', direction: 'top' }] });
   assert.equal(converted.layers.at(-2).effects[0].mode, 'progressive');
   assert.throws(() => patchLayer(project, 'new', { effectScope: 'all' }), /Unknown effect scope/);
+});
+
+test('optical warp keeps the center native and progressively stretches both sides', () => {
+  const effect = newEffect('optical-warp');
+  assert.ok(opticalWarpOffset(effect, .5, 0).every(value => value === 0));
+  assert.ok(opticalWarpOffset(effect, .5, 1).every(value => value === 0));
+  const top = [0, .1, .25, .4, .5].map(x => opticalWarpOffset(effect, x, 0)[1]);
+  assert.ok(top.every((value, i) => i === 0 || value < top[i - 1]));
+  for (const x of [0, .1, .3, .5]) {
+    assert.ok(Math.abs(opticalWarpOffset(effect, x, 0)[1] - opticalWarpOffset(effect, 1 - x, 0)[1]) < 1e-12);
+    assert.ok(opticalWarpOffset(effect, x, .5)[1] === 0);
+  }
+  assert.ok(opticalWarpOffset({ ...effect, center: .3 }, .3, .2).every(value => value === 0));
+  assert.ok(opticalWarpOffset({ ...effect, amount: 0 }, 0, 0).every(value => value === 0));
+  assert.deepEqual(opticalWarpOffset({ ...effect, axis: 'vertical' }, 0, .1), [opticalWarpOffset(effect, .1, 0)[1], 0]);
+});
+
+test('optical warp validates on every visual layer and remains independent of carousel settings', () => {
+  const source = demoProject();
+  source.layers.push(fileLayer({ name: 'Image', src: '/demo/poster-1.svg' }, 12, 'image'), fileLayer({ name: 'Model', src: '/assets/00000000-0000-0000-0000-000000000000.glb' }, 12, 'model'), effectLayer('adjustment', 12));
+  let project = validateProject(source);
+  for (const layer of project.layers.filter(layer => layer.type !== 'music')) project = patchLayer(project, layer.id, { effects: [{ type: 'optical-warp' }, { type: 'monochrome', amount: .5 }] });
+  assert.deepEqual(project.layers[1].shader, source.layers[1].shader);
+  assert.deepEqual(validateProject(JSON.parse(JSON.stringify(project))), project);
+  assert.deepEqual(duplicateLayer(project, 'headline', 'copy').layers.find(layer => layer.id === 'copy').effects, project.layers.find(layer => layer.id === 'headline').effects);
+  assert.deepEqual(switchFormat(linkFormats(project), 'portrait').layers.find(layer => layer.id === 'headline').effects, project.layers.find(layer => layer.id === 'headline').effects);
+  for (const patch of [{ amount: -1 }, { amount: 1.01 }, { axis: 'diagonal' }, { center: 0 }, { center: 1 }, { center: NaN }, { center: '0.5' }, { enabled: 1 }, { code: 'shader' }]) assert.throws(() => patchLayer(project, 'headline', { effects: [{ ...newEffect('optical-warp'), ...patch }] }), /Invalid/);
 });

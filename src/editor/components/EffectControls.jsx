@@ -58,6 +58,11 @@ export function EffectControls({ layer, onPatch }) {
         {effect.mode === 'progressive' && <Field label="Blur towards"><select aria-label={`Blur direction ${index + 1}`} value={effect.direction} onChange={event => update(index, { direction: event.target.value })}>{['bottom', 'top', 'right', 'left'].map(direction => <option key={direction} value={direction}>{direction[0].toUpperCase() + direction.slice(1)}</option>)}</select></Field>}
       </>}
       {effect.type === 'monochrome' && <Range label="Intensity" ariaLabel={`Monochrome intensity ${index + 1}`} value={effect.amount * 100} min={0} max={100} suffix="%" onChange={amount => update(index, { amount: amount / 100 })}/>}
+      {effect.type === 'optical-warp' && <>
+        <Range label="Intensity" ariaLabel={`Optical warp intensity ${index + 1}`} value={effect.amount * 100} min={0} max={100} suffix="%" onChange={amount => update(index, { amount: amount / 100 })}/>
+        <Field label="Axis"><select aria-label={`Optical warp axis ${index + 1}`} value={effect.axis} onChange={event => update(index, { axis: event.target.value })}><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></Field>
+        <Range label="Center" ariaLabel={`Optical warp center ${index + 1}`} value={effect.center * 100} min={10} max={90} suffix="%" onChange={center => update(index, { center: center / 100 })}/>
+      </>}
       {effect.type === 'noise' && <>
       <Field label="Mode"><div className="segmented" role="group" aria-label="Noise mode">{['mono', 'duo', 'multi'].map(mode => <button type="button" key={mode} aria-pressed={effect.mode === mode} className={effect.mode === mode ? 'selected' : ''} onClick={() => update(index, { mode })}>{mode[0].toUpperCase() + mode.slice(1)}</button>)}</div></Field>
       <Field label="Noise size"><div className="noise-size">
