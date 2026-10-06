@@ -42,8 +42,9 @@ export function stageMarkup(p, path = src => src) {
 }
 const vertex = `varying vec2 vUv; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uTorsion; uniform float uElastic; uniform float uSide; uniform float uCardSize;
 void main(){vUv=uv;vec3 p=position; if(uEffect==1.0){p.z+=sin(p.x*5.0+uTime*2.0)*cos(p.y*3.0-uTime)*uStrength*0.15;}if(uEffect==5.0){float edge=pow(clamp(0.5+(uv.x-0.5)*uSide,0.0,1.0),3.0);p.x+=uSide*uElastic*uCardSize*3.5*edge;p.y*=1.0+uElastic*3.0*edge;}float a=p.y*uTorsion; p.xz=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`;
-const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uDepth; uniform vec3 uTint; uniform vec2 uCrop; uniform float uOpacity; uniform float uCorner; uniform float uAspect; uniform float uShape; uniform float uElastic; uniform float uSide;
+const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uDepth; uniform vec3 uTint; uniform vec2 uCrop; uniform vec4 uClip; uniform vec2 uWindow; uniform vec2 uCanvasPixels; uniform vec4 uPush; uniform float uImageAspect; uniform float uOpacity; uniform float uCorner; uniform float uAspect; uniform float uShape; uniform float uElastic; uniform float uSide;
 void main(){
+if(vUv.x<uClip.x||vUv.y<uClip.y||vUv.x>uClip.z||vUv.y>uClip.w)discard;
 float mask=1.0;
 if(uCorner>0.0){
   vec2 halfSize=vec2(uAspect,1.0)*0.5;
@@ -56,7 +57,17 @@ if(uCorner>0.0){
   mask=1.0-smoothstep(-aa,aa,distance);
   if(mask<0.001)discard;
 }
-vec2 uv=(vUv-0.5)*uCrop+0.5; if(uEffect==1.0)uv.x+=sin(uv.y*14.0+uTime*2.0)*uStrength*0.015;
+vec2 imageUv=vUv;
+vec2 crop=uCrop;
+if(uWindow.x>0.0){
+  vec2 zone=vec2(1.0);
+  if(all(lessThan(abs(vUv-0.5),uWindow*0.5))){zone=uWindow;imageUv=(vUv-0.5)/zone+0.5;}
+  imageUv-=uPush.xy*(vec2(1.0)+uPush.w/(uCanvasPixels*zone));
+  if(any(lessThan(imageUv,vec2(0.0)))||any(greaterThan(imageUv,vec2(1.0))))discard;
+  float aspect=uAspect*zone.x/zone.y;
+  crop=uImageAspect>aspect ? vec2(aspect/uImageAspect,1.0) : vec2(1.0,uImageAspect/aspect);
+}
+vec2 uv=(imageUv-0.5)*crop/uPush.z+0.5; if(uEffect==1.0)uv.x+=sin(uv.y*14.0+uTime*2.0)*uStrength*0.015;
 if(uEffect==5.0){float edge=pow(clamp(0.5+(vUv.x-0.5)*uSide,0.0,1.0),2.0);float anchor=uSide>0.0?0.12:0.88;uv.x=mix(uv.x,(anchor-0.5)*uCrop.x+0.5,uElastic*edge*0.85);}
 vec4 c=texture2D(uMap,uv);float lum=dot(c.rgb,vec3(0.2126,0.7152,0.0722));
 if(uEffect==2.0)c.rgb=mix(c.rgb,vec3(lum),uStrength);
@@ -159,7 +170,9 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     }
   }
   function reshapeCardGeometry(geometry, sampled) {
-    const size = sampled.size;
+    const windowPush = sampled.template === 'window-push';
+    const size = windowPush ? 1 : sampled.size;
+    const aspect = windowPush ? width / height : sampled.cardAspect;
     const positions = geometry.attributes.position;
     const uv = geometry.attributes.uv;
     const wrapped = sampled.template === 'circular' && ['wrapped', undefined].includes(motionVariant(sampled));
@@ -168,7 +181,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       const x = (uv.getX(i) - 0.5) * size;
       const angle = x / radius;
       positions.setXYZ(i, wrapped ? x * (1 - sampled.curve) + Math.sin(angle) * radius * sampled.curve : x,
-        (uv.getY(i) - 0.5) * size / sampled.cardAspect, wrapped ? (Math.cos(angle) - 1) * radius * sampled.curve : 0);
+        (uv.getY(i) - 0.5) * size / aspect, wrapped ? (Math.cos(angle) - 1) * radius * sampled.curve : 0);
     }
     positions.needsUpdate = true;
     geometry.computeVertexNormals();
@@ -216,7 +229,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       const cardRatio = layer.cardAspect;
       const crop = imageRatio > cardRatio ? new THREE.Vector2(cardRatio / imageRatio, 1) : new THREE.Vector2(1, imageRatio / cardRatio);
       const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, side: layer.backface === 'hide' ? THREE.FrontSide : layer.frontface === 'hide' ? THREE.BackSide : THREE.DoubleSide, transparent: true,
-        uniforms: { uMap: { value: texture }, uTorsion: { value: 0 }, uElastic: { value: 0 }, uSide: { value: 0 }, uCardSize: { value: size }, uOpacity: { value: 1 }, uCorner: { value: layer.cornerRadius / 100 }, uAspect: { value: layer.cardAspect }, uShape: { value: layer.cardShape === 'squircle' ? 1 : 0 }, uTime: { value: 0 }, uStrength: { value: layer.intensity }, uEffect: { value: SHADERS.find(s => s.id === layer.shader).mode }, uTint: { value: new THREE.Color(layer.tint) }, uDepth: { value: 1 }, uCrop: { value: crop } }
+        uniforms: { uMap: { value: texture }, uTorsion: { value: 0 }, uElastic: { value: 0 }, uSide: { value: 0 }, uCardSize: { value: size }, uOpacity: { value: 1 }, uCorner: { value: layer.cornerRadius / 100 }, uAspect: { value: layer.cardAspect }, uShape: { value: layer.cardShape === 'squircle' ? 1 : 0 }, uTime: { value: 0 }, uStrength: { value: layer.intensity }, uEffect: { value: SHADERS.find(s => s.id === layer.shader).mode }, uTint: { value: new THREE.Color(layer.tint) }, uDepth: { value: 1 }, uCrop: { value: crop }, uClip: { value: new THREE.Vector4(0, 0, 1, 1) }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) }, uPush: { value: new THREE.Vector4(0, 0, 1, 0) }, uImageAspect: { value: imageRatio } }
       });
       const mesh = new THREE.Mesh(geometry, material);
       // Vertex wings extend beyond the CPU-side geometry bounds.
@@ -253,14 +266,33 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
     const position = placement?.id === layer.id ? { ...sampled, ...placement } : sampled;
     group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, 0);
+    // Planar carousels size their largest card as a fraction of the canvas.
+    const planar = ['nested-rise', 'zoom-through', 'sweep-reveal'].includes(layer.template);
+    const shuffle = layer.template === 'stack-shuffle';
+    const windowPush = layer.template === 'window-push';
+    const canvasSize = windowPush ? viewHeight * width / height : planar ? Math.min(viewHeight * width / height, viewHeight * sampled.cardAspect) : shuffle ? viewHeight : 1;
+    const windowHeight = Math.min(0.72 * sampled.size, 0.96, 0.96 * width / height / sampled.cardAspect);
     meshes.forEach((mesh, i) => {
       const state = carouselCard(sampled, i, meshes.length, time);
       const optical = elasticState(sampled, state);
       mesh.material.uniforms.uElastic.value = optical.strength;
       mesh.material.uniforms.uSide.value = optical.side;
       mesh.position.set(...state.position);
+      if (planar || shuffle || windowPush) mesh.position.multiplyScalar(canvasSize);
+      if (state.positionPixels) {
+        mesh.position.x += state.positionPixels[0] * viewHeight / height;
+        mesh.position.y += state.positionPixels[1] * viewHeight / height;
+      }
       mesh.rotation.set(...state.rotation);
-      mesh.scale.setScalar(state.scale);
+      mesh.scale.setScalar(state.scale * canvasSize);
+      mesh.renderOrder = state.renderOrder ?? 0;
+      mesh.material.uniforms.uClip.value.set(...(state.clip ?? [0, 0, 1, 1]));
+      mesh.material.uniforms.uPush.value.set(...(state.push ?? [0, 0, 1, 0]));
+      mesh.material.uniforms.uWindow.value.set(windowPush ? windowHeight * sampled.cardAspect * height / width : 0, windowPush ? windowHeight : 0);
+      if (windowPush) mesh.material.uniforms.uAspect.value = width / height;
+      mesh.material.depthTest = !(planar || shuffle || windowPush);
+      mesh.material.depthWrite = !(planar || shuffle || windowPush);
+      if (shuffle) mesh.material.uniforms.uCorner.value = Math.min(1, 2 * (sampled.shuffleCorner ?? 15) / (sampled.size * height * Math.min(1, 1 / sampled.cardAspect) * state.scale));
       mesh.visible = !(layer.frontface === 'hide' && layer.backface === 'hide') && layerAlpha(layer, time) > 0 && state.opacity > 0.001;
       mesh.material.uniforms.uDepth.value = state.depth;
       mesh.material.uniforms.uOpacity.value = state.opacity;

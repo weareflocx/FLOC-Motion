@@ -6,12 +6,12 @@ import { DEFAULT_MOTION, motionBaseline } from '../../motion-timing.js';
 import { MotionPreview } from './MotionPreview.jsx';
 import { IconButton, Modal } from '../controls.jsx';
 
-const families = [...new Set(CATALOG.map(preset => preset.family))];
 const templateFamilies = { circular: 'Orbit', depth: 'Stack', arc: 'Stack', horizontal: 'Sliders', flip: 'Sliders' };
 const movements = [
   ...TEMPLATES.map(item => ({ ...item, collection: 'templates', family: templateFamilies[item.id] || item.name })),
   ...CATALOG.map(item => ({ ...item, collection: 'catalog' }))
 ];
+const families = [...new Set(movements.map(item => item.family))];
 const movementKey = item => `${item.collection}:${item.id}`;
 export function PresetBrowser({ layer, onApply, onClose }) {
   const titleId = useId();
@@ -25,7 +25,7 @@ export function PresetBrowser({ layer, onApply, onClose }) {
   const [family, setFamily] = useState('');
   const items = useMemo(() => movements.filter(item => !family || item.family === family), [family]);
   function apply(item) {
-    const patch = item.collection === 'catalog' ? item.carouselPatch : { template: item.id, motion: { ...DEFAULT_MOTION }, motionBaseline: motionBaseline({ ...layer, motion: DEFAULT_MOTION }, item.name), ...(['arc', 'flip'].includes(item.id) ? { tilt: 0, yaw: 0, roll: 0 } : {}) };
+    const patch = item.collection === 'catalog' ? item.carouselPatch : { template: item.id, motion: { ...DEFAULT_MOTION }, ...item.defaults, motionBaseline: motionBaseline({ ...layer, motion: DEFAULT_MOTION, ...item.defaults }, item.name), ...(['arc', 'flip'].includes(item.id) ? { tilt: 0, yaw: 0, roll: 0 } : {}) };
     onApply(patch);
     onClose();
   }

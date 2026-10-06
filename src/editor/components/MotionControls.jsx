@@ -1,5 +1,5 @@
 import React from 'react';
-import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline, motionEase, smoothProgress } from '../../motion-timing.js';
+import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline, motionEase, smoothProgress, sweepProgress } from '../../motion-timing.js';
 import { Field, NumberField, Range, Section } from '../controls.jsx';
 
 export function MotionControls({ layer, count, onPatch }) {
@@ -7,10 +7,11 @@ export function MotionControls({ layer, count, onPatch }) {
   const baseline = layer.motionBaseline ?? motionBaseline(layer);
   const change = patch => onPatch(layer.id, { motion: { ...motion, ...patch } });
   const label = MOTION_CURVES.find(([id]) => id === motion.curve)[1];
-  const native = t => layer.template === 'flip' && motion.mode === 'continuous' ? smoothProgress(t) : t;
+  const native = t => layer.template === 'window-push' ? 1 - (1 - t) ** 3 : layer.template === 'flip' && motion.mode === 'continuous' ? smoothProgress(t) : t;
   const points = Array.from({ length: 101 }, (_, i) => {
     const t = i / 100;
-    return `${i ? 'L' : 'M'}${12 + t * 176},${110 - motionEase(t, motion, native(t)) * 86}`;
+    const progress = layer.template === 'sweep-reveal' ? sweepProgress(t, motion) : motionEase(t, motion, native(t));
+    return `${i ? 'L' : 'M'}${12 + t * 176},${110 - progress * 86}`;
   }).join(' ');
   const cycle = (motion.action + motion.pause) * Math.max(1, count);
   const reset = () => onPatch(layer.id, { motion: { ...baseline.motion }, speed: baseline.speed, loopDuration: baseline.loopDuration });
@@ -26,6 +27,8 @@ export function MotionControls({ layer, count, onPatch }) {
 
       </>}
       {layer.template === 'flip' && <Range label="Transition turn" value={layer.transitionTurn} min={0} max={360} step={15} suffix="°" onChange={transitionTurn => onPatch(layer.id, { transitionTurn })}/>}
+      {layer.template === 'zoom-through' && <Range label="Entry rotation" value={layer.zoomRotation ?? 0} min={-180} max={180} step={5} suffix="°" onChange={zoomRotation => onPatch(layer.id, { zoomRotation })}/>}
+      {layer.template === 'stack-shuffle' && <Range label="Exit rotation" value={layer.shuffleRotation ?? 28} min={-180} max={180} step={1} suffix="°" onChange={shuffleRotation => onPatch(layer.id, { shuffleRotation })}/>}
     </Section>
     <Section title="Character">
       <svg className="motion-curve" viewBox="0 0 200 136" role="img" aria-label={`${label} progress curve at ${Math.round(motion.intensity * 100)} percent intensity`}>

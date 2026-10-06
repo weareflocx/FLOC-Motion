@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { demoProject } from '../src/project.js';
+import { demoProject, patchLayer } from '../src/project.js';
 import { root } from '../server/runtime-config.mjs';
 import { rendererVersion } from '../server/renderer-version.mjs';
 
@@ -53,7 +53,7 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.deepEqual(await (await fetch(`${base}/api/project`)).json(), original);
     assert.equal((await fetch(`${base}/assets/${media}`)).status, 200);
     const composition = await (await fetch(`${base}/api/templates`, { method: 'POST', body: JSON.stringify({ name: 'Working composition', tags: [], project: demoProject() }) })).json();
-    const edited = { ...composition.project, name: 'Updated composition', duration: 15 };
+    const edited = patchLayer({ ...composition.project, name: 'Updated composition', duration: 15 }, 'carousel', { template: 'zoom-through', zoomRotation: 45 });
     const saved = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: edited, revision: original.revision, composition: { id: composition.id, updatedAt: composition.updatedAt } }) });
     assert.equal(saved.status, 200);
     const receipt = await saved.json();
@@ -61,6 +61,8 @@ test('production serves frontend bundles and uploaded media without mixing names
     const current = await (await fetch(`${base}/api/project`)).json();
     assert.equal(current.composition.id, composition.id);
     assert.equal(current.project.duration, 15);
+    assert.equal(current.project.layers.find(layer => layer.id === 'carousel').template, 'zoom-through');
+    assert.equal(current.project.layers.find(layer => layer.id === 'carousel').zoomRotation, 45);
     assert.equal((await (await fetch(`${base}/api/templates`)).json()).templates[0].project.duration, 15);
 
     assert.equal((await fetch(`${base}/api/exports`, { method: 'POST', body: JSON.stringify({ project: demoProject() }) })).status, 503, 'public exports cannot fall back to somebody else’s Mac');
@@ -82,9 +84,26 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.equal((await fetch(`${base}/api/renderers/pair`, { method: 'POST', headers: { Origin: 'https://untrusted.example' } })).status, 403);
     const stale = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), revision: original.revision, composition: receipt.composition }) });
     assert.equal(stale.status, 409);
-    const draft = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), revision: receipt.revision, composition: null }) });
+    const draft = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: patchLayer(demoProject(), 'carousel', { template: 'stack-shuffle' }), revision: receipt.revision, composition: null }) });
     assert.equal(draft.status, 200);
-    assert.equal((await (await fetch(`${base}/api/project`)).json()).composition, null);
+    const currentDraft = await (await fetch(`${base}/api/project`)).json();
+    assert.equal(currentDraft.composition, null);
+    assert.equal(currentDraft.project.layers.find(layer => layer.id === 'carousel').shuffleGap, 36);
+    assert.equal(currentDraft.project.layers.find(layer => layer.id === 'carousel').template, 'stack-shuffle');
+    const sweepDraft = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: patchLayer(currentDraft.project, 'carousel', { template: 'sweep-reveal' }), revision: currentDraft.revision, composition: null }) });
+    assert.equal(sweepDraft.status, 200);
+    const savedSweep = (await (await fetch(`${base}/api/project`)).json()).project.layers.find(layer => layer.id === 'carousel');
+    assert.equal(savedSweep.template, 'sweep-reveal');
+    assert.equal(savedSweep.loopDuration, 10.2);
+    assert.equal(savedSweep.motion.curve, 'glide');
+    const sweepReceipt = await sweepDraft.json();
+    const windowDraft = await fetch(`${base}/api/project`, { method: 'PUT', body: JSON.stringify({ project: patchLayer(currentDraft.project, 'carousel', { template: 'window-push' }), revision: sweepReceipt.revision, composition: null }) });
+    assert.equal(windowDraft.status, 200);
+    const savedWindow = (await (await fetch(`${base}/api/project`)).json()).project.layers.find(layer => layer.id === 'carousel');
+    assert.equal(savedWindow.template, 'window-push');
+    assert.equal(savedWindow.loopDuration, 7.2);
+    assert.equal(savedWindow.windowZoom, .5);
+    assert.equal(savedWindow.windowSpacing, 0);
     assert.equal((await (await fetch(`${base}/api/templates`)).json()).templates[0].project.duration, 15);
 
   } finally {
