@@ -59,13 +59,15 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     setSelected(project.layers.find(layer => layer.id !== id)?.id ?? null);
   }, [change, project, setSelected]);
 
-  const addLayer = useCallback(type => {
+  const addLayer = useCallback((type, fields = {}) => {
     const current = projectRef.current;
-    if (current.layers.length >= 20) return;
+    if (current.layers.length >= 20) return false;
     const source = type === 'effect' ? effectLayer(crypto.randomUUID(), current.duration) : demoProject().layers.find(l => l.type === type);
     if (!source) return;
-    const layer = { ...source, id: crypto.randomUUID(), end: current.duration, ...(type === 'carousel' ? { images: [], name: `Carousel ${current.layers.filter(l => l.type === type).length + 1}` } : {}) };
-    if (change({ ...current, layers: [...current.layers, layer] })) { setSelected(layer.id); setLeftTab('layers'); }
+    const layer = { ...source, ...fields, id: crypto.randomUUID(), type, end: current.duration, ...(type === 'carousel' ? { images: fields.images ?? [], name: `Carousel ${current.layers.filter(l => l.type === type).length + 1}` } : {}) };
+    if (!change({ ...current, layers: [...current.layers, layer] })) return false;
+    setSelected(layer.id); setLeftTab('layers');
+    return true;
   }, [change, projectRef, setSelected, setLeftTab]);
 
   return { addLayer, addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText };
