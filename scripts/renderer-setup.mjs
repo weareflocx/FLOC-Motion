@@ -5,13 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
 import { rendererVersion } from '../server/renderer-version.mjs';
-import { checkRenderer, trustedOrigin } from './renderer-runtime.mjs';
+import { checkRenderer, installRendererBrowser, trustedOrigin } from './renderer-runtime.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = key => args[args.indexOf(key) + 1];
 console.log('Checking this computer…');
-const runtime = await checkRenderer();
+const runtime = await checkRenderer(args.includes('--check') ? {} : { browserPath: await installRendererBrowser() });
 console.log(`Graphics ready: ${runtime.graphics}`);
 if (args.includes('--check')) process.exit(0);
 const origin = trustedOrigin(args.includes('--origin') ? option('--origin') : 'https://floc-motion.fly.dev').origin;

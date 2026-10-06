@@ -1,6 +1,16 @@
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { run } from '../server/process.mjs';
+import { root } from '../server/runtime-config.mjs';
+
+export async function installRendererBrowser() {
+  if (process.env.HYPERFRAMES_BROWSER_PATH) return process.env.HYPERFRAMES_BROWSER_PATH;
+  const bin = path.join(root, 'node_modules/hyperframes/bin/hyperframes.mjs');
+  // Use a dedicated rendering browser rather than the user's everyday Chrome.
+  const options = { env: { PRODUCER_HEADLESS_SHELL_PATH: '' } };
+  await run(process.execPath, [bin, 'browser', 'ensure'], options, text => process.stdout.write(text));
+  return (await run(process.execPath, [bin, 'browser', 'path'], options)).trim();
+}
 
 export function trustedOrigin(value) {
   const url = new URL(value);
@@ -25,6 +35,9 @@ export async function configureRenderer(config = {}) {
   }
   if (!browser) throw new Error('Chrome or Microsoft Edge is required. Install it, then open the renderer again.');
   await access(browser);
+  // Match HyperFrames' preflight, which is separate from the GPU launch check.
+  try { await run(browser, ['--version'], { timeoutMs: 5000 }); }
+  catch (cause) { throw new Error(`The renderer browser cannot start: ${browser}. Run the latest installer again to configure the dedicated rendering browser. ${cause.message}`, { cause }); }
   process.env.HYPERFRAMES_BROWSER_PATH = browser;
   process.env.PRODUCER_BROWSER_GPU_MODE = 'hardware';
   return browser;
