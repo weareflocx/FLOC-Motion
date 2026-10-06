@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BRAND } from '../../brand.js';
 import { request } from '../request.js';
+import { LoginBackground } from './LoginBackground.jsx';
 import '../access.css';
 
 export function AuthGate({ children }) {
@@ -37,8 +38,12 @@ export function AuthGate({ children }) {
   }
   return <>
     {user && <div hidden={expired} inert={expired || undefined}>{children(user, signOut)}</div>}
-    {(!user || expired) && <main className="auth-screen"><section className="modal access-card">
-      <img src={BRAND.assets.wordmarkWhite} width="137" height="30" alt="FLOC Motion"/>
+    {(!user || expired) && <main className="auth-screen"><LoginBackground/><section className="modal access-card">
+      <div className="auth-brand" role="img" aria-label="FLOC Motion">
+        <img className="auth-brand-lettering" src={BRAND.assets.loginLettering} alt=""/>
+        <img className="auth-brand-asterisk" src={BRAND.assets.loginAsterisk} alt=""/>
+        <img className="auth-brand-motion" src={BRAND.assets.loginMotion} alt=""/>
+      </div>
       <h1>{checking ? 'Loading…' : invitation ? 'Join FLOC Motion' : 'Sign in'}</h1>
       {expired && <p className="helper">Your session expired. Sign in again to continue with your current work.</p>}
       {!checking && <form className="access-form" onSubmit={submit}>
