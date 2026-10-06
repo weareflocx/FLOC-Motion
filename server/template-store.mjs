@@ -29,6 +29,28 @@ export function createTemplateStore(data) {
     return entry;
   }
   return {
+    read: id => serial(() => read(id)),
+    preserveLegacyProject: () => serial(async () => {
+      const marker = path.join(data, 'project-migration.json');
+      try { await readFile(marker); return; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const finish = async id => {
+        await writeFile(`${marker}.tmp`, JSON.stringify({ compositionId: id }));
+        await rename(`${marker}.tmp`, marker);
+      };
+      let saved;
+      try { saved = JSON.parse(await readFile(path.join(data, 'project.json'), 'utf8')); }
+      catch (error) { if (error.code === 'ENOENT') return; throw error; }
+      if (saved.composition?.id) {
+        try { await read(saved.composition.id); await finish(saved.composition.id); return; }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      // Stable identity makes migration repeatable, including after a restart.
+      const id = '00000000-0000-4000-8000-000000000001';
+      try { await read(id); await finish(id); return; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const project = validateProject(saved.project), now = new Date().toISOString();
+      await write({ id, name: project.name, tags: [], project, createdAt: now, updatedAt: now });
+      await finish(id);
+    }),
     list: () => serial(async () => {
       await mkdir(directory, { recursive: true });
       const files = (await readdir(directory)).filter(file => file.endsWith('.json'));
@@ -42,6 +64,7 @@ export function createTemplateStore(data) {
     }),
     update: (id, input) => serial(async () => {
       const entry = await read(id), fields = metadata({ ...entry, ...input });
+      if (input.project && !input.updatedAt) throw Object.assign(new Error('A composition revision is required.'), { status: 400 });
       if (input.updatedAt && input.updatedAt !== entry.updatedAt) { const error = new Error("This composition changed in another window. Reopen it before saving."); error.status = 409; throw error; }
       const project = input.project ? validateProject(input.project) : entry.project;
       return write({ ...entry, ...fields, project, updatedAt: new Date(Math.max(Date.now(), Date.parse(entry.updatedAt) + 1)).toISOString() });

@@ -2,16 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
 import { request } from './request.js';
 import { historyShortcut } from './history-shortcut.js';
+import { editorSession } from './project-session.js';
 
 /**
  * Owns the editor's project state and its revision-guarded local persistence.
  * Keeping the refs here prevents autosave and WebMCP from reading stale React
  * state while a control is being edited.
  */
-export function useProject() {
+export function useProject({ userId } = {}) {
+  const [session] = useState(() => editorSession(userId));
   const [project, setProject] = useState(() => validateProject(demoProject()));
   const projectRef = useRef(project);
-  const revisionRef = useRef(0);
+  const draftRevisions = useRef(new Map());
   const compositionRef = useRef(null);
   const [composition, setComposition] = useState(null);
   const dirty = useRef(false);
@@ -61,19 +63,25 @@ export function useProject() {
   }, [change]);
 
   const save = useCallback(() => {
+    canvasEdit.current?.();
     const snapshot = projectRef.current;
     const identity = compositionRef.current;
+    if (identity && !dirty.current) return saveQueue.current.catch(() => {}).then(() => ({ composition: compositionRef.current }));
+    const draftId = session.draftId;
     const action = saveQueue.current.catch(() => {}).then(async () => {
       try {
         setStatus('Saving…');
-        const result = await request('/api/project', {
+        const entry = await request(identity ? `/api/templates/${identity.id}` : `/api/drafts/${draftId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project: snapshot, revision: revisionRef.current, composition: identity && { ...identity, updatedAt: compositionRef.current?.id === identity.id ? compositionRef.current.updatedAt : identity.updatedAt } })
+          body: JSON.stringify(identity
+            ? { name: snapshot.name, project: snapshot, updatedAt: compositionRef.current?.id === identity.id ? compositionRef.current.updatedAt : identity.updatedAt }
+            : { project: snapshot, revision: draftRevisions.current.get(draftId) || 0 })
         });
-        revisionRef.current = result.revision;
-        if (compositionRef.current?.id === identity?.id) { compositionRef.current = result.composition; setComposition(result.composition); }
-        if (snapshot === projectRef.current) { dirty.current = false; setError(''); setStatus(result.composition ? 'All changes saved' : 'Draft saved'); }
+        const result = identity ? { composition: { id: entry.id, updatedAt: entry.updatedAt } } : entry;
+        if (!identity) draftRevisions.current.set(draftId, result.revision);
+        if (identity && compositionRef.current?.id === identity.id) { compositionRef.current = result.composition; setComposition(result.composition); }
+        if (snapshot === projectRef.current && (identity ? compositionRef.current?.id === identity.id : session.draftId === draftId && !compositionRef.current)) { dirty.current = false; setError(''); setStatus(result.composition ? 'All changes saved' : 'Draft saved'); }
         return result;
       } catch (saveError) {
         // A second window may have advanced the revision. Keep the local draft
@@ -85,7 +93,7 @@ export function useProject() {
     });
     saveQueue.current = action;
     return action;
-  }, []);
+  }, [session]);
 
   const undo = useCallback(() => {
     canvasEdit.current?.();
@@ -128,17 +136,20 @@ export function useProject() {
 
   const reload = useCallback(async () => {
     await saveQueue.current.catch(() => {});
-    const data = await request('/api/project');
-    if (data.composition) {
-      const library = await request('/api/templates');
-      const entry = library.templates.find(item => item.id === data.composition.id);
-      data.composition = entry ? { id: entry.id, updatedAt: entry.updatedAt } : null;
-      if (entry) data.project = { ...entry.project, name: entry.name };
+    let id = compositionRef.current?.id || session.compositionId;
+    let entry;
+    try { entry = await request(id ? `/api/templates/${id}` : `/api/drafts/${session.draftId}`); }
+    catch (error) {
+      if (!id || error.status !== 404) throw error;
+      // A shared composition may have been deleted while this tab was closed.
+      id = null; session.compositionId = null; session.remember();
+      entry = await request(`/api/drafts/${session.draftId}`);
     }
+    const data = id ? { project: { ...entry.project, name: entry.name }, composition: { id: entry.id, updatedAt: entry.updatedAt } } : entry;
     const next = validateProject(data.project);
     projectRef.current = next;
     setProject(next);
-    revisionRef.current = data.revision;
+    if (!id) draftRevisions.current.set(session.draftId, data.revision);
     compositionRef.current = data.composition || null;
     setComposition(compositionRef.current);
     dirty.current = false;
@@ -148,15 +159,19 @@ export function useProject() {
     setError('');
     setStatus(data.composition ? 'All changes saved' : 'Draft saved');
     return next;
-  }, [clearHistory]);
+  }, [clearHistory, session]);
 
   const openComposition = useCallback(entry => {
+    const next = validateProject({ ...entry.project, name: entry.name });
     compositionRef.current = { id: entry.id, updatedAt: entry.updatedAt };
     setComposition(compositionRef.current);
-    const valid = change({ ...entry.project, name: entry.name });
+    session.compositionId = entry.id;
+    session.remember();
+    const valid = change(next);
+    if (valid) { dirty.current = false; setStatus('All changes saved'); setError(''); }
     clearHistory();
     return valid;
-  }, [change, clearHistory]);
+  }, [change, clearHistory, session]);
 
   const updateCompositionMetadata = useCallback(entry => {
     if (compositionRef.current?.id !== entry.id) return;
@@ -170,25 +185,28 @@ export function useProject() {
     const snapshot = validateProject({ ...(source ?? projectRef.current), name: name.trim() });
     const entry = await request('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: snapshot.name, tags: [], project: snapshot }) });
     openComposition(entry);
-    // The copy is already persisted. A failed editor-link save uses the normal
-    // error/retry flow instead of allowing the create form to create it twice.
-    await save().catch(() => {});
     return entry;
-  }, [openComposition, save]);
+  }, [openComposition]);
 
   const importDraft = useCallback(next => {
     const valid = validateProject(next);
     compositionRef.current = null;
     setComposition(null);
-    return change(valid);
-  }, [change]);
+    session.draftId = crypto.randomUUID();
+    session.compositionId = null;
+    session.remember();
+    const changed = change(valid);
+    dirty.current = true;
+    setStatus('Unsaved changes');
+    return changed;
+  }, [change, session]);
 
   const preserveCurrent = useCallback(async () => {
     canvasEdit.current?.();
     const current = projectRef.current;
     await save();
     if (!compositionRef.current) {
-      // Preserve the single working draft in the library before replacing it.
+      // Preserve this tab's working draft in the shared library before switching.
       await request('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: current.name.trim() || 'Untitled', tags: [], project: current }) });
     }
     if (projectRef.current !== current) throw new Error('The composition changed while it was being saved. Try again.');
@@ -215,9 +233,9 @@ export function useProject() {
       return projectRef.current;
     }
     await preserveCurrent();
-    const next = openComposition(entry);
+    const fresh = await request(`/api/templates/${entry.id}`);
+    const next = openComposition(fresh);
     if (!next) throw new Error('Unable to open composition.');
-    await save().catch(() => {});
     return next;
   }, [preserveCurrent, openComposition, save]);
 
@@ -229,7 +247,13 @@ export function useProject() {
 
   useEffect(() => {
     reload().catch(loadError => { setError(loadError.message); setStatus('Offline'); });
-  }, [reload]);
+    const restore = () => {
+      if (!hydrated.current) reload().catch(loadError => setError(loadError.message));
+      else if (dirty.current) save().catch(saveError => setError(saveError.message));
+    };
+    window.addEventListener('floc-session-restored', restore);
+    return () => window.removeEventListener('floc-session-restored', restore);
+  }, [reload, save]);
 
   useEffect(() => {
     if (!loaded || !hydrated.current || !dirty.current) return undefined;
@@ -238,7 +262,7 @@ export function useProject() {
       if (saveError.status !== 409) setStatus('Save failed');
     }), 650);
     return () => clearTimeout(timer);
-  }, [project, loaded, save]);
+  }, [project, composition?.id, session.draftId, loaded, save]);
 
   return {
     project,

@@ -53,7 +53,7 @@ async function downloadAssets(project) {
   for (const src of sources) {
     if (!/^\/assets\/[a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb)$/.test(src)) throw new Error('Invalid project asset.');
     const dest = path.join(process.env.FLOC_DATA_DIR, src.slice(1)), temp = `${dest}.download`;
-    const response = await fetch(new URL(src, origin), { signal: AbortSignal.timeout(120000), redirect: 'error' });
+    const response = await fetch(new URL(src, origin), { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(120000), redirect: 'error' });
     if (!response.ok) throw new Error(`Could not download project asset (${response.status}).`);
     let size = 0;
     try {

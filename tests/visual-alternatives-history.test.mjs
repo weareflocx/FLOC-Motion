@@ -12,11 +12,11 @@ function editor() {
   const original = linkFormats(demoProject());
   const identity = { id: 'saved-study', updatedAt: '2026-10-04T08:00:00Z' };
   const context = {
-    demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives,
+    editorSession: () => ({ draftId: 'draft', compositionId: identity.id, remember() {} }), demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives,
     request: async (url, options) => {
-      if (options) { const body = JSON.parse(options.body); writes.push(body); return { revision: writes.length + 1, composition: body.composition }; }
+      if (options) { const body = JSON.parse(options.body); writes.push(body); return { revision: writes.length + 1, id: identity.id, updatedAt: `version-${writes.length}`, project: body.project, name: body.name }; }
       if (url === '/api/templates') return { templates: [{ ...identity, project: original, name: original.name }] };
-      return { project: original, revision: 1, composition: identity };
+      return { ...identity, project: original, name: original.name };
     },
     useCallback: fn => fn, useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
@@ -64,7 +64,7 @@ test('a multi-layer alternative applies once, preserves identity and undo restor
   assert.equal(h.render().composition.id, h.identity.id);
   await h.render().save();
   assert.equal(h.writes.length, 1);
-  assert.equal(h.writes[0].composition.id, h.identity.id);
+  assert.equal(h.writes[0].updatedAt, h.identity.updatedAt);
   h.render().undo();
   assert.deepEqual(plain(h.render().project), before);
   assert.deepEqual(switchFormat(h.render().project, 'portrait'), switchFormat(before, 'portrait'));

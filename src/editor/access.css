@@ -1,0 +1,9 @@
+.auth-screen{min-height:100dvh;display:grid;place-items:center;padding:24px;background:#000}
+.access-card{width:min(100%,440px)}
+.access-card h1{font-size:24px;margin:28px 0 16px}
+.access-form{display:grid;gap:16px;margin:20px 0}
+.access-form label{display:grid;gap:8px;font-size:13px}
+.access-form input,.access-form textarea{width:100%;padding:10px 12px;font:inherit}
+.access-form textarea{resize:vertical;overflow-wrap:anywhere}
+.access-card [role=alert]{font-size:13px;color:#ff6060}
+.header-actions>.icon-button[aria-label=Account]{display:inline-flex}
