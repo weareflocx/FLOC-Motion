@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import linescape from '../shaders/linescape.frag?raw';
 
+export const LOGIN_CHROMATIC_SPLIT = Object.freeze({ x: 3, y: 0.6 });
+
 export function LoginBackground() {
   const canvasRef = useRef(null);
   useEffect(() => {
@@ -63,7 +65,7 @@ export function LoginBackground() {
       const w = Math.max(1, Math.round(width * scale)), h = Math.max(1, Math.round(height * scale));
       renderer.setSize(w, h, false);
       target.setSize(w, h);
-      split.set(3 / Math.max(1, width), 0.6 / Math.max(1, height));
+      split.set(LOGIN_CHROMATIC_SPLIT.x / Math.max(1, width), LOGIN_CHROMATIC_SPLIT.y / Math.max(1, height));
       uniforms.RENDERSIZE.value.set(w, h);
       draw(performance.now());
       if (!reducedMotion.matches) frame = requestAnimationFrame(tick);

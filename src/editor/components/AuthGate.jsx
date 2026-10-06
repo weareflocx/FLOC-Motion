@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BRAND } from '../../brand.js';
 import { request } from '../request.js';
-import { LoginBackground } from './LoginBackground.jsx';
+import { LoginBackground, LOGIN_CHROMATIC_SPLIT } from './LoginBackground.jsx';
 import '../access.css';
 
 export function AuthGate({ children }) {
@@ -42,7 +42,7 @@ export function AuthGate({ children }) {
       <div className="auth-brand" role="img" aria-label="FLOC Motion">
         <img className="auth-brand-lettering" src={BRAND.assets.loginLettering} alt=""/>
         <img className="auth-brand-asterisk" src={BRAND.assets.loginAsterisk} alt=""/>
-        <img className="auth-brand-motion" src={BRAND.assets.loginMotion} alt=""/>
+        <span className="auth-brand-motion" aria-hidden="true" style={{ '--motion-mask': `url("${BRAND.assets.loginMotion}")`, '--split-x': `${LOGIN_CHROMATIC_SPLIT.x}px`, '--split-y': `${LOGIN_CHROMATIC_SPLIT.y}px` }}><span/></span>
       </div>
       <h1>{checking ? 'Loading…' : invitation ? 'Join FLOC Motion' : 'Sign in'}</h1>
       {expired && <p className="helper">Your session expired. Sign in again to continue with your current work.</p>}
