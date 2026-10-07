@@ -29,6 +29,8 @@ npm run dev
 
 Open **http://127.0.0.1:4317**. By default, the server binds only to the loopback interface. Public hosting requires the explicit configuration below; accounts share the composition library, with independent saves and no simultaneous editing.
 
+Press **Space** to play or pause the preview, and **Delete/Backspace** to remove the selected unlocked layer. These shortcuts pause while editing fields, using dialogs or manipulating the canvas. Space also works with a layer selection or playback button focused; other buttons retain native activation. Delete on a focused choreography diamond removes that state. Hold-to-repeat does not toggle playback or delete additional layers. Layer deletion supports Undo.
+
 ```sh
 npm test
 npm run build

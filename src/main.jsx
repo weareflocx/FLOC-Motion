@@ -18,6 +18,7 @@ import { useAgentBridge } from './editor/useAgentBridge.js';
 import { useVisualAlternatives } from './editor/useVisualAlternatives.js';
 import { useExportJob } from './editor/useExportJob.js';
 import { usePlayback } from './editor/usePlayback.js';
+import { useEditorShortcuts } from './editor/useEditorShortcuts.js';
 import { NewCompositionDialog } from './editor/components/NewCompositionDialog.jsx';
 import { SaveCompositionDialog } from './editor/components/SaveCompositionDialog.jsx';
 import { SavedTemplates } from './editor/components/SavedTemplates.jsx';
@@ -81,6 +82,7 @@ function App({ user, onSignOut }) {
   const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef, proposeAlternatives });
   const { uploading, fileInput, importInput, pick, handleFileChange, handleImportChange, downloadProject } = useProjectFiles({ projectRef, change, importDraft, patch, setError, setSelected, setLeftTab });
   const { addLayer, addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText } = useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change });
+  useEditorShortcuts({ blocked: !loaded || !ready || canvasEditing || Boolean(positionPreview), projectRef, selected, setPlaying, removeLayer: removeText });
   const selectCanvasLayer = useCallback(id => { setSelected(id); setPlaying(false); }, [setPlaying]);
   const showError = useCallback(message => setError(message), [setError]);
   const sceneReady = useCallback(value => setReady(value), []);

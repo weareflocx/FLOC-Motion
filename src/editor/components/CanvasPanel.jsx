@@ -44,7 +44,7 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
       </div>
       <div className="canvas-playback" role="group" aria-label="Preview playback">
         <IconButton label="Back to start" onClick={() => { onTimeChange(0); onSetPlaying(false); }}><SkipBack size={18}/></IconButton>
-        <IconButton className="icon-button canvas-play" label={playing ? 'Pause preview' : 'Play preview'} onClick={() => onSetPlaying(value => !value)} disabled={!ready}>
+        <IconButton className="icon-button canvas-play" label={playing ? 'Pause preview' : 'Play preview'} title={playing ? 'Pause preview (Space)' : 'Play preview (Space)'} aria-keyshortcuts="Space" onClick={() => onSetPlaying(value => !value)} disabled={!ready}>
           {playing ? <Pause size={20} weight="fill"/> : <Play size={20} weight="fill"/>}
         </IconButton>
         <span className="timecode" title="Minutes:seconds:frames" aria-label={`Current time ${currentTime} of ${totalTime}, minutes:seconds:frames`}>
