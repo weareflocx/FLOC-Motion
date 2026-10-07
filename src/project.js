@@ -17,6 +17,11 @@ export const TEMPLATES = [
   { id: 'arc', name: 'Arc', description: 'An open arc of front-facing cards', kind: 'arc' },
   { id: 'horizontal', name: 'Horizontal', description: 'A continuous perspective gallery', kind: 'strip' },
   { id: 'flip', name: 'Flip slider', description: 'A stepped gallery with an independent center transition turn', kind: 'strip' },
+  { id: 'nested-rise', name: 'Nested Rise', description: 'Nested images grow from a shared bottom anchor', kind: 'stack', defaults: { cardCount: 8, cardAspect: 4 / 3, loopDuration: 4.8, speed: 75, motionVariant: 'default', motion: { ...DEFAULT_MOTION }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
+  { id: 'zoom-through', name: 'Zoom Through', description: 'A continuous zoom through centered, nested images', kind: 'stack', defaults: { cardCount: 8, cardAspect: 4 / 3, loopDuration: 4.8, speed: 75, motionVariant: 'default', motion: { ...DEFAULT_MOTION }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, zoomRotation: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
+  { id: 'stack-shuffle', name: 'Stack Shuffle', description: 'The front card drops away as the next card advances through the deck', kind: 'stack', defaults: { cardCount: 6, cardAspect: 1, loopDuration: 9.6, speed: 37.5, motionVariant: 'down', motion: { ...DEFAULT_MOTION }, size: 0.58, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, shuffleGap: 36, shuffleRotation: 28, shuffleCorner: 15, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
+  { id: 'sweep-reveal', name: 'Sweep Reveal', description: 'A clean directional wipe reveals each stationary photograph', kind: 'stack', defaults: { cardCount: 6, cardAspect: 4 / 3, loopDuration: 10.2, speed: 360 / 10.2, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.7, curve: 'glide', intensity: 1 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
+  { id: 'window-push', name: 'Window Push', description: 'Synchronized sliding images fill the canvas and a fixed central window', kind: 'stack', defaults: { cardCount: 6, cardAspect: 3 / 5, loopDuration: 7.2, speed: 50, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.2, curve: 'glide', intensity: 1 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, windowZoom: 0.5, windowSpacing: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
   ...['showcase', 'sphere', 'spinner', 'stack', 'stickers', 'twist', 'wheel'].map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), description: MOTION_VARIANTS[id].map(v => v[1]).join(' / '), kind: id }))
 ];
 export const SHADERS = [
@@ -113,6 +118,7 @@ export function validateProject(input) {
       if (!EFFECT_LAYER_TYPES.includes(l.type)) fail('Only visual layers accept effects.');
       validateEffects(l.effects);
     }
+    if (Object.hasOwn(l, 'effectScope') && l.type !== 'effect') fail('Only effect layers declare effect scope.');
     if (['text', 'logo', 'media', 'background'].includes(l.type)) {
       l.roll ??= 0;
       finite(l.roll, -180, 180, 'Rotation');
@@ -146,6 +152,15 @@ export function validateProject(input) {
       finite(l.perspective, 15, 75, 'Perspective');
       l.yaw ??= 0; l.transitionTurn ??= 360;
       finite(l.transitionTurn, 0, 360, 'Transition turn');
+      if (l.template === 'zoom-through') l.zoomRotation ??= 0;
+      if (l.zoomRotation !== undefined) finite(l.zoomRotation, -180, 180, 'Entry rotation');
+      if (l.template === 'stack-shuffle') { l.shuffleGap ??= 36; l.shuffleRotation ??= 28; l.shuffleCorner ??= 15; }
+      if (l.shuffleGap !== undefined) finite(l.shuffleGap, 0, 160, 'Stack spacing');
+      if (l.shuffleRotation !== undefined) finite(l.shuffleRotation, -180, 180, 'Exit rotation');
+      if (l.shuffleCorner !== undefined) finite(l.shuffleCorner, 0, 100, 'Stack corner radius');
+      if (l.template === 'window-push') { l.windowZoom ??= 0.5; l.windowSpacing ??= 0; }
+      if (l.windowZoom !== undefined) finite(l.windowZoom, 0, 1, 'Window zoom');
+      if (l.windowSpacing !== undefined) finite(l.windowSpacing, 0, 160, 'Window spacing');
       l.cornerRadius ??= 0; l.cardShape ??= 'rounded'; l.frontface ??= 'show'; l.backface ??= 'show';
       finite(l.cornerRadius, 0, 100, 'Corner radius');
       if (!['rounded', 'squircle'].includes(l.cardShape)) fail('Unknown card shape.');
@@ -179,6 +194,9 @@ export function validateProject(input) {
     } else if (l.type === 'music') { asset(l.src); if (l.src && !/\.(mp3|wav|m4a|ogg)$/i.test(l.src)) fail('Music requires an audio file.'); finite(l.volume, 0, 1, 'Volume'); finite(l.offset, 0, 3600, 'Audio offset'); finite(l.fade, 0, 5, 'Audio fade'); if (typeof l.loop !== 'boolean') fail('Invalid audio loop.');
     } else if (l.type === 'effect') {
       if (!l.effects?.length) fail('An effect layer needs at least one effect.');
+      l.effectScope ??= 'overlay';
+      if (!['below', 'overlay'].includes(l.effectScope)) fail('Unknown effect scope.');
+      if (l.effectScope === 'overlay' && l.effects.some(effect => effect.type !== 'noise')) fail('Texture overlays only accept Noise.');
     } else fail('Unknown layer type.');
     if (Object.hasOwn(l, 'contentField')) {
       if (!Object.hasOwn(CONTENT_PROPERTIES, l.type)) fail('This layer cannot declare a content field.');
@@ -244,13 +262,13 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {
     if (l.id !== id) return l;
     const changedFamily = patch.template && patch.template !== l.template;
-    const next = { ...l, ...(changedFamily ? { motionVariant: 'default', motion: { ...DEFAULT_MOTION } } : {}), ...patch };
+    const next = { ...l, ...(changedFamily ? { motionVariant: 'default', motion: { ...DEFAULT_MOTION }, ...TEMPLATES.find(template => template.id === patch.template)?.defaults } : {}), ...patch };
     // Capture the pre-edit rhythm for legacy in-memory projects as well as saved ones.
     if (l.type === 'carousel' && !Object.hasOwn(patch, 'motionBaseline') && (changedFamily || !l.motionBaseline)) next.motionBaseline = motionBaseline(changedFamily ? next : l);
     return next;

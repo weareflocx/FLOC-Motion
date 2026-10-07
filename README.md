@@ -27,7 +27,9 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:4317**. By default, the server binds only to the loopback interface. Public hosting requires the explicit configuration below; it does not add multi-user collaboration.
+Open **http://127.0.0.1:4317**. By default, the server binds only to the loopback interface. Public hosting requires the explicit configuration below; accounts share the composition library, with independent saves and no simultaneous editing.
+
+Press **Space** to play or pause the preview, and **Delete/Backspace** to remove the selected unlocked layer. These shortcuts pause while editing fields, using dialogs or manipulating the canvas. Space also works with a layer selection or playback button focused; other buttons retain native activation. Delete on a focused choreography diamond removes that state. Hold-to-repeat does not toggle playback or delete additional layers. Layer deletion supports Undo.
 
 ```sh
 npm test
@@ -45,11 +47,15 @@ After building, production startup does not load Vite. Set `FLOC_PUBLIC_ORIGIN` 
 NODE_ENV=production PORT=8080 FLOC_PUBLIC_ORIGIN=https://floc-motion.fly.dev npm start
 ```
 
-This mode deliberately has **no authentication**: anyone with access can read and edit the project, upload media and request exports. Host/Origin checks are not access control. The public editor is enabled by the owner's explicit choice, not by URL secrecy.
+Access requires an invited account in both local and public modes. Before the first startup, run `npm run invite -- you@example.com` with the same `FLOC_DATA_DIR`, `PORT` and `FLOC_PUBLIC_ORIGIN` as the server. Open the resulting single-use link, enter that email address and choose a password of 12–128 characters. The link expires after 48 hours. Once an account exists, all signed-in users can create invitations from **Account**; there is no public registration or email delivery service. Share invitation links privately.
+
+Passwords are stored as salted scrypt hashes. Sessions use random, hashed server-side tokens and HttpOnly, SameSite cookies, with Secure cookies on HTTPS. Sessions expire after seven days; signing out revokes the current session. API data, uploaded media and MP4 downloads require authentication. Renderer devices keep their separate bearer credentials, restricted to worker operations, asset reads and export status. Use HTTPS for public hosting. Back up `FLOC_DATA_DIR/access/` along with the composition library.
+
+Everyone who signs in has access to the whole shared library. Each tab remembers its active composition separately. Saved compositions use their own `updatedAt` revision; drafts use independent IDs and revisions. A conflicting save to the same composition is rejected instead of overwriting changes. The previous `project.json` is preserved and migrated into the library once; it is no longer the active global draft. Existing composition files and media paths remain valid.
 
 The Dockerfile builds the frontend and scene bundle, installs only production Node dependencies, and includes Chromium and FFmpeg. `fly.toml` selects this image, port 8080 and the public origin. Local project data is excluded from the image. These files do not deploy the app by themselves.
 
-`FLOC_DATA_DIR` selects writable storage for the saved project, uploads and exports (default `.data/`). Fly mounts the `floc_data` volume at `/data` and stores application data in `/data/floc-motion`. The container initializes ownership of this directory, then runs Node without root privileges. Hosting uses one machine: data persists across deployments, but there is no machine redundancy or multi-user collaboration. Separate machines do not share projects or uploads; do not scale this file-backed editor horizontally. The volume must exist before deployment.
+`FLOC_DATA_DIR` selects writable storage for the saved project, uploads and exports (default `.data/`). Fly mounts the `floc_data` volume at `/data` and stores application data in `/data/floc-motion`. The container initializes ownership of this directory, then runs Node without root privileges. Hosting uses one machine: data persists across deployments, but there is no machine redundancy or simultaneous collaborative editing. Separate machines do not share projects or uploads; do not scale this file-backed editor horizontally. The volume must exist before deployment.
 
 ## Motion library previews
 
@@ -98,7 +104,7 @@ The bundled catalog is a local reconstructed recipe dataset. `floc_apply_preset`
 
 Example request: “Switch to the arc template, use monochrome at 70%, add a title at the top, and show me the frame at 3 seconds.”
 
-A local HTTP API is also available: `GET /api/catalog` (templates, catalog metadata and the raw catalog URL), `GET /api/project`, `PUT /api/project` with `{project, revision}`, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project}`, and `GET /api/exports/:id`. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Do not expose this unauthenticated development server to a network.
+A local HTTP API is also available: `GET /api/catalog` (templates, catalog metadata and the raw catalog URL), `GET /api/templates`, `GET /api/templates/:id`, `PUT /api/templates/:id` with `{name, project, updatedAt}`, `GET/PUT /api/drafts/:id` with `{project, revision}` for draft writes, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project}`, and `GET /api/exports/:id`. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Browser mutations require a same-origin request and a valid session cookie; authentication is enforced by the server.
 
 ## Add a carousel or shader
 
@@ -111,7 +117,7 @@ Adding implementations is a source-code change, not runtime execution of pasted 
 
 ## Prototype boundaries
 
-No authentication, cloud rendering, team collaboration, arbitrary plugins, 4K/GIF/WebM output, custom fonts or video cards. Browser preview depends on local codec/WebGL support. MP4 export is a local job; keep the server running. Exports are limited to one at a time and 30 seconds. This is a functional prototype, not production acceptance or a complete replica of the references.
+No simultaneous collaborative editing, cloud rendering, arbitrary plugins, 4K/GIF/WebM output, custom fonts or video cards. Browser preview depends on local codec/WebGL support. MP4 export is a local job; keep the server running. Exports are limited to one at a time and 30 seconds. This is a functional prototype, not production acceptance or a complete replica of the references.
 
 ## Verification (2026-09-30)
 
@@ -202,9 +208,11 @@ Text layers include line height, letter spacing in em, alignment and directional
 
 Public exports now require a renderer connected to the current browser. In **Export**, download the renderer ZIP, choose **Connect this computer**, and enter the ten-minute code in the installer. Each browser has an HttpOnly connection cookie; each engine has a separate credential. The server stores credential hashes, assigns at most one active job per engine, supports concurrent engines, and restricts progress/results/downloads to the owning connection. No local listening port is opened. Completed exports remain accessible after reconnecting in the same browser. The existing shared worker protocol remains available for existing installations; public exports do not silently use that shared Mac.
 
-`npm run build` includes `dist/renderer/FLOC-Motion-Renderer.zip`; `npm run build:renderer` rebuilds just the installer. The ZIP contains only engine sources, pinned dependency metadata, bundled brand/font/demo assets and installers, without credentials, uploaded media or project data. Installers download a SHA-256-verified private Node runtime, install dependencies with the lockfile, check FFmpeg/FFprobe and native hardware WebGL, and enable per-user startup. Windows x64 requires Windows 10/11 with WinGet; macOS uses Homebrew to install missing FFmpeg (Homebrew must already be installed). Chrome or Edge is required. Stop/Start/Uninstall launchers live in the installed folder. Uninstall stops automatic startup and preserves local files.
+`npm run build` includes `dist/renderer/FLOC-Motion-Renderer.zip`; `npm run build:renderer` rebuilds just the installer. The ZIP contains only engine sources, pinned dependency metadata, bundled brand/font/demo assets and installers, without credentials, uploaded media or project data. Installers download a SHA-256-verified private Node runtime, install dependencies with the lockfile, provision a dedicated Chrome Headless Shell through HyperFrames, check its version response and native hardware WebGL, check FFmpeg/FFprobe, and enable per-user startup. This avoids depending on the user's everyday Chrome installation; `HYPERFRAMES_BROWSER_PATH` remains an explicit override. Windows x64 requires Windows 10/11 with WinGet; macOS uses Homebrew to install missing FFmpeg (Homebrew must already be installed). Stop/Start/Uninstall launchers live in the installed folder. Uninstall stops automatic startup and preserves local files.
 
 Updating requires running the latest installer with a new code. A fingerprint of the validator, scene, dependency lockfile and worker rejects incompatible versions before export. The installer is unsigned; Windows runtime compatibility needs an actual Windows test, not just a successful build. For local isolated checks, `node scripts/renderer-setup.mjs --origin http://127.0.0.1:<port> --code <code> --no-autostart` connects without modifying startup settings. `--check` only verifies prerequisites and GPU access.
+
+For an existing Mac renderer whose system Chrome times out during `--version`, run `Repair-Mac.command` on that Mac. It prepares a dedicated rendering browser, verifies its version response, updates only the browser path in the existing configuration and restarts the renderer. Credentials and engine files are preserved, so this repair does not require a new connection code or an editor deployment. Wait for **Ready** before confirming **Render MP4** again.
 
 ### Visual alternatives
 

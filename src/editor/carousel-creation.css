@@ -1,0 +1,10 @@
+.carousel-creation-window{width:min(840px,calc(100vw - 40px))}
+.carousel-creation-window .template-content-body{grid-template-columns:minmax(200px,1fr) minmax(300px,1.5fr)}
+.carousel-choice{gap:16px}
+.carousel-choice .preset-art{aspect-ratio:16/9;overflow:hidden;border-radius:6px;background:#000}
+.carousel-choice>strong{font-size:14px;overflow-wrap:anywhere}
+.carousel-choice .outline-button{align-self:start}
+.carousel-photos{display:flex;flex-direction:column;gap:16px}
+.carousel-photos>.outline-button{align-self:start}
+.carousel-file-name{display:block;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#aaa}
+@media(max-width:680px){.carousel-creation-window{width:calc(100vw - 20px)}.carousel-creation-window .template-content-body{grid-template-columns:minmax(0,1fr)}.carousel-choice .preset-art{max-height:160px}.carousel-choice{gap:12px}}

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "invite": "node scripts/invite-first-user.mjs",
     "dev": "node server/index.mjs",
     "build": "vite build && node server/build-scene.mjs && node scripts/package-renderer.mjs",
     "build:renderer": "node scripts/package-renderer.mjs",

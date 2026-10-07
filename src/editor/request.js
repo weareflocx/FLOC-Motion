@@ -10,6 +10,7 @@ export async function request(url, options) {
     try { data = JSON.parse(text); } catch { data = { error: text }; }
   }
   if (!response.ok) {
+    if (response.status === 401 && !url.startsWith('/api/auth/')) globalThis.window?.dispatchEvent(new Event('floc-session-expired'));
     const error = new Error(data.error || `Request failed (${response.status}).`);
     error.status = response.status;
     error.data = data;

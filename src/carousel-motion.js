@@ -1,4 +1,4 @@
-import { DEFAULT_MOTION, motionClock, motionEase, smoothProgress } from './motion-timing.js';
+import { DEFAULT_MOTION, motionClock, motionEase, smoothProgress, sweepProgress } from './motion-timing.js';
 // Original, absolute-time motion models shared by preview and export.
 export const MOTION_VARIANTS = {
   circular: [['wrapped', 'Wrapped ring'], ['billboard', 'Upright orbit'], ['inward', 'Inner corridor'], ['bloom', 'Splayed orbit']],
@@ -11,7 +11,10 @@ export const MOTION_VARIANTS = {
   twist: [['single', 'Single torsion'], ['ribbon', 'Torsion ribbon']],
   wheel: [['rock', 'Rocking arc'], ['ring', 'Radial wheel']],
   flip: [['step', 'Step and turn']],
-  depth: [], arc: []
+  depth: [], arc: [], 'nested-rise': [], 'zoom-through': [],
+  'stack-shuffle': [['down', 'Down'], ['up', 'Up'], ['left', 'Left'], ['right', 'Right']],
+  'sweep-reveal': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']],
+  'window-push': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']]
 };
 const TAU = Math.PI * 2;
 const mod = (v, n) => ((v % n) + n) % n;
@@ -91,6 +94,67 @@ export function carouselCard(layer, index, count, time) {
       state.position = [0, Math.sin(theta) * r, Math.cos(theta) * r];
       state.rotation[0] = -theta;
       if (variant === 'hinge') { state.position[0] = Math.sin(theta) * size * 0.5; state.rotation[1] = Math.sin(theta) * 0.6; }
+    }
+  } else if (['nested-rise', 'zoom-through'].includes(layer.template)) {
+    const centered = layer.template === 'zoom-through';
+    const age = mod(phase * count - index + (centered ? 0.5 : 0), count);
+    // Older cards reach full size behind the next card before being recycled.
+    const progress = clamp(age / Math.max(1, Math.min(centered ? 2.4 : 3, count - 1)));
+    state.scale = Math.max(1e-6, motionEase(progress, motion, 1 - (1 - progress) ** 3));
+    if (centered) state.rotation[2] = (layer.zoomRotation ?? 0) * Math.PI / 180 * (1 - clamp(state.scale));
+    else state.position[1] = (state.scale - 1) * size / (2 * layer.cardAspect);
+    state.renderOrder = count - age;
+    if (count === 1) state.opacity = clamp((1 - age) * 8);
+  } else if (layer.template === 'window-push') {
+    const rawBeat = phase * count;
+    const nearestBeat = Math.round(rawBeat);
+    const beat = Math.abs(rawBeat - nearestBeat) < 1e-10 ? nearestBeat : rawBeat;
+    const progress = clock.stepped ? beat % 1 : clamp(motionEase(beat % 1, motion, 1 - (1 - beat % 1) ** 3));
+    const slot = mod(index - Math.floor(beat), count);
+    const horizontal = ['left', 'right'].includes(variant);
+    const sign = ['left', 'down'].includes(variant) ? -1 : 1;
+    state.push = [0, 0, 1, layer.windowSpacing ?? 0];
+    state.renderOrder = slot === 1 ? 2 : 1;
+    state.opacity = slot === 0 || slot === 1 && progress > 0 ? 1 : 0;
+    if (count > 1) {
+      state.push[horizontal ? 0 : 1] = sign * (progress - Math.min(slot, 1));
+      state.push[2] = 1 + (layer.windowZoom ?? 0.5) * (slot === 0 ? progress : 1 - progress);
+    }
+  } else if (layer.template === 'sweep-reveal') {
+    const beat = phase * count;
+    const progress = clock.stepped ? beat % 1 : sweepProgress(beat % 1, motion);
+    const slot = mod(index - Math.floor(beat), count);
+    state.clip = [0, 0, 1, 1];
+    state.renderOrder = slot === 1 ? 2 : 1;
+    state.opacity = slot === 0 || slot === 1 && progress > 0 ? 1 : 0;
+    // Clip local UVs, so the photograph never shifts or scales during the reveal.
+    if (slot === 1) {
+      if (variant === 'left') state.clip[0] = 1 - progress;
+      else if (variant === 'up') state.clip[3] = progress;
+      else if (variant === 'down') state.clip[1] = 1 - progress;
+      else state.clip[2] = progress;
+    }
+  } else if (layer.template === 'stack-shuffle') {
+    const beat = phase * count;
+    const transition = clamp((beat % 1 - 0.25) / 0.25);
+    const progress = clock.stepped ? beat % 1 : clamp(motionEase(transition, motion, smoothProgress(transition)));
+    const slot = mod(index - Math.floor(beat), count);
+    state.renderOrder = 4 - slot;
+    state.positionPixels = [0, 0];
+    if (slot === 0) {
+      const travel = progress ** 2 * (1.5 + size);
+      const horizontal = ['left', 'right'].includes(variant);
+      const sign = ['down', 'left'].includes(variant) ? -1 : 1;
+      state.position[horizontal ? 0 : 1] = sign * travel;
+      state.rotation[2] = (layer.shuffleRotation ?? 28) * Math.PI / 180 * progress;
+      state.opacity = progress < 1 ? 1 : 0;
+    } else {
+      const level = slot - progress;
+      state.scale = 0.9 ** level;
+      // Keep an exposed strip above each smaller card, measured in canvas pixels.
+      state.position[1] = (1 - state.scale) * size / (2 * layer.cardAspect);
+      state.positionPixels[1] = level * (layer.shuffleGap ?? 36);
+      state.opacity = clamp(3 - level);
     }
   } else if (layer.template === 'stack') {
     const slot = mod(index - phase * count, count);

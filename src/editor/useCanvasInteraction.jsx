@@ -61,7 +61,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       node.tabIndex = visible && enabled ? 0 : -1; node.setAttribute('role', 'button');
       node.setAttribute('aria-disabled', String(!enabled));
       node.setAttribute('aria-hidden', String(!visible));
-      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : l.type === 'carousel' ? ': drag to move; Shift-drag to orient; scroll to resize' : ': drag to move; drag rotation handle or Alt-arrow to rotate'}`);
+      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : ['carousel', 'model'].includes(l.type) ? ': drag to move; Shift-drag to orient X/Y; Shift+Alt-drag to rotate Z; Escape cancels' : ': drag to move; Shift+Alt-drag or drag rotation handle to rotate Z; Escape cancels'}`);
       node.style.pointerEvents = enabled ? 'auto' : 'none';
       node.draggable = false;
     }
@@ -81,20 +81,22 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     return null;
   }
   function begin(event) {
-    if (!enabled || event.button !== 0 || gesture.current || wheelDraft.current) return;
+    if (!enabled || event.button !== 0 || gesture.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
     const resize = event.target.closest('[data-canvas-resize]');
     const selection = event.target.closest('[data-canvas-move]');
     const ringLayer = (ring || resize || selection) && project.layers.find(l => l.id === selected && l.type !== 'music');
     const l = ringLayer ? evaluateChoreography(ringLayer, playhead.current) : pick(event.clientX, event.clientY);
-    if (!l) return;
+    if (!l) { commitWheel(); onSelect(null); onPreview(null); return; }
+    if (wheelDraft.current) return;
     event.preventDefault(); onSelect(l.id);
     nodeFor(l.id)?.focus({ preventScroll: true });
     if (l.locked) return;
     const box = root.current.getBoundingClientRect();
     const b = nodeFor(l.id).getBoundingClientRect();
-    const orient = !!ring || l.type === 'carousel' && event.shiftKey;
     const spatial = ['carousel', 'model'].includes(l.type);
+    const rollDrag = !resize && !event.metaKey && !event.ctrlKey && event.shiftKey && event.altKey;
+    const orient = !!ring || !resize && !event.metaKey && !event.ctrlKey && (spatial && event.shiftKey || rollDrag);
     const center = l.type === 'carousel' ? { x: box.left + box.width * l.x / 100, y: box.top + box.height * l.y / 100 } : { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 };
     const measured = ['logo', 'media', 'model'].includes(l.type) && layerResizeBounds(l, root.current);
     const angle = (l.type === 'model' ? 0 : l.roll ?? 0) * Math.PI / 180;
@@ -115,7 +117,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       return [{ x: (rect.left - box.left) / box.width * 100, y: (rect.top - box.top) / box.height * 100, width: rect.width / box.width * 100, height: rect.height / box.height * 100 }];
     });
     const visualBounds = { x: (b.left - box.left) / box.width * 100, y: (b.top - box.top) / box.height * 100, width: b.width / box.width * 100, height: b.height / box.height * 100 };
-    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, visualBounds, targets, latest: initial, orient, spatial, center, bounds, resize: resizing, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false };
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event) {
@@ -131,7 +133,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     } else if (g.orient) {
       const angle = Math.atan2(event.clientY - g.center.y, event.clientX - g.center.x);
       g.delta += wrapDegrees((angle - g.angle) * 180 / Math.PI); g.angle = angle;
-      g.latest = g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, g.ring ? g.delta : null) : { roll: wrapDegrees(g.initial.roll + g.delta) };
+      const rollDelta = g.ring ? g.delta : g.rollDrag ? dx / g.box.width * 180 : null;
+      g.latest = g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta, g.layer.type === 'model' ? 180 : 65) : { roll: wrapDegrees(g.initial.roll + rollDelta) };
     } else if (g.layer.type === 'background') {
       g.latest = { x: Math.max(-100, Math.min(100, g.initial.x + dx / g.box.width * 100)), y: Math.max(-100, Math.min(100, g.initial.y + dy / g.box.height * 100)) };
     } else if (g.layer.type === 'carousel') {
@@ -162,13 +165,19 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     }
   }
   function keys(event) {
-    if (event.key === 'Escape') { event.preventDefault(); cancel(); return; }
     if (!enabled) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      const editing = gesture.current || wheelDraft.current;
+      cancel();
+      if (!editing) onSelect(null);
+      return;
+    }
     const target = event.target.closest('[data-floc-layer]');
     const source = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : sourceLayer;
     const l = source && evaluateChoreography(source, playhead.current);
     if (!l || !l.visible || playhead.current < l.start || playhead.current >= l.end) return;
-    if (['Enter', ' '].includes(event.key)) { event.preventDefault(); onSelect(l.id); return; }
+    if (event.key === 'Enter') { event.preventDefault(); onSelect(l.id); return; }
     if (l.locked || gesture.current || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault(); onSelect(l.id);
     commitWheel();

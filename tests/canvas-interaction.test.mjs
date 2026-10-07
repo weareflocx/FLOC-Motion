@@ -45,6 +45,18 @@ function editor() {
   return { render, scroll, flush, unmount, patches, previews, node, rect, project, timers, commit: () => pending?.() };
 }
 
+test('canvas focus leaves Space for playback and Enter selects the focused layer', () => {
+  const h = editor(), selected = [];
+  const { handlers } = h.render({ onSelect: id => selected.push(id) });
+  let prevented = 0;
+  const event = { target: { closest: () => h.node }, preventDefault() { prevented++; } };
+  handlers.onKeyDown({ ...event, key: ' ' });
+  assert.equal(prevented, 0); assert.deepEqual(selected, []);
+  handlers.onKeyDown({ ...event, key: 'Enter' });
+  assert.equal(prevented, 1); assert.deepEqual(selected, ['headline']);
+  assert.equal(h.patches.length, 0); h.unmount();
+});
+
 test('wheel changes are grouped into one edit and survive selecting another layer', () => {
   const h = editor(), original = h.project.layers.find(layer => layer.id === 'headline');
   h.scroll(); h.scroll(); assert.equal(h.patches.length, 0);
@@ -77,6 +89,43 @@ test('Escape and unmount cancel pending wheel edits', () => {
     h.flush(); assert.equal(h.patches.length, 0); assert.equal(h.previews.at(-1), null);
     if (cancel === 'escape') h.unmount();
   }
+});
+
+test('clicking empty workspace deselects without changing the project', () => {
+  for (const point of [[1100, 500], [900, 900]]) {
+    const h = editor(), selections = [];
+    h.node.getBoundingClientRect = () => ({ left: 100, top: 100, right: 300, bottom: 300, width: 200, height: 200 });
+    const { handlers } = h.render({ onSelect: id => selections.push(id) });
+    handlers.onPointerDown({ button: 0, clientX: point[0], clientY: point[1], target: { closest: () => null } });
+    assert.deepEqual(selections, [null]);
+    assert.equal(h.patches.length, 0);
+    assert.equal(h.previews.at(-1), null);
+    h.unmount();
+  }
+});
+
+test('deselecting commits a pending wheel resize exactly once', () => {
+  const h = editor(), selections = [];
+  const { handlers } = h.render({ onSelect: id => selections.push(id) });
+  h.scroll();
+  handlers.onPointerDown({ button: 0, clientX: 1100, clientY: 500, target: { closest: () => null } });
+  assert.equal(selections.at(-1), null);
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.timers.size, 0);
+  h.flush(); assert.equal(h.patches.length, 1);
+  h.unmount();
+});
+
+test('Escape cancels an edit first and deselects only when no gesture is pending', () => {
+  const h = editor(), selections = [];
+  const { handlers } = h.render({ onSelect: id => selections.push(id) });
+  h.scroll(); selections.length = 0;
+  handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+  assert.deepEqual(selections, []);
+  assert.equal(h.patches.length, 0);
+  handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+  assert.deepEqual(selections, [null]);
+  h.unmount();
 });
 
 test('loading a new scene cancels old drafts and blocks wheel, pointer and keyboard edits', () => {
@@ -127,6 +176,74 @@ test('rotation handle previews one text edit, commits on release and cancels wit
     if (!cancel) assert.equal(h.patches[0].roll, 90);
     h.unmount();
   }
+});
+
+test('Shift-drag orients carousel and model X/Y without moving them', () => {
+  for (const type of ['carousel', 'model']) for (const cancelled of [false, true]) {
+    const h = editor();
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: type === 'model' ? 100 : 10, yaw: 170, roll: 20 });
+    h.node.focus = () => {};
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 500, clientY: 500, shiftKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render({ engine: { current: { hitTest: () => true } } });
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 600, clientY: 600 });
+    assert.equal(h.previews.at(-1).tilt, type === 'model' ? 118 : 28);
+    assert.equal(h.previews.at(-1).yaw, -172);
+    assert.equal(h.previews.at(-1).roll, 20);
+    assert.equal(h.previews.at(-1).x, undefined);
+    if (cancelled) handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, cancelled ? 0 : 1);
+    h.unmount();
+  }
+});
+
+test('Shift+Alt-drag rotates only Z across spatial and flat layers', () => {
+  for (const type of ['carousel', 'model', 'text', 'logo', 'media']) {
+    const h = editor();
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: 10, yaw: 20, roll: 170 });
+    h.node.focus = () => {};
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 1, clientX: 500, clientY: 500, shiftKey: true, altKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+    const { handlers } = h.render({ engine: { current: { hitTest: () => true } } });
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 600, clientY: 650 });
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, 1, type);
+    assert.equal(h.patches[0].roll, -172, type);
+    assert.equal(h.patches[0].x, undefined, type);
+    assert.equal(h.patches[0].size, undefined, type);
+    if (['carousel', 'model'].includes(type)) {
+      assert.equal(h.patches[0].tilt, 10);
+      assert.equal(h.patches[0].yaw, 20);
+    } else {
+      assert.equal(h.patches[0].tilt, undefined);
+      assert.equal(h.patches[0].yaw, undefined);
+    }
+    h.unmount();
+  }
+});
+
+test('Shift+Alt on a model resize handle still resizes from the center', () => {
+  const h = editor();
+  Object.assign(h.project.layers.find(l => l.id === 'headline'), { type: 'model', x: 25, y: 25, size: 20, tilt: 100, yaw: 20, roll: 30 });
+  Object.assign(h.node.style, { left: '25%', top: '25%' });
+  Object.assign(h.node, { offsetWidth: 200, offsetHeight: 300, focus() {} });
+  h.node.getBoundingClientRect = () => ({ left: 250, top: 250, right: 450, bottom: 550, width: 200, height: 300 });
+  const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 450, clientY: 550, shiftKey: true, altKey: true, target: { closest: selector => selector === '[data-canvas-resize]' ? {} : null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render({ root: { current: frame } });
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 550, clientY: 700 });
+  handlers.onPointerUp(event);
+  assert.equal(h.patches[0].size, 40);
+  assert.equal(h.patches[0].x, 15);
+  assert.equal(h.patches[0].y, 10);
+  assert.equal(h.patches[0].tilt, undefined);
+  assert.equal(h.patches[0].roll, undefined);
+  h.unmount();
 });
 
 test('Alt-arrow rotates visual layers and respects locks', () => {

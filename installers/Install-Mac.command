@@ -12,9 +12,6 @@ if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
   fi
   brew install ffmpeg
 fi
-if [[ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" && ! -x "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" && ! -x "$HOME/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]]; then
-  if command -v brew >/dev/null; then brew install --cask google-chrome; else echo "Install Chrome, then open this installer again."; read -r -p "Press Enter to close."; exit 1; fi
-fi
 mkdir -p "$RENDERER_DIR"
 if [[ -x "$RENDERER_DIR/runtime/bin/node" && -f "$RENDERER_DIR/scripts/renderer-autostart.mjs" ]]; then
   "$RENDERER_DIR/runtime/bin/node" "$RENDERER_DIR/scripts/renderer-autostart.mjs" --stop

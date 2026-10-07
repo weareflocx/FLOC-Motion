@@ -19,7 +19,7 @@ export function LayerList({ project, selected, icons, onSelect, onPatch, onMove,
   return <>
     <div className="layer-list" aria-label="Composition layers">{[...project.layers].reverse().map(item => {
       const Icon = icons[item.type];
-      const label = item.type === 'text' ? item.text.replace(/\s+/g, ' ').trim() || layerTypes.text : layerTypes[item.type];
+      const label = item.type === 'effect' && item.effectScope === 'below' ? 'Adjustment' : item.type === 'text' ? item.text.replace(/\s+/g, ' ').trim() || layerTypes.text : layerTypes[item.type];
       return <div key={item.id} className={`layer-row ${selected === item.id ? 'active' : ''} ${item.locked ? 'locked' : ''} ${drop?.id === item.id ? `drop-${drop.side}` : ''}`}
         draggable={!item.locked && editing !== item.id}
         onDragStart={event => { dragging.current = item.id; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', item.id); onSelect(item.id); }}

@@ -31,14 +31,6 @@ if "%NEED_FFMPEG%"=="1" (
   winget install --id Gyan.FFmpeg --exact --source winget --scope user --accept-package-agreements --accept-source-agreements
   if errorlevel 1 goto failed
 )
-set "INSTALL_STEP=Installing Chrome or Edge"
-echo Checking Chrome or Edge...
-if not exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" if not exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" if not exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" if not exist "%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe" if not exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" if not exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
-  where winget.exe >nul 2>nul
-  if errorlevel 1 goto missing_winget
-  winget install --id Google.Chrome --exact --source winget --scope user --accept-package-agreements --accept-source-agreements
-  if errorlevel 1 goto failed
-)
 set "INSTALL_STEP=Stopping the previous renderer"
 if exist "%RENDERER_DIR%\runtime\node.exe" if exist "%RENDERER_DIR%\scripts\renderer-autostart.mjs" (
   "%RENDERER_DIR%\runtime\node.exe" "%RENDERER_DIR%\scripts\renderer-autostart.mjs" --stop

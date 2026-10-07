@@ -7,8 +7,8 @@ import { historyShortcut } from '../src/editor/history-shortcut.js';
 
 function editor() {
   const slots = []; let cursor = 0;
-  const context = { demoProject, patchLayer, validateProject, historyShortcut,
-    request: async () => ({ project: demoProject(), revision: 1 }),
+  const context = { editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }), demoProject, patchLayer, validateProject, historyShortcut,
+    request: async () => ({ id: 'saved', name: 'Saved', updatedAt: 'date', project: demoProject(), revision: 1 }),
     useCallback: fn => fn, useEffect: () => {},
     useRef: value => { const i = cursor++; return slots[i] ??= { current: value }; },
     useState: value => { const i = cursor++; if (!(i in slots)) slots[i] = typeof value === 'function' ? value() : value; return [slots[i], next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; }]; }

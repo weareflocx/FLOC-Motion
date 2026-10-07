@@ -25,10 +25,12 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
   function changeZoom(value) { pendingEdit.current?.(); setPanning(false); setZoom(value); }
   const currentTime = timeLabel(time, project.fps);
   const totalTime = timeLabel(project.duration, project.fps);
+  const selectedLayer = project.layers.find(layer => layer.id === selected && layer.visible && !layer.locked && time >= layer.start && time < layer.end && !['music', 'effect'].includes(layer.type));
   return <section className="center-panel">
     <div className="preview-wrap">
       <Stage nudge={nudge} selected={selected} onSelect={onSelect} onPatch={onPatch} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} time={time} playing={playing} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
+      {ready && !panning && selectedLayer && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · Esc cancels</div>}
       <div className="canvas-toolbar">
         <div className="canvas-meta" role="group" aria-label="Edit history"><IconButton label="Undo last edit (⌘/Ctrl+Z)" disabled={!history.length && !canvasEditing} onClick={onUndo}><ArrowCounterClockwise size={17}/></IconButton><IconButton label="Redo last edit (⌘/Ctrl+Shift+Z)" disabled={!future.length || canvasEditing} onClick={onRedo}><ArrowClockwise size={17}/></IconButton></div>
         <IconButton label="Nudge amount" onClick={onOpenNudge}><SlidersHorizontal size={17}/></IconButton>
@@ -42,7 +44,7 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
       </div>
       <div className="canvas-playback" role="group" aria-label="Preview playback">
         <IconButton label="Back to start" onClick={() => { onTimeChange(0); onSetPlaying(false); }}><SkipBack size={18}/></IconButton>
-        <IconButton className="icon-button canvas-play" label={playing ? 'Pause preview' : 'Play preview'} onClick={() => onSetPlaying(value => !value)} disabled={!ready}>
+        <IconButton className="icon-button canvas-play" label={playing ? 'Pause preview' : 'Play preview'} title={playing ? 'Pause preview (Space)' : 'Play preview (Space)'} aria-keyshortcuts="Space" onClick={() => onSetPlaying(value => !value)} disabled={!ready}>
           {playing ? <Pause size={20} weight="fill"/> : <Play size={20} weight="fill"/>}
         </IconButton>
         <span className="timecode" title="Minutes:seconds:frames" aria-label={`Current time ${currentTime} of ${totalTime}, minutes:seconds:frames`}>

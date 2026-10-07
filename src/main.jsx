@@ -18,6 +18,7 @@ import { useAgentBridge } from './editor/useAgentBridge.js';
 import { useVisualAlternatives } from './editor/useVisualAlternatives.js';
 import { useExportJob } from './editor/useExportJob.js';
 import { usePlayback } from './editor/usePlayback.js';
+import { useEditorShortcuts } from './editor/useEditorShortcuts.js';
 import { NewCompositionDialog } from './editor/components/NewCompositionDialog.jsx';
 import { SaveCompositionDialog } from './editor/components/SaveCompositionDialog.jsx';
 import { SavedTemplates } from './editor/components/SavedTemplates.jsx';
@@ -31,9 +32,12 @@ import { LayerPanel } from './editor/components/LayerPanel.jsx';
 import { NudgeDialog } from './editor/components/NudgeDialog.jsx';
 import { loadNudge, saveNudge } from './editor/nudge.js';
 import { TimelinePanel } from './editor/components/TimelinePanel.jsx';
+import { AuthGate } from './editor/components/AuthGate.jsx';
+import { AccountDialog } from './editor/components/AccountDialog.jsx';
 
-function App() {
-  const { project, composition, openComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject();
+function App({ user, onSignOut }) {
+  const { project, composition, openSavedComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject({ userId: user.id });
+  const [accountOpen, setAccountOpen] = useState(false);
   const [selected, setSelected] = useState('carousel'); const [leftTab, setLeftTab] = useState('layers'); const [rightTab, setRightTab] = useState('composition');
   const [nudge, setNudge] = useState(loadNudge);
   const [nudgeOpen, setNudgeOpen] = useState(false);
@@ -48,9 +52,9 @@ function App() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [contentTarget, setContentTarget] = useState(null);
-  const layer = project.layers.find(l => l.id === selected) || project.layers[0];
+  const layer = project.layers.find(l => l.id === selected);
   const carousel = project.layers.find(l => l.type === 'carousel');
-  useEffect(() => { if (!project.layers.some(layer => layer.id === selected)) setSelected(project.layers[0]?.id ?? null); }, [project.layers, selected]);
+  useEffect(() => { if (selected !== null && !project.layers.some(layer => layer.id === selected)) setSelected(project.layers[0]?.id ?? null); }, [project.layers, selected]);
   const { time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: project.duration });
   const displayedProject = useMemo(() => project.layers.some(item => item.choreography?.length)
     ? { ...project, layers: project.layers.map(item => evaluateChoreography(item, time)) } : project, [project, time]);
@@ -72,12 +76,13 @@ function App() {
   }, [patch, projectRef, time, setPlaying, setError]);
   const seek = useCallback(value => { setTime(Math.max(0, Math.min(projectRef.current.duration, value))); setPlaying(false); }, [projectRef, setTime, setPlaying]);
   const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
-  const alternativesBlocked = canvasEditing || nudgeOpen || exportOpen || newOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
+  const alternativesBlocked = canvasEditing || accountOpen || nudgeOpen || exportOpen || newOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
   const alternatives = useVisualAlternatives({ projectRef, change, setPlaying, blocked: alternativesBlocked });
   const proposeAlternatives = useCallback(proposal => { alternatives.propose(proposal); setAgentOpen(false); }, [alternatives.propose]);
   const { agentState, audit } = useAgentBridge({ loaded, projectRef, change, save, setError, setTime, setPlaying, setExportOpen, jobRef, proposeAlternatives });
   const { uploading, fileInput, importInput, pick, handleFileChange, handleImportChange, downloadProject } = useProjectFiles({ projectRef, change, importDraft, patch, setError, setSelected, setLeftTab });
   const { addLayer, addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText } = useCompositionActions({ project, projectRef, selected, setSelected, setLeftTab, change });
+  useEditorShortcuts({ blocked: !loaded || !ready || canvasEditing || Boolean(positionPreview), projectRef, selected, setPlaying, removeLayer: removeText });
   const selectCanvasLayer = useCallback(id => { setSelected(id); setPlaying(false); }, [setPlaying]);
   const showError = useCallback(message => setError(message), [setError]);
   const sceneReady = useCallback(value => setReady(value), []);
@@ -103,7 +108,7 @@ function App() {
   return <main className="app-shell">
     <input ref={fileInput} hidden type="file" onChange={handleFileChange}/>
     <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={handleImportChange}/>
-    <Header name={project.name} onChangeName={name => change({ ...project, name })} composition={composition} onNew={() => { setPlaying(false); setNewOpen(true); }} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} onExplore={() => { try { alternatives.explore(); } catch (error) { setError(error.message); } }} canExplore={!alternativesBlocked && project.layers.some(layer => layer.visible && !layer.locked && layer.type !== 'music')} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
+    <Header onOpenAccount={() => { setPlaying(false); setAccountOpen(true); }} name={project.name} onChangeName={name => change({ ...project, name })} composition={composition} onNew={() => { setPlaying(false); setNewOpen(true); }} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} onExplore={() => { try { alternatives.explore(); } catch (error) { setError(error.message); } }} canExplore={!alternativesBlocked && project.layers.some(layer => layer.visible && !layer.locked && layer.type !== 'music')} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={() => { if (window.confirm("Discard your local changes and load the latest saved project? Download your project JSON first to keep a copy.")) reload().catch(reloadError => setError(reloadError.message)); }} onDismiss={() => setError('')}/>
     <div className="workspace">
       <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
@@ -112,13 +117,14 @@ function App() {
       <TimelinePanel project={project} selected={selected} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
     </div>
     {nudgeOpen && <NudgeDialog value={nudge} onChange={setNudge} onClose={() => setNudgeOpen(false)}/>}
-    {newOpen && <NewCompositionDialog onClose={() => setNewOpen(false)} onCreate={async name => { await newComposition(name); setTime(0); setPlaying(false); setSelected(null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }}/>}
+    {newOpen && <NewCompositionDialog project={project} onClose={() => setNewOpen(false)} onCreate={async (name, options) => { const next = await newComposition(name, options); setTime(0); setPlaying(false); setSelected(next.layers.at(-1)?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }} onOpen={async entry => { const next = await openSavedComposition(entry); setTime(0); setPlaying(false); setSelected(next.layers[0]?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); return true; }}/>}
     {saveOpen && <SaveCompositionDialog name={project.name} onClose={() => setSaveOpen(false)} onSave={saveCopy}/>}
-    {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async next => { await save(); const valid = openComposition(next); if (valid) { setTime(0.65); setPlaying(false); setSelected(next.project.layers[0]?.id ?? null); } return valid; }}/>}
+    {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async entry => { const next = await openSavedComposition(entry); setTime(0.65); setPlaying(false); setSelected(next.layers[0]?.id ?? null); return next; }}/>}
+    {accountOpen && <AccountDialog user={user} onClose={() => setAccountOpen(false)} onSignOut={async () => { await save(); await onSignOut(); }}/>}
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}
     {contentTarget && <TemplateContentDialog project={contentTarget.project} copy={contentTarget.copy} name={contentTarget.name} onClose={() => setContentTarget(null)} onSubmit={applyContent}/>}
     {alternatives.proposal && <VisualAlternativesDialog proposal={alternatives.proposal} stale={project !== alternatives.proposal.base || canvasEditing} onClose={alternatives.close} onApply={alternatives.apply}/> }
     <Dialogs project={project} exportOpen={exportOpen} agentOpen={agentOpen} job={job} busy={busy} agentState={agentState} audit={audit} onCloseExport={() => setExportOpen(false)} onCloseAgent={() => setAgentOpen(false)} onRender={render}/>
   </main>;
 }
-createRoot(document.getElementById('root')).render(<App/>);
+createRoot(document.getElementById('root')).render(<AuthGate>{(user, onSignOut) => <App key={user.id} user={user} onSignOut={onSignOut}/>}</AuthGate>);
