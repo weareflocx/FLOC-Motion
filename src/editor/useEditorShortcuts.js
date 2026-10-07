@@ -8,8 +8,8 @@ export function useEditorShortcuts({ blocked, projectRef, selected, setPlaying, 
       if (target?.isContentEditable || target?.closest?.('input, textarea, select, [role="textbox"], [role="dialog"], [aria-modal="true"]')) return;
       if (document.querySelector('dialog[open], [aria-modal="true"]')) return;
       if (event.key === ' ') {
-        // Layer selection and playback retain the editor's Space shortcut.
-        if (target?.closest?.('button, a[href], [role="button"]') && !target.closest('.layer-select, .canvas-play')) return;
+        // Canvas, layer selection and playback retain the editor's Space shortcut.
+        if (target?.closest?.('button, a[href], [role="button"]') && !target.closest('.stage-holder, .layer-select, .canvas-play')) return;
         event.preventDefault();
         if (!event.repeat) setPlaying(value => !value);
       } else if (event.key === 'Delete' || event.key === 'Backspace') {

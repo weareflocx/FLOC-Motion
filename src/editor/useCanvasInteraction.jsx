@@ -177,7 +177,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const source = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : sourceLayer;
     const l = source && evaluateChoreography(source, playhead.current);
     if (!l || !l.visible || playhead.current < l.start || playhead.current >= l.end) return;
-    if (['Enter', ' '].includes(event.key)) { event.preventDefault(); onSelect(l.id); return; }
+    if (event.key === 'Enter') { event.preventDefault(); onSelect(l.id); return; }
     if (l.locked || gesture.current || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault(); onSelect(l.id);
     commitWheel();

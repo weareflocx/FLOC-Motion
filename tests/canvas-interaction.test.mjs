@@ -45,6 +45,18 @@ function editor() {
   return { render, scroll, flush, unmount, patches, previews, node, rect, project, timers, commit: () => pending?.() };
 }
 
+test('canvas focus leaves Space for playback and Enter selects the focused layer', () => {
+  const h = editor(), selected = [];
+  const { handlers } = h.render({ onSelect: id => selected.push(id) });
+  let prevented = 0;
+  const event = { target: { closest: () => h.node }, preventDefault() { prevented++; } };
+  handlers.onKeyDown({ ...event, key: ' ' });
+  assert.equal(prevented, 0); assert.deepEqual(selected, []);
+  handlers.onKeyDown({ ...event, key: 'Enter' });
+  assert.equal(prevented, 1); assert.deepEqual(selected, ['headline']);
+  assert.equal(h.patches.length, 0); h.unmount();
+});
+
 test('wheel changes are grouped into one edit and survive selecting another layer', () => {
   const h = editor(), original = h.project.layers.find(layer => layer.id === 'headline');
   h.scroll(); h.scroll(); assert.equal(h.patches.length, 0);

@@ -100,8 +100,8 @@ test('Space retains native button and link activation while Delete still removes
   }
 });
 
-test('Space works after selecting a layer or focusing playback without repeat activation', () => {
-  for (const selector of ['.layer-select', '.canvas-play']) {
+test('Space works with canvas, layer selection or playback focus without repeat activation', () => {
+  for (const selector of ['.stage-holder', '.layer-select', '.canvas-play']) {
     const h = editor(), target = { closest: query => query.includes('button') || query.includes(selector) ? {} : null };
     h.press(' ', { target }); assert.equal(h.playing, true);
     h.press(' ', { target, repeat: true }); assert.equal(h.playing, true);
