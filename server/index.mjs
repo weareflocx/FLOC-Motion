@@ -63,7 +63,7 @@ const server = http.createServer(async (req, res) => {
       if (device) {
         if (route === '/api/render-worker/claim' && req.method === 'POST') return json(res, await personalRenderers.claim(device, JSON.parse(await body(req))));
         const match = route.match(/^\/api\/render-worker\/([a-f0-9-]{36})\/(progress|result)$/);
-        if (match && req.method === 'POST') return json(res, match[2] === 'result' ? await personalRenderers.complete(device, match[1], req) : await personalRenderers.update(device, match[1], JSON.parse(await body(req))));
+        if (match && req.method === 'POST') return json(res, await personalRenderers[match[2] === 'result' ? 'complete' : 'update'](device, match[1], JSON.parse(await body(req))));
         return json(res, { error: 'Not found.' }, 404);
       }
       if (!renderWorker.authorize(req.headers.authorization)) return json(res, { error: 'Renderer authentication required.' }, 401);
