@@ -88,7 +88,17 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.equal((await request(`${base}/api/exports/${personalJob.id}`)).status, 404);
     assert.equal((await request(`${base}/exports/${personalJob.id}/video.mp4`)).status, 404);
     assert.equal((await request(`${base}/api/exports/${personalJob.id}`, { headers: { Cookie: cookie } })).status, 200);
-    assert.equal((await fetch(`${base}/api/exports/${personalJob.id}`, { headers: engineHeaders })).status, 200, 'engine can check whether a retried upload already completed');
+    const claimed = await (await request(`${base}/api/render-worker/claim`, { method: 'POST', headers: engineHeaders, body: JSON.stringify({ version }) })).json();
+    assert.equal(claimed.id, personalJob.id);
+    const result = await request(`${base}/api/render-worker/${personalJob.id}/result`, { method: 'POST', headers: engineHeaders, body: JSON.stringify({ file: 'Movies/FLOC Motion/Test.mp4', duration: 1 }) });
+    assert.equal(result.status, 200);
+    const finished = await (await request(`${base}/api/exports/${personalJob.id}`, { headers: { Cookie: cookie } })).json();
+    assert.equal(finished.state, 'done');
+    assert.equal(finished.file, 'Movies/FLOC Motion/Test.mp4');
+    assert.equal('url' in finished, false);
+    assert.equal((await fetch(`${base}/api/exports/${personalJob.id}`, { headers: engineHeaders })).status, 200, 'engine can check whether a retried result already completed');
+    assert.equal((await request(`${base}/exports/${personalJob.id}/video.mp4`, { headers: { Cookie: cookie } })).status, 404);
+    assert.equal((await request(`${base}/exports/${personalJob.id}/video.mp4`)).status, 404);
     assert.equal((await request(`${base}/api/renderers/pair`, { method: 'POST', headers: { Origin: 'https://untrusted.example' } })).status, 403);
     const stale = await request(`${base}/api/templates/${composition.id}`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), updatedAt: composition.updatedAt }) });
     assert.equal(stale.status, 409);

@@ -67,6 +67,7 @@ dialog.modal-backdrop:not([open]){display:none}
 
 .error-banner{background:#000000;border-color:#ff0000;color:#ffffff}
 .job-status.failed{border-color:#ff0000;color:#ffffff}
+.export-file{overflow-wrap:anywhere}
 /* Sidebar layout map and frame-aligned timeline gestures. */
 .placement-control{margin-top:10px}.placement-map{position:relative;margin:0 auto;border:1px solid #ffffff55;background:#000000;overflow:hidden;touch-action:none;user-select:none;cursor:crosshair}
 

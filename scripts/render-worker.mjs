@@ -2,9 +2,10 @@ import { mkdir, readFile, rename, rm, copyFile, open, appendFile, stat } from 'n
 import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configureRenderer, trustedOrigin } from './renderer-runtime.mjs';
+import { configureRenderer, trustedOrigin, saveRenderedVideo } from './renderer-runtime.mjs';
 import { rendererVersion } from '../server/renderer-version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -86,16 +87,29 @@ while (!stopping) {
         await copyFile(path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, 'render.log'), path.join(process.env.FLOC_DATA_DIR, 'last-render.log')).catch(error => console.error(`Could not retain render diagnostics: ${error.message}`));
         if (localJob.state === 'failed') throw new Error(localJob.message);
         const filename = path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, 'video.mp4');
-        let uploaded = false;
+        let send, file;
+        if (personal) {
+          // Personal exports stay on this computer; the editor only learns where.
+          const saved = await saveRenderedVideo(filename, project.name);
+          const relative = path.relative(os.homedir(), saved);
+          file = relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? relative : saved;
+          await log(`Saved export: ${saved}`);
+          await rm(path.dirname(filename), { recursive: true, force: true });
+          send = () => request(`${route}/result`, { file, duration: localJob.duration });
+        } else send = () => request(`${route}/result`, createReadStream(filename), true);
+        let delivered = false;
         for (let attempt = 0; attempt < 3; attempt++) {
           if (attempt) {
             const status = await fetch(new URL(`/api/exports/${input.id}`, origin), { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(15000), redirect: 'error' });
-            if (status.ok && (await status.json()).state === 'done') { uploaded = true; break; }
+            if (status.ok && (await status.json()).state === 'done') { delivered = true; break; }
           }
-          try { await request(`${route}/result`, createReadStream(filename), true); uploaded = true; break; }
-          catch (error) { if (attempt === 2) throw error; await sleep(3000); }
+          try { await send(); delivered = true; break; }
+          catch (error) {
+            if (attempt < 2) { await sleep(3000); continue; }
+            throw file ? new Error(`The MP4 was saved to ${file}, but the editor could not be notified: ${error.message}`) : error;
+          }
         }
-        if (uploaded) {
+        if (delivered) {
           await log(`Export completed: ${input.id}`);
           await rm(path.dirname(filename), { recursive: true, force: true });
         }

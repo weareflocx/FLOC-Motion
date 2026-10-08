@@ -1,13 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
-import { Readable } from 'node:stream';
+import { mkdtemp, rm, readFile, access } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createPersonalRenderers, rendererCookie } from '../server/personal-renderers.mjs';
 import { demoProject } from '../src/project.js';
-import { run } from '../server/process.mjs';
 import { trustedOrigin, browserCandidates } from '../scripts/renderer-runtime.mjs';
 
 test('personal renderers isolate parallel jobs, credentials, progress and downloads', async () => {
@@ -41,13 +38,18 @@ test('personal renderers isolate parallel jobs, credentials, progress and downlo
     await assert.rejects(service.job(null, ja.id), /not found/);
     await service.update(a.engine, ja.id, { progress: 20 });
     assert.equal(ja.progress, 20); assert.equal(jb.progress, 0);
-    await assert.rejects(service.complete(a.engine, ja.id, Readable.from('not an MP4')));
+    await assert.rejects(service.complete(a.engine, ja.id, {}), /Invalid export result/);
+    await assert.rejects(service.complete(a.engine, ja.id, { file: 'not-a-video.txt', duration: 1 }), /Invalid export result/);
+    await assert.rejects(service.complete(a.engine, ja.id, { file: 'bad\nname.mp4', duration: 1 }), /Invalid export result/);
     assert.equal(ja.state, 'rendering');
-    const mp4 = path.join(data, 'fixture.mp4');
-    await run('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'color=c=blue:s=1080x1080:r=24:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', mp4]);
-    await service.complete(a.engine, ja.id, createReadStream(mp4));
-    assert.equal((await service.job(a.browser, ja.id)).state, 'done');
-    await assert.rejects(service.complete(b.engine, ja.id, createReadStream(mp4)), /no longer assigned/);
+    await service.complete(a.engine, ja.id, { file: 'Movies/FLOC Motion/Test.mp4', duration: 1 });
+    const completed = await service.job(a.browser, ja.id);
+    assert.equal(completed.state, 'done');
+    assert.equal(completed.file, 'Movies/FLOC Motion/Test.mp4');
+    assert.equal(completed.duration, 1);
+    assert.equal('url' in completed, false);
+    await assert.rejects(access(path.join(data, 'renders', ja.id, 'video.mp4')), { code: 'ENOENT' });
+    await assert.rejects(service.complete(b.engine, ja.id, { file: 'Videos/FLOC Motion/Test.mp4', duration: 1 }), /no longer assigned/);
     const persisted = await readFile(path.join(data, 'renderers', `${a.browser.id}.json`), 'utf8');
     assert.ok(!persisted.includes(a.credentials.token.split('.')[1]));
     assert.ok(!persisted.includes(a.pairing.key.split('.')[1]));
@@ -55,11 +57,15 @@ test('personal renderers isolate parallel jobs, credentials, progress and downlo
     const restored = await restarted.browser(a.cookie);
     assert.equal(restored.id, a.browser.id);
     assert.equal((await restarted.status(restored)).online, false);
-    assert.equal((await restarted.job(restored, ja.id)).state, 'done');
+    const restoredJob = await restarted.job(restored, ja.id);
+    assert.equal(restoredJob.state, 'done');
+    assert.equal(restoredJob.file, 'Movies/FLOC Motion/Test.mp4');
+    assert.equal(restoredJob.duration, 1);
+    await assert.rejects(restarted.job(await restarted.browser(b.cookie), ja.id), /not found/);
     assert.equal((await restarted.job(await restarted.browser(b.cookie), jb.id)).state, 'failed');
     clock += 91000;
     assert.equal((await service.job(b.browser, jb.id)).state, 'failed');
-    await assert.rejects(service.complete(b.engine, jb.id, createReadStream(mp4)), /no longer assigned/);
+    await assert.rejects(service.complete(b.engine, jb.id, { file: 'Videos/FLOC Motion/Test.mp4', duration: 1 }), /no longer assigned/);
     await assert.rejects(service.enqueue(b.browser, project, {}), /offline/);
     const reconnect = await service.startPairing(a.cookie);
     assert.equal(reconnect.key, a.pairing.key, 'reconnecting preserves access to completed exports');
