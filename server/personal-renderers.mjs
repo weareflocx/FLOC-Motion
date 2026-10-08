@@ -1,12 +1,8 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
-import { Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { validateProject } from '../src/project.js';
 import { validateExportSettings, exportDimensions } from '../src/export-settings.js';
-import { verifyExport } from './export.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const error = (message, status = 409) => Object.assign(new Error(message), { status });
@@ -126,23 +122,18 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
       }
       await persistJob(job); return job;
     },
-    async complete(device, id, stream) {
+    // The renderer verifies and keeps the MP4 on its own computer; the editor stores only the outcome.
+    async complete(device, id, input) {
       await expire(device);
       const lease = device.active;
       if (lease?.id !== id || jobs.get(id)?.state !== 'rendering') throw error('This export is no longer assigned to your renderer.');
+      const file = typeof input?.file === 'string' ? input.file.trim() : '';
+      const duration = Number(input?.duration);
+      if (!file || file.length > 500 || !/\.mp4$/i.test(file) || /[\u0000-\u001f]/.test(file) || !(duration > 0 && duration <= lease.project.duration + 1)) throw error('Invalid export result.', 400);
       device.seen = now();
-      const temp = path.join(folder(id), 'upload.mp4'); let size = 0, created = false;
-      try {
-        const output = createWriteStream(temp, { flags: 'wx' });
-        output.on('open', () => { created = true; });
-        await pipeline(stream, new Transform({ transform(chunk, encoding, callback) { size += chunk.length; callback(size > 512e6 ? error('Export exceeds 512 MB.', 413) : null, chunk); } }), output);
-        const result = await verifyExport(lease.project, temp, lease.settings);
-        if (device.active !== lease) throw error('This export is no longer assigned to your renderer.');
-        await rename(temp, path.join(folder(id), 'video.mp4'));
-        const job = jobs.get(id);
-        Object.assign(job, { state: 'done', progress: 100, message: 'MP4 ready', url: `/exports/${id}/video.mp4`, duration: result.duration });
-        await persistJob(job); device.active = null; return job;
-      } catch (cause) { if (created) await rm(temp, { force: true }); throw cause; }
+      const job = jobs.get(id);
+      Object.assign(job, { state: 'done', progress: 100, message: 'Saved on your computer', file, duration });
+      await persistJob(job); device.active = null; return job;
     },
     async job(device, id) {
       if (device) await expire(device);

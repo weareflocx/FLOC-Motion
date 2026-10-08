@@ -1,4 +1,6 @@
-import { access } from 'node:fs/promises';
+import { access, copyFile, mkdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { run } from '../server/process.mjs';
 import { root } from '../server/runtime-config.mjs';
@@ -10,6 +12,24 @@ export async function installRendererBrowser() {
   const options = { env: { PRODUCER_HEADLESS_SHELL_PATH: '' } };
   await run(process.execPath, [bin, 'browser', 'ensure'], options, text => process.stdout.write(text));
   return (await run(process.execPath, [bin, 'browser', 'path'], options)).trim();
+}
+
+export function exportDirectory(platform = process.platform, home = os.homedir()) {
+  return path.join(home, platform === 'darwin' ? 'Movies' : 'Videos', 'FLOC Motion');
+}
+// Never overwrite an earlier export: a name collision gets a numbered copy.
+export async function saveRenderedVideo(source, name, directory = exportDirectory(), date = new Date()) {
+  await mkdir(directory, { recursive: true });
+  const sanitized = String(name || '').replace(/[\/:*?"<>|\u0000-\u001f]/g, '-').replace(/\s+/g, ' ').replace(/^[. -]+|[. -]+$/g, '');
+  let base = Array.from(sanitized).slice(0, 80).join('').replace(/[. ]+$/g, '') || 'FLOC Motion export';
+  if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(base)) base = `_${base}`;
+  const pad = value => String(value).padStart(2, '0');
+  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}.${pad(date.getMinutes())}.${pad(date.getSeconds())}`;
+  for (let copy = 1; ; copy++) {
+    const filename = path.join(directory, `${base} ${stamp}${copy > 1 ? ` (${copy})` : ''}.mp4`);
+    try { await copyFile(source, filename, constants.COPYFILE_EXCL); return filename; }
+    catch (cause) { if (cause.code !== 'EEXIST') throw cause; }
+  }
 }
 
 export function trustedOrigin(value) {
