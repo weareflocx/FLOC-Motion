@@ -34,12 +34,13 @@ export function createAuthStore(data, { now = Date.now } = {}) {
     state.sessions = state.sessions.filter(item => item.expiresAt > now());
     await writeJsonAtomic(filename, state, { mode: 0o600, directoryMode: 0o700 });
   }
-  function throttle(key) {
+  function throttle(key, limit) {
     for (const [id, attempt] of attempts) if (attempt.until <= now()) attempts.delete(id);
     const attempt = attempts.get(key) || { count: 0, until: now() + 15 * 60 * 1000 };
-    if (attempt.count >= 10 || (!attempts.has(key) && attempts.size >= 1000)) throw failure('Too many attempts. Try again in 15 minutes.', 429);
+    if (attempt.count >= limit || (!attempts.has(key) && attempts.size >= 2000)) throw failure('Too many attempts. Try again in 15 minutes.', 429);
     attempt.count++; attempts.set(key, attempt);
   }
+  const accountKey = input => { try { return emailAddress(input.email); } catch { return String(input.email || '').trim().toLowerCase().slice(0, 254) || 'invalid'; } };
   function addSession(state, user) {
     const token = randomBytes(32).toString('hex');
     const active = state.sessions.filter(item => item.userId === user.id && item.expiresAt > now()).slice(-19);
@@ -74,8 +75,8 @@ export function createAuthStore(data, { now = Date.now } = {}) {
       return user ? publicUser(user) : null;
     }),
     accept: (input, address) => serial(async () => {
-      throttle(`accept:${address}`);
       const email = emailAddress(input.email), password = passwordValue(input.password);
+      throttle(`accept-client:${address}`, 25); throttle(`accept-account:${email}`, 10);
       const state = await read();
       const invitation = typeof input.token === 'string' && /^[a-f0-9]{64}$/.test(input.token) && state.invitations.find(item => item.hash === digest(input.token) && item.email === email && item.expiresAt > now());
       if (!invitation || state.users.some(user => user.email === email)) throw failure('This invitation is invalid or expired.', 400);
@@ -85,11 +86,12 @@ export function createAuthStore(data, { now = Date.now } = {}) {
       state.invitations = state.invitations.filter(item => item !== invitation);
       const result = addSession(state, user);
       await write(state);
-      attempts.delete(`accept:${address}`);
+      attempts.delete(`accept-client:${address}`); attempts.delete(`accept-account:${email}`);
       return result;
     }),
     login: (input, address) => serial(async () => {
-      throttle(`login:${address}`);
+      const key = accountKey(input);
+      throttle(`login-client:${address}`, 25); throttle(`login-account:${key}`, 10);
       let email;
       try { email = emailAddress(input.email); } catch { throw failure('Email or password is incorrect.', 401); }
       if (typeof input.password !== 'string' || input.password.length > 128) throw failure('Email or password is incorrect.', 401);
@@ -99,7 +101,7 @@ export function createAuthStore(data, { now = Date.now } = {}) {
       if (!user || !timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(user.passwordHash, 'hex'))) throw failure('Email or password is incorrect.', 401);
       const result = addSession(state, user);
       await write(state);
-      attempts.delete(`login:${address}`);
+      attempts.delete(`login-client:${address}`); attempts.delete(`login-account:${email}`);
       return result;
     }),
     logout: cookie => serial(async () => {

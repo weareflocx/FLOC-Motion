@@ -15,6 +15,7 @@ import { rendererVersion } from './renderer-version.mjs';
 import { createAuthStore, sessionCookie } from './auth-store.mjs';
 import { createDraftStore } from './draft-store.mjs';
 import { readJson, removeStaleJsonTemps, writeJsonAtomic } from './json-store.mjs';
+import { clientAddress, configureHttpServer, requestBody } from './http-boundary.mjs';
 const config = runtimeConfig();
 const { port, data } = config;
 const assets = path.join(data, 'assets');
@@ -29,7 +30,7 @@ await mkdir(path.join(data, 'renders'), { recursive: true });
 await Promise.all(['access', 'drafts', 'templates', 'renderers'].map(name => removeStaleJsonTemps(path.join(data, name))).concat(removeStaleJsonTemps(path.join(data, 'renders'), { recursive: true })));
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] }, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.data/**', `${data}/**`] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
-const body = async (req, limit = 2e6) => { let size = 0; const chunks = []; for await (const chunk of req) { size += chunk.length; if (size > limit) throw new Error('File is too large. Maximum upload size is 75 MB.'); chunks.push(chunk); } return Buffer.concat(chunks); };
+const body = requestBody;
 const json = (res, value, code = 200) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
 async function file(req, res, filename) {
   const info = await stat(filename); const mime = types[path.extname(filename).slice(1)] || 'application/octet-stream';
@@ -39,7 +40,7 @@ async function file(req, res, filename) {
   if (range) { const start = Number(range[1]); const end = Math.min(range[2] ? Number(range[2]) : info.size - 1, info.size - 1); if (start >= info.size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }); return res.end(); } res.writeHead(206, { ...headers, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${info.size}` }); createReadStream(filename, { start, end }).pipe(res); }
   else { res.writeHead(200, { ...headers, 'Content-Length': info.size }); createReadStream(filename).pipe(res); }
 }
-const server = http.createServer(async (req, res) => {
+const server = configureHttpServer(http.createServer(async (req, res) => {
   try {
     const origin = requestOrigin(req.headers.host, config);
     if (!origin) return json(res, { error: config.publicOrigin ? 'Host not allowed.' : 'Local access only.' }, 403);
@@ -55,7 +56,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, { user: null });
       }
       const input = JSON.parse(await body(req, 4096));
-      const result = await auth[route.endsWith('login') ? 'login' : 'accept'](input, req.socket.remoteAddress);
+      const result = await auth[route.endsWith('login') ? 'login' : 'accept'](input, clientAddress(req, config));
       res.setHeader('Set-Cookie', sessionCookie(result.token, origin.startsWith('https:')));
       return json(res, { user: result.user });
     }
@@ -162,6 +163,6 @@ const server = http.createServer(async (req, res) => {
     if (!filename.startsWith(path.join(root, 'dist') + path.sep)) return json(res, { error: 'Not found.' }, 404);
     try { await file(req, res, filename); } catch { await file(req, res, path.join(root, 'dist/index.html')); }
   } catch (error) { if (!res.headersSent) json(res, { error: error.code === 'ENOENT' ? 'File not found.' : error.message }, error.status || (error.code === 'ENOENT' ? 404 : 400)); else res.destroy(); }
-});
+}));
 server.listen(port, config.host, () => console.log(`FLOC Motion: ${config.publicOrigin || `http://127.0.0.1:${port}`}`));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { server.close(); vite?.close(); process.exit(0); });

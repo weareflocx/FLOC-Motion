@@ -58,6 +58,19 @@ test('invitations and sessions expire, and excessive failed sign-ins are rejecte
   assert.equal((await auth.login({ email: fresh.email, password }, 'attacker')).user.email, fresh.email);
 });
 
+test('login throttles accounts and clients independently without proxy-wide lockout', async t => {
+  const auth = createAuthStore(await folder(t));
+  const invitation = await auth.bootstrap('owner@example.com');
+  await auth.accept({ ...invitation, password }, 'setup');
+  for (let index = 0; index < 10; index++) await assert.rejects(auth.login({ email: 'owner@example.com', password: 'wrong' }, `client-${index}`), /incorrect/);
+  await assert.rejects(auth.login({ email: 'owner@example.com', password }, 'fresh-client'), error => error.status === 429);
+  const second = createAuthStore(await folder(t));
+  const secondInvite = await second.bootstrap('second@example.com'); await second.accept({ ...secondInvite, password }, 'setup');
+  for (let index = 0; index < 25; index++) await assert.rejects(second.login({ email: `unknown-${index}@example.com`, password: 'wrong' }, 'shared-client'), /incorrect/);
+  await assert.rejects(second.login({ email: 'second@example.com', password }, 'shared-client'), error => error.status === 429);
+  assert.deepEqual((await second.login({ email: 'second@example.com', password }, 'different-client')).user.email, 'second@example.com');
+});
+
 test('different compositions and drafts save independently; stale saves to the same resource conflict', async t => {
   const data = await folder(t), templates = createTemplateStore(data), drafts = createDraftStore(data);
   const [a, b] = await Promise.all(['A', 'B'].map(name => templates.create({ name, project: demoProject(), tags: [] })));
