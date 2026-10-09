@@ -17,7 +17,7 @@ test('production serves frontend bundles and uploaded media without mixing names
   let child;
   try {
     await mkdir(path.join(folder, 'server'));
-    for (const name of ['index.mjs', 'auth-store.mjs', 'draft-store.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'json-store.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'asset-upload.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
+    for (const name of ['index.mjs', 'auth-store.mjs', 'draft-store.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'json-store.mjs', 'http-boundary.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'asset-upload.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
     await copyFile(path.join(root, 'package-lock.json'), path.join(folder, 'package-lock.json'));
     for (const name of ['node_modules', 'src', 'scripts']) await symlink(path.join(root, name), path.join(folder, name));
     await mkdir(path.join(folder, 'dist/assets'), { recursive: true });
