@@ -11,6 +11,7 @@ import { ensureGifVideo } from './card-media.mjs';
 import { cardMediaKind } from '../src/card-media.js';
 import { extractCardFrames } from './card-frames.mjs';
 import { stageMarkup } from '../src/scene.js';
+import { writeJsonAtomic } from './json-store.mjs';
 export const jobs = new Map();
 let running = false;
 export { run } from './process.mjs';
@@ -51,8 +52,8 @@ export async function prepareComposition(input, folder, settings = {}) {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(p.name)}</title><style>${fontFaceCss('./')}*{box-sizing:border-box}body{margin:0;font-family:Geist,Arial,sans-serif}.composition{position:relative;width:${outputWidth}px;height:${outputHeight}px;overflow:hidden}.export-scene{position:relative;width:${w}px;height:${h}px;transform:scale(${scale});transform-origin:top left}</style></head><body><div class="composition" data-composition-id="main" data-floc-project="${escapeHtml(serialized)}" data-render-scale="${scale}" data-start="0" data-duration="${p.duration}" data-width="${outputWidth}" data-height="${outputHeight}"><div class="export-scene">${markup}</div></div><script src="gsap.min.js"></script><script>window.__timelines=window.__timelines||{};const clock={time:0};const tl=gsap.timeline({paused:true});tl.to(clock,{time:${p.duration},duration:${p.duration},ease:"none",onUpdate:()=>window.dispatchEvent(new CustomEvent("hf-seek",{detail:{time:clock.time}}))},0);window.__timelines["main"]=tl;</script><script src="scene.js"></script></body></html>`;
   const frameData = JSON.stringify(cardFrames).replace(/</g, '\\u003c');
   await writeFile(path.join(folder, 'index.html'), html.replace('<script src="scene.js">', `<script id="floc-card-frames" type="application/json">${frameData}</script><script src="scene.js">`));
-  await writeFile(path.join(folder, 'hyperframes.json'), JSON.stringify({ name: 'motion-export', entry: 'index.html', fps: p.fps, width: outputWidth, height: outputHeight }));
-  await writeFile(path.join(folder, 'render-input.json'), JSON.stringify({ project: original, settings: validateExportSettings(settings) }));
+  await writeJsonAtomic(path.join(folder, 'hyperframes.json'), { name: 'motion-export', entry: 'index.html', fps: p.fps, width: outputWidth, height: outputHeight });
+  await writeJsonAtomic(path.join(folder, 'render-input.json'), { project: original, settings: validateExportSettings(settings) });
   return original;
 }
 export async function renderPreparedComposition(input, folder, options = {}, onProgress = () => {}) {
@@ -126,7 +127,7 @@ export async function startExport(input, options = {}) {
       job.state = 'failed'; job.message = error.message.slice(-2500);
       try { appendFileSync(path.join(folder, 'render.log'), `\nExport failed: ${error.message}\n`); } catch {}
     } finally {
-      try { await writeFile(path.join(folder, 'job.json'), JSON.stringify(job)); }
+      try { await writeJsonAtomic(path.join(folder, 'job.json'), job); }
       catch (error) { job.state = 'failed'; job.message = `Could not persist export result: ${error.message}`; }
       finally { running = false; }
     }

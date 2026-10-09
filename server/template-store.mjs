@@ -1,7 +1,8 @@
-import { mkdir, readFile, readdir, writeFile, rename, unlink } from 'node:fs/promises';
+import { mkdir, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateProject } from '../src/project.js';
+import { readJson, writeJsonAtomic } from './json-store.mjs';
 
 function metadata(input) {
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 100) throw new Error('Template name must contain 1–100 characters.');
@@ -17,28 +18,20 @@ export function createTemplateStore(data) {
     return path.join(directory, `${id}.json`);
   }
   async function read(id) {
-    const entry = JSON.parse(await readFile(filename(id), 'utf8'));
+    const entry = await readJson(filename(id));
     if (entry.id !== id) throw new Error('Invalid saved template.');
     return { ...entry, ...metadata(entry), project: validateProject(entry.project) };
   }
-  async function write(entry) {
-    const target = filename(entry.id), temporary = `${target}.tmp`;
-    await mkdir(directory, { recursive: true });
-    await writeFile(temporary, JSON.stringify(entry));
-    await rename(temporary, target);
-    return entry;
-  }
+  async function write(entry) { await writeJsonAtomic(filename(entry.id), entry); return entry; }
   return {
     read: id => serial(() => read(id)),
     preserveLegacyProject: () => serial(async () => {
       const marker = path.join(data, 'project-migration.json');
-      try { await readFile(marker); return; } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      const finish = async id => {
-        await writeFile(`${marker}.tmp`, JSON.stringify({ compositionId: id }));
-        await rename(`${marker}.tmp`, marker);
-      };
+      try { await readJson(marker); return; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const finish = id => writeJsonAtomic(marker, { compositionId: id });
+      const legacy = path.join(data, 'project.json');
       let saved;
-      try { saved = JSON.parse(await readFile(path.join(data, 'project.json'), 'utf8')); }
+      try { saved = await readJson(legacy); }
       catch (error) { if (error.code === 'ENOENT') return; throw error; }
       if (saved.composition?.id) {
         try { await read(saved.composition.id); await finish(saved.composition.id); return; }

@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { demoProject, validateProject } from '../src/project.js';
+import { readJson, writeJsonAtomic } from './json-store.mjs';
 
 export function createDraftStore(data) {
   const directory = path.join(data, 'drafts');
@@ -11,8 +11,8 @@ export function createDraftStore(data) {
     return path.join(directory, `${id}.json`);
   }
   async function read(id) {
-    try { const saved = JSON.parse(await readFile(filename(id), 'utf8')); return { project: validateProject(saved.project), revision: saved.revision }; }
-    catch (error) { if (error.code !== 'ENOENT') throw error; return { project: demoProject(), revision: 0 }; }
+    const saved = await readJson(filename(id), { missing: { project: demoProject(), revision: 0 } });
+    return { project: validateProject(saved.project), revision: saved.revision };
   }
   return {
     read: id => serial(() => read(id)),
@@ -20,10 +20,7 @@ export function createDraftStore(data) {
       const current = await read(id);
       if (input.revision !== current.revision) throw Object.assign(new Error('This draft changed in another window. Reload before saving.'), { status: 409 });
       const saved = { project: validateProject(input.project), revision: current.revision + 1 };
-      const target = filename(id);
-      await mkdir(directory, { recursive: true });
-      await writeFile(`${target}.tmp`, JSON.stringify(saved));
-      await rename(`${target}.tmp`, target);
+      await writeJsonAtomic(filename(id), saved);
       return { revision: saved.revision, composition: null };
     })
   };

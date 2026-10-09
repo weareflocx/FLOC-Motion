@@ -1,6 +1,6 @@
 import { acceptAssetUpload } from './asset-upload.mjs';
 import http from 'node:http';
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
@@ -14,6 +14,7 @@ import { createPersonalRenderers, rendererCookie } from './personal-renderers.mj
 import { rendererVersion } from './renderer-version.mjs';
 import { createAuthStore, sessionCookie } from './auth-store.mjs';
 import { createDraftStore } from './draft-store.mjs';
+import { readJson, removeStaleJsonTemps, writeJsonAtomic } from './json-store.mjs';
 const config = runtimeConfig();
 const { port, data } = config;
 const assets = path.join(data, 'assets');
@@ -25,6 +26,7 @@ const renderWorker = createRenderWorker({ data, jobs, token: process.env.FLOC_RE
 const personalRenderers = createPersonalRenderers({ data, jobs, version: await rendererVersion() });
 await mkdir(assets, { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
+await Promise.all(['access', 'drafts', 'templates', 'renderers'].map(name => removeStaleJsonTemps(path.join(data, name))).concat(removeStaleJsonTemps(path.join(data, 'renders'), { recursive: true })));
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] }, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.data/**', `${data}/**`] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = async (req, limit = 2e6) => { let size = 0; const chunks = []; for await (const chunk of req) { size += chunk.length; if (size > limit) throw new Error('File is too large. Maximum upload size is 75 MB.'); chunks.push(chunk); } return Buffer.concat(chunks); };
@@ -117,14 +119,14 @@ const server = http.createServer(async (req, res) => {
       let job = await personalRenderers.job(device, jobMatch[1]);
       if (!job?.rendererId) job = await renderWorker.status(jobMatch[1]) || job;
       if (!job) {
+        const filename = path.join(data, 'renders', jobMatch[1], 'job.json');
         try {
-          const filename = path.join(data, 'renders', jobMatch[1], 'job.json');
-          job = JSON.parse(await readFile(filename, 'utf8'));
+          job = await readJson(filename);
           if (renderWorker.enabled && !['done', 'failed'].includes(job.state)) {
             Object.assign(job, { state: 'failed', message: 'The editor restarted during export. Please export again.' });
-            await writeFile(filename, JSON.stringify(job));
+            await writeJsonAtomic(filename, job);
           }
-        } catch {}
+        } catch (error) { if (error.code !== 'ENOENT') throw error; }
       }
       return json(res, job || { error: 'Export not found.' }, job ? 200 : 404);
     }
