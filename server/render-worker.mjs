@@ -1,5 +1,5 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { mkdir, writeFile, rename, rm } from 'node:fs/promises';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -7,13 +7,14 @@ import path from 'node:path';
 import { validateProject } from '../src/project.js';
 import { validateExportSettings, exportDimensions } from '../src/export-settings.js';
 import { verifyExport } from './export.mjs';
+import { writeJsonAtomic } from './json-store.mjs';
 
 // One trusted Mac pulls jobs outbound. No incoming connection to the Mac is needed.
 export function createRenderWorker({ data, jobs, token, now = Date.now }) {
   let seen = 0, active = null;
   const pending = new Map();
   const folder = id => path.join(data, 'renders', id);
-  const persist = job => writeFile(path.join(folder(job.id), 'job.json'), JSON.stringify(job));
+  const persist = job => writeJsonAtomic(path.join(folder(job.id), 'job.json'), job);
   const failure = (message, status = 409) => Object.assign(new Error(message), { status });
   async function expire() {
     if (pending.size && now() - seen > 90000) {

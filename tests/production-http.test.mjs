@@ -17,7 +17,7 @@ test('production serves frontend bundles and uploaded media without mixing names
   let child;
   try {
     await mkdir(path.join(folder, 'server'));
-    for (const name of ['index.mjs', 'auth-store.mjs', 'draft-store.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'asset-upload.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
+    for (const name of ['index.mjs', 'auth-store.mjs', 'draft-store.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'json-store.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'asset-upload.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
     await copyFile(path.join(root, 'package-lock.json'), path.join(folder, 'package-lock.json'));
     for (const name of ['node_modules', 'src', 'scripts']) await symlink(path.join(root, name), path.join(folder, name));
     await mkdir(path.join(folder, 'dist/assets'), { recursive: true });
@@ -99,6 +99,12 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.equal((await fetch(`${base}/api/exports/${personalJob.id}`, { headers: engineHeaders })).status, 200, 'engine can check whether a retried result already completed');
     assert.equal((await request(`${base}/exports/${personalJob.id}/video.mp4`, { headers: { Cookie: cookie } })).status, 404);
     assert.equal((await request(`${base}/exports/${personalJob.id}/video.mp4`)).status, 404);
+    const corruptId = randomUUID();
+    await mkdir(path.join(folder, '.data/renders', corruptId), { recursive: true });
+    await writeFile(path.join(folder, '.data/renders', corruptId, 'job.json'), '{');
+    const corruptJob = await request(`${base}/api/exports/${corruptId}`);
+    assert.equal(corruptJob.status, 500);
+    assert.match((await corruptJob.json()).error, /Persisted JSON is corrupt/);
     assert.equal((await request(`${base}/api/renderers/pair`, { method: 'POST', headers: { Origin: 'https://untrusted.example' } })).status, 403);
     const stale = await request(`${base}/api/templates/${composition.id}`, { method: 'PUT', body: JSON.stringify({ project: demoProject(), updatedAt: composition.updatedAt }) });
     assert.equal(stale.status, 409);

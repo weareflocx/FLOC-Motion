@@ -11,7 +11,7 @@ try {
   for (const name of ['package.json', 'package-lock.json']) await cp(path.join(root, name), path.join(target, name));
   const editorDirectory = path.join(root, 'src/editor');
   await cp(path.join(root, 'src'), path.join(target, 'src'), { recursive: true, filter: name => name !== editorDirectory && !name.startsWith(editorDirectory + path.sep) && !name.endsWith('.jsx') });
-  for (const name of ['export.mjs', 'card-frames.mjs', 'card-media.mjs', 'process.mjs', 'build-scene.mjs', 'runtime-config.mjs', 'renderer-version.mjs']) {
+  for (const name of ['export.mjs', 'card-frames.mjs', 'card-media.mjs', 'process.mjs', 'json-store.mjs', 'build-scene.mjs', 'runtime-config.mjs', 'renderer-version.mjs']) {
     await mkdir(path.join(target, 'server'), { recursive: true });
     await cp(path.join(root, 'server', name), path.join(target, 'server', name));
   }

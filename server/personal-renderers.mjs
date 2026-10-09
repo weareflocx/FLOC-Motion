@@ -1,8 +1,9 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { validateProject } from '../src/project.js';
 import { validateExportSettings, exportDimensions } from '../src/export-settings.js';
+import { readJson, writeJsonAtomic } from './json-store.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const error = (message, status = 409) => Object.assign(new Error(message), { status });
@@ -18,19 +19,17 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
   const devices = new Map(), codes = new Map();
   const directory = path.join(data, 'renderers');
   const folder = id => path.join(data, 'renders', id);
-  const persistJob = job => writeFile(path.join(folder(job.id), 'job.json'), JSON.stringify(job));
+  const persistJob = job => writeJsonAtomic(path.join(folder(job.id), 'job.json'), job);
   async function persistDevice(device) {
-    await mkdir(directory, { recursive: true });
     const filename = path.join(directory, `${device.id}.json`);
-    await writeFile(`${filename}.tmp`, JSON.stringify({ id: device.id, name: device.name, browserHash: device.browserHash, engineHash: device.engineHash }), { mode: 0o600 });
-    await rename(`${filename}.tmp`, filename);
+    await writeJsonAtomic(filename, { id: device.id, name: device.name, browserHash: device.browserHash, engineHash: device.engineHash }, { mode: 0o600, directoryMode: 0o700 });
   }
   async function authenticate(key, kind) {
     const match = typeof key === 'string' && key.match(/^([a-f0-9-]{36})\.([a-f0-9]{64})$/);
     if (!match) return null;
     let device = devices.get(match[1]);
     if (!device) {
-      try { device = { ...JSON.parse(await readFile(path.join(directory, `${match[1]}.json`))), seen: 0, active: null }; devices.set(device.id, device); }
+      try { device = { ...await readJson(path.join(directory, `${match[1]}.json`)), seen: 0, active: null }; devices.set(device.id, device); }
       catch (cause) { if (cause.code === 'ENOENT') return null; throw cause; }
     }
     const expected = device[`${kind}Hash`];
@@ -139,7 +138,7 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
       if (device) await expire(device);
       let job = jobs.get(id);
       if (!job) {
-        try { job = JSON.parse(await readFile(path.join(folder(id), 'job.json'))); }
+        try { job = await readJson(path.join(folder(id), 'job.json')); }
         catch (cause) { if (cause.code === 'ENOENT') return null; throw cause; }
         if (job.rendererId && !['done', 'failed'].includes(job.state)) {
           Object.assign(job, { state: 'failed', message: 'The editor restarted during export. Export again.' }); await persistJob(job);

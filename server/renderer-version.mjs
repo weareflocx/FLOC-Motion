@@ -5,7 +5,7 @@ import { root } from './runtime-config.mjs';
 
 // Bind the renderer to the shared validator and scene, not just package.version.
 export async function rendererVersion(directory = root) {
-  const files = ['package-lock.json', 'server/export.mjs', 'server/card-frames.mjs', 'server/card-media.mjs', 'server/build-scene.mjs', 'server/process.mjs', 'server/renderer-version.mjs', 'scripts/render-worker.mjs', 'scripts/renderer-runtime.mjs'];
+  const files = ['package-lock.json', 'server/export.mjs', 'server/card-frames.mjs', 'server/card-media.mjs', 'server/build-scene.mjs', 'server/process.mjs', 'server/json-store.mjs', 'server/renderer-version.mjs', 'scripts/render-worker.mjs', 'scripts/renderer-runtime.mjs'];
   async function walk(relative) {
     for (const entry of await readdir(path.join(directory, relative), { withFileTypes: true })) {
       if (entry.name === 'editor') continue;

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID, createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
+import { readJson, writeJsonAtomic } from './json-store.mjs';
 
 const derive = promisify(scrypt);
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -28,16 +28,11 @@ export function createAuthStore(data, { now = Date.now } = {}) {
   let queue = Promise.resolve();
   const attempts = new Map();
   const serial = action => { const pending = queue.catch(() => {}).then(action); queue = pending; return pending; };
-  async function read() {
-    try { return JSON.parse(await readFile(filename, 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; return { users: [], invitations: [], sessions: [] }; }
-  }
+  async function read() { return readJson(filename, { missing: { users: [], invitations: [], sessions: [] } }); }
   async function write(state) {
     state.invitations = state.invitations.filter(item => item.expiresAt > now());
     state.sessions = state.sessions.filter(item => item.expiresAt > now());
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await writeFile(`${filename}.tmp`, JSON.stringify(state), { mode: 0o600 });
-    await rename(`${filename}.tmp`, filename);
+    await writeJsonAtomic(filename, state, { mode: 0o600, directoryMode: 0o700 });
   }
   function throttle(key) {
     for (const [id, attempt] of attempts) if (attempt.until <= now()) attempts.delete(id);
