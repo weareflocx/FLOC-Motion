@@ -1,4 +1,3 @@
-import { acceptAssetUpload } from './asset-upload.mjs';
 import http from 'node:http';
 import { mkdir, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -16,9 +15,11 @@ import { createAuthStore, sessionCookie } from './auth-store.mjs';
 import { createDraftStore } from './draft-store.mjs';
 import { readJson, removeStaleJsonTemps, writeJsonAtomic } from './json-store.mjs';
 import { clientAddress, configureHttpServer, requestBody } from './http-boundary.mjs';
+import { createAssetStorage } from './asset-storage.mjs';
 const config = runtimeConfig();
 const { port, data } = config;
 const assets = path.join(data, 'assets');
+const storage = createAssetStorage({ data });
 const templates = createTemplateStore(data);
 await templates.preserveLegacyProject();
 const auth = createAuthStore(data);
@@ -100,11 +101,13 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     if (templateMatch && req.method === 'GET') return json(res, await templates.read(templateMatch[1]));
     if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], JSON.parse(await body(req))));
     if (templateMatch && req.method === 'DELETE') { await templates.remove(templateMatch[1]); return json(res, { deleted: true }); }
+    if (route === '/api/storage' && req.method === 'GET') return json(res, await storage.usage());
+    if (route === '/api/storage/cleanup' && req.method === 'POST') { const input = JSON.parse(await body(req, 4096)); return json(res, await storage.cleanup({ dryRun: input.confirm !== true })); }
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, carouselEffects: CAROUSEL_EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
-      const asset = await acceptAssetUpload(req, { directory: assets, ext, run, convertGif: ensureGifVideo });
+      const asset = await storage.upload(req, { ext, run, convertGif: ensureGifVideo });
       return json(res, { id: asset.id, src: `/assets/${asset.id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
     }
     if (route === '/api/exports' && req.method === 'POST') {
