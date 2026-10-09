@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "invite": "node scripts/invite-first-user.mjs",
+    "workspace:backup": "node scripts/workspace-backup.mjs backup",
+    "workspace:verify": "node scripts/workspace-backup.mjs verify",
+    "workspace:restore": "node scripts/workspace-backup.mjs restore",
     "dev": "node server/index.mjs",
     "build": "vite build && node server/build-scene.mjs && node scripts/package-renderer.mjs",
     "build:renderer": "node scripts/package-renderer.mjs",

@@ -56,7 +56,28 @@ Everyone who signs in has access to the whole shared library. Each tab remembers
 The Dockerfile builds the frontend and scene bundle, installs only production Node dependencies, and includes Chromium and FFmpeg. `fly.toml` selects this image, port 8080 and the public origin. Local project data is excluded from the image. These files do not deploy the app by themselves.
 
 `FLOC_DATA_DIR` selects writable storage for the saved project, uploads and exports (default `.data/`). Fly mounts the `floc_data` volume at `/data` and stores application data in `/data/floc-motion`. The container initializes ownership of this directory, then runs Node without root privileges. Hosting uses one machine: data persists across deployments, but there is no machine redundancy or simultaneous collaborative editing. Separate machines do not share projects or uploads; do not scale this file-backed editor horizontally. The volume must exist before deployment.
+### Workspace backup and recovery
 
+Fly keeps automatic daily snapshots of the encrypted `floc_data` volume for five days. These snapshots are the first recovery layer, but they remain in the same Fly account. Keep periodic portable copies outside Fly as a second layer.
+
+Create a portable backup directory from a stopped or otherwise write-idle workspace:
+
+```bash
+npm run workspace:backup -- /path/to/floc-backup /path/to/workspace
+npm run workspace:verify -- /path/to/floc-backup
+```
+
+The workspace argument defaults to `FLOC_DATA_DIR`, then `.data`. The backup contains projects, drafts, templates, uploaded assets, access state, renderer registrations, and render `job.json`, `render-input.json`, and `render.log` files. It deliberately excludes generated engine files, render MP4s, prepared assets, frame directories, diagnostics, and `.tmp`/`.upload` files. `manifest.json` lists every included file in sorted order with its byte count and SHA-256 digest. Treat the backup as sensitive because it contains account and device credential hashes.
+
+Restore only while the application is stopped, into a missing or empty directory:
+
+```bash
+npm run workspace:restore -- /path/to/floc-backup /path/to/restored-workspace
+```
+
+Restore verifies the complete manifest, allowed paths, payload inventory, sizes, and hashes before writing. It refuses symbolic links, traversal paths, extra or missing payload files, corrupt files, and non-empty targets. There is no force or overwrite mode.
+
+For Fly, create and verify the copy in ephemeral `/tmp` storage, download it before restarting normal writes, and then remove the temporary copy. Do not place the portable backup under `/data/floc-motion`, because that consumes the same volume and is not an independent copy. Fly volume restore remains a separate operator procedure: create a new volume from a selected snapshot, attach it to a stopped replacement machine, verify the workspace, and only then switch service traffic. Never restore over the attached live volume.
 ## Motion library previews
 
 The motion library includes real six-second sample clips for each base template and all 108 catalog presets, rendered through the shared scene/export engine with local studio images. Clips play only while visible; the library provides a pause control and respects reduced-motion preferences. Base-template samples illustrate standard settings; preset samples use their actual supported recipe values, including orientation, card count and loop timing. The six-second excerpt repeats without changing the preset duration. These samples use studio images, not the current composition. Documentary reference sheets remain available in preset details. Presets with no visible cards in the sampled interval display an explicit notice rather than substituting a different configuration.
