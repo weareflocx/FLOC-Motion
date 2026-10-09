@@ -84,14 +84,17 @@ export async function validateUploadedAsset(filename, ext, run) {
   }
 }
 
-export async function acceptAssetUpload(req, { directory, ext, run, convertGif }) {
+export async function acceptAssetUpload(req, { directory, ext, run, convertGif, beforePublish = () => {}, afterPublish = () => {} }) {
   const id = randomUUID(), temporary = path.join(directory, `${id}.upload`), target = path.join(directory, `${id}.${ext}`);
   try {
     await streamUpload(req, temporary);
     await validateUploadedAsset(temporary, ext, run);
+    const size = (await stat(temporary)).size;
+    await beforePublish({ id, size, temporary, target });
     await rename(temporary, target);
     if (ext === 'gif') await convertGif(target, path.join(directory, `${id}.webm`), run);
-    return { id, filename: target, size: (await stat(target)).size };
+    await afterPublish({ id, size, target });
+    return { id, filename: target, size };
   } catch (error) {
     await rm(temporary, { force: true });
     await rm(target, { force: true });

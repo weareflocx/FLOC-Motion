@@ -88,7 +88,9 @@ Geist Mono assets come from `@fontsource/geist-mono@5.3.0`; Geist assets come fr
 
 Uploaded assets and saved projects live in `.data/` (git-ignored). Server-local and legacy shared-worker exports also live there. A personal renderer instead saves each verified MP4 to `~/Movies/FLOC Motion` on macOS or `~/Videos/FLOC Motion` on Windows; the MP4 is never uploaded to Fly. Existing filenames are never overwritten: collisions create ` (2)`, ` (3)`, and later numbered copies. Rendering copies only selected resources into a self-contained local job directory. No remote assets are accepted in imported projects or agent edits. HyperFrames telemetry is disabled for app renders. Uploaded SVG/code is not accepted; bundled original examples and the known official FLOC SVG are explicitly allowed.
 
-Project JSON references local resource paths; it is **not** a portable archive. Keep `.data/assets/` when moving the installation. No project deletion or automatic asset cleanup is performed.
+Project JSON references local resource paths; it is **not** a portable archive. Keep `.data/assets/` when moving the installation. Deleting a project does not immediately delete media; only reference-aware cleanup can remove assets after the retention period.
+
+Workspace media is capped at 1.5 GB. `GET /api/storage` reports total, referenced, orphaned and cleanup-eligible bytes. Orphans are retained for seven days. `POST /api/storage/cleanup` performs a dry run by default; send `{"confirm":true}` to remove only eligible unreferenced assets. Uploads that would exceed the quota first run the same safe cleanup, then return HTTP 507 if referenced/recent media still leaves insufficient space. Cleanup aborts if persisted JSON cannot be read.
 
 ## Agent control / WebMCP
 
