@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
-import { validateProject, fileLayer, carouselImages } from '../project.js';
+import { fileLayer, carouselImages } from '../project.js';
 import { uploadAssets } from './upload-assets.js';
+import { parseProjectFile } from './project-import.js';
 
 export function useProjectFiles({ projectRef, change, importDraft = change, patch, setError, setSelected, setLeftTab }) {
   const [uploading, setUploading] = useState(false);
@@ -46,7 +47,7 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
   const handleImportChange = useCallback(async event => {
     const file = event.target.files[0];
     if (file) {
-      try { importDraft(validateProject(JSON.parse(await file.text()))); }
+      try { importDraft(await parseProjectFile(file)); }
       catch (error) { setError(error.message); }
     }
     event.target.value = '';
