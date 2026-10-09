@@ -1,9 +1,8 @@
-import { validateSvg, validateGlb } from './asset-validation.mjs';
+import { acceptAssetUpload } from './asset-upload.mjs';
 import http from 'node:http';
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
 import { TEMPLATES, SHADERS, CAROUSEL_EFFECTS } from '../src/project.js';
 import { catalogSummary } from '../src/catalog.js';
@@ -17,13 +16,14 @@ import { createAuthStore, sessionCookie } from './auth-store.mjs';
 import { createDraftStore } from './draft-store.mjs';
 const config = runtimeConfig();
 const { port, data } = config;
+const assets = path.join(data, 'assets');
 const templates = createTemplateStore(data);
 await templates.preserveLegacyProject();
 const auth = createAuthStore(data);
 const drafts = createDraftStore(data);
 const renderWorker = createRenderWorker({ data, jobs, token: process.env.FLOC_RENDER_WORKER_TOKEN });
 const personalRenderers = createPersonalRenderers({ data, jobs, version: await rendererVersion() });
-await mkdir(path.join(data, 'assets'), { recursive: true });
+await mkdir(assets, { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] }, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.data/**', `${data}/**`] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
@@ -101,12 +101,8 @@ const server = http.createServer(async (req, res) => {
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
-      const bytes = await body(req, 75e6); if (!bytes.length) throw new Error('Empty upload.');
-      if (ext === 'svg') validateSvg(bytes);
-      if (ext === 'glb') validateGlb(bytes);
-      const id = randomUUID(); await writeFile(path.join(data, 'assets', `${id}.${ext}`), bytes);
-      if (ext === 'gif') await ensureGifVideo(path.join(data, 'assets', `${id}.gif`), path.join(data, 'assets', `${id}.webm`), run);
-      return json(res, { id, src: `/assets/${id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
+      const asset = await acceptAssetUpload(req, { directory: assets, ext, run, convertGif: ensureGifVideo });
+      return json(res, { id: asset.id, src: `/assets/${asset.id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
     }
     if (route === '/api/exports' && req.method === 'POST') {
       const input = JSON.parse(await body(req));
