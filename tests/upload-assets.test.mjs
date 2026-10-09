@@ -16,6 +16,16 @@ test('asset uploads preserve file order, encoded names, body and fallback conten
   } finally { globalThis.fetch = original; }
 });
 
+test('asset uploads reject oversized files before making a request', async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return new Response('{}'); };
+  try {
+    await assert.rejects(uploadAssets([{ name: 'huge.mp4', size: 75e6 + 1 }]), /75 MB/);
+    assert.equal(calls, 0);
+  } finally { globalThis.fetch = original; }
+});
+
 test('asset upload stops after the first failure and retains the server error', async () => {
   const original = globalThis.fetch;
   let calls = 0;
