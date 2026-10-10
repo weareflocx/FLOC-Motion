@@ -28,10 +28,63 @@ function timeline({ locked = false, time = 3, mode = 'choreography', width = 800
   const find = predicate => nodes(render()).find(node => predicate(node.props));
   const mark = id => find(p => p.className?.includes('choreography-mark') && p['aria-label'].includes({ a: '2.00', b: '3.00', c: '5.00' }[id]));
   const captures = new Set();
-  const target = { focus() {}, closest: () => ({ getBoundingClientRect: () => ({ left: 0, width: 800 }) }), setPointerCapture(id) { captures.add(id); }, hasPointerCapture: id => captures.has(id), releasePointerCapture(id) { captures.delete(id); } };
+  const target = { focus() {}, getBoundingClientRect: () => ({ left: 0, width: 800 }), closest: () => ({ getBoundingClientRect: () => ({ left: 0, width: 800 }) }), setPointerCapture(id) { captures.add(id); }, hasPointerCapture: id => captures.has(id), releasePointerCapture(id) { captures.delete(id); } };
   const event = (next = {}) => ({ button: 0, pointerId: 7, clientX: 300, currentTarget: target, preventDefault() {}, stopPropagation() {}, ...next });
-  return { layer, render, find, mark, event, patches, seeks, selections };
+  return { layer, render, find, mark, event, patches, seeks, selections, captures };
 }
+
+test('ruler Escape, pointer cancellation and lost capture restore the pre-scrub time', () => {
+  for (const cancel of ['escape', 'pointer', 'capture']) {
+    const h = timeline({ mode: 'timing' }), ruler = h.find(p => p.className === 'timeline-ruler');
+    ruler.props.onPointerDown(h.event({ clientX: 200 }));
+    ruler.props.onPointerMove(h.event({ clientX: 500 }));
+    assert.deepEqual(h.seeks, [2, 5]);
+    if (cancel === 'escape') ruler.props.onKeyDown(h.event({ key: 'Escape' }));
+    else ruler.props[cancel === 'pointer' ? 'onPointerCancel' : 'onLostPointerCapture'](h.event());
+    assert.deepEqual(h.seeks, [2, 5, 3]);
+    assert.equal(h.captures.size, 0);
+    ruler.props.onPointerMove(h.event({ clientX: 600 }));
+    ruler.props.onPointerUp(h.event());
+    ruler.props.onLostPointerCapture(h.event());
+    assert.deepEqual(h.seeks, [2, 5, 3]);
+    assert.equal(h.patches.length, 0);
+  }
+});
+
+test('completed ruler scrubbing keeps its final time when capture is released', () => {
+  const h = timeline(), ruler = h.find(p => p.className === 'timeline-ruler');
+  ruler.props.onPointerDown(h.event({ clientX: 200 }));
+  ruler.props.onPointerMove(h.event({ clientX: 500 }));
+  ruler.props.onPointerUp(h.event());
+  ruler.props.onLostPointerCapture(h.event());
+  ruler.props.onKeyDown(h.event({ key: 'Escape' }));
+  assert.deepEqual(h.seeks, [2, 5]);
+  assert.equal(h.captures.size, 0);
+  assert.equal(h.patches.length, 0);
+});
+
+test('ruler scrubbing ignores unrelated pointers and keyboard seeks until the gesture ends', () => {
+  const h = timeline(), ruler = h.find(p => p.className === 'timeline-ruler');
+  ruler.props.onPointerDown(h.event({ clientX: 200 }));
+  ruler.props.onPointerDown(h.event({ pointerId: 8, clientX: 600 }));
+  ruler.props.onPointerMove(h.event({ pointerId: 8, clientX: 600 }));
+  ruler.props.onPointerUp(h.event({ pointerId: 8 }));
+  ruler.props.onKeyDown(h.event({ key: 'ArrowRight' }));
+  assert.deepEqual(h.seeks, [2]);
+  assert.deepEqual([...h.captures], [7]);
+  ruler.props.onPointerMove(h.event({ clientX: 500 }));
+  ruler.props.onPointerUp(h.event());
+  assert.deepEqual(h.seeks, [2, 5]);
+});
+
+test('ruler keyboard seeks preserve frame steps and composition bounds outside a scrub', () => {
+  for (const [key, shiftKey, expected] of [['Home', false, 0], ['End', false, 8 - 1 / 24], ['ArrowRight', false, 3 + 1 / 24], ['ArrowLeft', true, 3 - 10 / 24]]) {
+    const h = timeline(), ruler = h.find(p => p.className === 'timeline-ruler');
+    ruler.props.onKeyDown(h.event({ key, shiftKey }));
+    assert.deepEqual(h.seeks, [expected]);
+    assert.equal(h.patches.length, 0);
+  }
+});
 
 test('state dragging previews timing and commits only once on release, then seeks the moved state', () => {
   const h = timeline(), mark = h.mark('b');
