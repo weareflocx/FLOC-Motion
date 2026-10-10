@@ -91,7 +91,12 @@ export function PlacementMap({ nudge, project, layer, onCommit, onPreview }) {
     e.preventDefault();
     const size = measure();
     if (!e.target.closest('.map-grid-point')) {
-      if (directions[e.key]) commit(nudgePlacement(position, ...directions[e.key], [w, h], size, nudgeAmount(nudge, e.shiftKey), layout));
+      if (directions[e.key]) {
+        const [dx, dy] = directions[e.key], step = nudgeAmount(nudge, e.shiftKey);
+        commit(layer.type === 'logo'
+          ? canvasMediaPlacement(position.x + dx * step / w * 100, position.y + dy * step / h * 100)
+          : nudgePlacement(position, dx, dy, [w, h], size, step, layout));
+      }
       return;
     }
     const current = index ?? nearestGridPoint(layer.x + size.width * ({ left: 0, center: 0.5, right: 1 }[alignment]), layer.y + size.height / 2);
