@@ -44,7 +44,7 @@ export function stepGridPoint(index, dx, dy) {
 export function editClip(layer, kind, delta, duration, fps) {
   const step = 1 / fps;
   const quantized = Math.round(delta * fps) / fps;
-  const span = layer.end - layer.start;
+  const span = Math.max(0.01, layer.end - layer.start);
   const minimum = Math.max(0.01, Math.min(step, span));
   // Do not round timestamps: imported short clips must keep their valid duration.
   const range = (start, end) => ({ start: start + 0.01 > end ? Math.max(0, end - 0.01 - Number.EPSILON * Math.max(1, duration)) : start, end });

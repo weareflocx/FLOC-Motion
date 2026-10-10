@@ -81,6 +81,20 @@ test('edge trimming prevents crossing and is valid for short imported clips', ()
       }
   assert.throws(() => editClip({ start: 0, end: 2 }, 'invalid', 1, 12, 24));
 });
+test('moving exact-minimum clips between composition edges retains valid timing', () => {
+  for (const fps of [24, 30, 60]) for (const start of [.02, 2, 11.99]) {
+    let clip = { start, end: start + .01 };
+    assert.doesNotThrow(() => patchLayer(demoProject(), 'logo', clip));
+    for (const delta of [50, -50, .2, -.2, 50, -50]) {
+      clip = editClip(clip, 'move', delta, 12, fps);
+      assert.doesNotThrow(() => patchLayer(demoProject(), 'logo', clip));
+      assert(clip.start >= 0 && clip.end <= 12);
+      assert(clip.end >= clip.start + .01);
+      assert(Math.abs(clip.end - clip.start - .01) < 1e-12);
+    }
+  }
+});
+
 test('fade handles quantize to frames, stay inside the clip and lengthen the fade-out when moved left', () => {
   const clip = { start: 2, end: 5, fadeIn: 0.5, fadeOut: 0.5 };
   assert.deepEqual(editFade(clip, 'fadeIn', .06, 24), { fadeIn: 0.5 + 1 / 24, fadeOut: 0.5 });
