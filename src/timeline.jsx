@@ -15,7 +15,7 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
   const [laneWidth, setLaneWidth] = useState(0);
   const context = useRef(null);
   context.current = { selected, mode };
-  const gesture = useRef(null); const scrub = useRef(false);
+  const gesture = useRef(null); const scrub = useRef(null);
   const stateClick = useRef(null);
   const [draft, setDraft] = useState(null);
   useEffect(() => {
@@ -115,13 +115,36 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
   }
   const pointerProps = (l, kind) => ({ disabled: l.locked || (mode === 'choreography' && selected === l.id), onPointerDown: e => begin(e, l, kind), onPointerMove: move, onPointerUp: e => finish(e), onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: e => keys(e, l, kind) });
   const seek = e => onSeek(timeAtPointer(e.clientX, e.currentTarget.getBoundingClientRect(), project.duration, project.fps));
+  function beginScrub(e) {
+    if (e.button !== 0 || scrub.current) return;
+    e.currentTarget.focus({ preventScroll: true });
+    scrub.current = { pointerId: e.pointerId, time, target: e.currentTarget };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    seek(e);
+  }
+  function moveScrub(e) {
+    if (scrub.current?.pointerId === e.pointerId) seek(e);
+  }
+  function finishScrub(e, cancel = false) {
+    const g = scrub.current;
+    if (!g || (e.pointerId !== undefined && e.pointerId !== g.pointerId)) return;
+    scrub.current = null;
+    if (g.target.hasPointerCapture(g.pointerId)) g.target.releasePointerCapture(g.pointerId);
+    if (cancel) onSeek(g.time);
+  }
+  function scrubKeys(e) {
+    if (e.key === 'Escape' && scrub.current) { e.preventDefault(); finishScrub(e, true); return; }
+    if (scrub.current || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    onSeek(Math.max(0, Math.min(project.duration - 1 / project.fps, e.key === 'Home' ? 0 : e.key === 'End' ? project.duration - 1 / project.fps : time + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps)));
+  }
   const status = d => `${project.layers.find(l => l.id === d.id)?.name}: ${d.kind === 'state' ? `state at ${(d.start + d.choreography.find(state => state.id === d.stateId).time).toFixed(2)}s` : isFade(d.kind) ? `fade ${d.kind === 'fadeIn' ? 'in' : 'out'} ${d[d.kind].toFixed(2)}s` : `${d.start.toFixed(2)}s — ${d.end.toFixed(2)}s`}`;
   const rulerStep = project.duration <= 3 ? 0.5 : project.duration <= 6 ? 1 : project.duration <= 15 ? 2 : 5;
   const ticks = Array.from({ length: Math.ceil(project.duration / rulerStep * 5) }, (_, i) => i * rulerStep / 5);
   return <>
     <div className="timeline-feedback" role="status">{draft ? status(draft) : ''}</div>
     <div className="timeline-track-scroll" style={{ '--timeline-grid': `${rulerStep / project.duration * 100}%` }}>
-    <div className="timeline-ruler-row"><div className="ruler-track-heading"><span>Layers <small>{project.layers.length}</small></span><div className="ruler-controls">{rulerControls}</div></div><div ref={ruler} className="timeline-ruler" role="slider" tabIndex={0} aria-label="Timeline ruler" aria-valuemin={0} aria-valuemax={project.duration} aria-valuenow={Number(time.toFixed(2))} onPointerDown={e => { if (e.button !== 0) return; scrub.current = true; e.currentTarget.setPointerCapture(e.pointerId); seek(e); }} onPointerMove={e => { if (scrub.current) seek(e); }} onPointerUp={e => { scrub.current = false; e.currentTarget.releasePointerCapture(e.pointerId); }} onPointerCancel={() => { scrub.current = false; }} onLostPointerCapture={() => { scrub.current = false; }} onKeyDown={e => { if (['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); onSeek(Math.max(0, Math.min(project.duration - 1 / project.fps, e.key === 'Home' ? 0 : e.key === 'End' ? project.duration - 1 / project.fps : time + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps))); } }}>
+    <div className="timeline-ruler-row"><div className="ruler-track-heading"><span>Layers <small>{project.layers.length}</small></span><div className="ruler-controls">{rulerControls}</div></div><div ref={ruler} className="timeline-ruler" role="slider" tabIndex={0} aria-label="Timeline ruler" aria-valuemin={0} aria-valuemax={project.duration} aria-valuenow={Number(time.toFixed(2))} onPointerDown={beginScrub} onPointerMove={moveScrub} onPointerUp={e => finishScrub(e)} onPointerCancel={e => finishScrub(e, true)} onLostPointerCapture={e => finishScrub(e, true)} onKeyDown={scrubKeys}>
       {ticks.map((tick, i) => <span key={i} className={`timeline-tick ${i % 5 === 0 ? 'major' : ''} ${i % 10 === 5 ? 'secondary' : ''}`} style={{ left: `${tick / project.duration * 100}%` }} aria-hidden="true">{i % 5 === 0 && (tick === 0 || project.duration - tick >= rulerStep * 0.6) && <span className="tick-label">{Number(tick.toFixed(2))}s</span>}</span>)}
       <span className="timeline-tick major endpoint" style={{ left: '100%' }} aria-hidden="true"><span className="tick-label">{project.duration}s</span></span>
       <i className="ruler-playhead" style={{ left: `${time / project.duration * 100}%` }} aria-hidden="true"><span className="playhead-cap"/></i>
