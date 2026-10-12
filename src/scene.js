@@ -115,8 +115,10 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       onMediaError(new Error(`${p.layers.find(l => l.id === media.dataset.flocLayer).name} could not be loaded or decoded.`));
     };
     media.addEventListener('error', failed, { once: true });
+    const loaded = () => { if (!disposed) draw(requestedTime, requestedPlaying); };
+    if (media.tagName === 'AUDIO') media.addEventListener('loadedmetadata', loaded, { once: true });
     if (media.error) queueMicrotask(failed);
-    return () => media.removeEventListener('error', failed);
+    return () => { media.removeEventListener('error', failed); media.removeEventListener('loadedmetadata', loaded); };
   });
   const imageNodes = layerNodes.filter(node => node.tagName === 'IMG');
   const models = [];
@@ -128,6 +130,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   const placementBounds = new Map();
   let geometrySize = layer.size;
   let requestedTime = 0;
+  let requestedPlaying = false;
   function placeLayers(time) {
     const frame = p.layout?.enabled ? (carousel ? canvas : root).getBoundingClientRect() : null;
     for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model', 'background'].includes(l.type))) {
@@ -319,6 +322,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   function seek(time, playing = false) {
     if (disposed) return Promise.resolve();
     requestedTime = time;
+    requestedPlaying = playing;
     if (playing && !renderMode) {
       for (const { video } of cardVideos) {
         const desired = cardMediaTime(time, layer.start, video.duration);
