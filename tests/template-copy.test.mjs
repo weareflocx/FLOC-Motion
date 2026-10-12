@@ -18,6 +18,7 @@ function editor({ linked = true } = {}) {
   const current = validateProject({ ...demoProject(), name: 'Current composition' });
   const identity = linked ? { id: 'current-composition', updatedAt: '2026-10-04T01:00:00Z' } : null;
   const entries = new Map(identity ? [[identity.id, { ...identity, name: current.name, project: current }]] : []);
+  const drafts = new Map([['original-draft', { project: current, revision }]]);
   const session = { draftId: 'original-draft', compositionId: identity?.id, remember() {} };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = {
@@ -25,7 +26,7 @@ function editor({ linked = true } = {}) {
     request: async (url, options) => {
       const body = options?.body && JSON.parse(options.body);
       requests.push({ url, method: options?.method || 'GET', body });
-      if (url.startsWith('/api/drafts/') && !options) return { project: current, revision };
+      if (url.startsWith('/api/drafts/') && !options) return drafts.get(url.split('/').at(-1));
       if (url.startsWith('/api/templates/') && !options) { if (readGate) await readGate; return entries.get(url.split('/').at(-1)); }
       if (url === '/api/templates' && !options) return { templates: [...entries.values()] };
       if (url === '/api/templates') {
@@ -41,7 +42,8 @@ function editor({ linked = true } = {}) {
           const entry = { ...entries.get(id), ...body, id, updatedAt: `revision-${++revision}` };
           entries.set(id, entry); return entry;
         }
-        return { revision: ++revision, composition: null };
+        drafts.set(url.split('/').at(-1), { project: body.project, revision: ++revision });
+        return { revision, composition: null };
       }
       throw new Error(`Unexpected request: ${url}`);
     },
@@ -357,4 +359,35 @@ test('a pending reload cannot replace a newly saved copy with identical project 
   assert.equal(h.session.compositionId, copy.id);
   await h.render().save();
   assert.equal(h.requests.filter(item => item.method === 'PUT').length, 0);
+});
+
+
+test('removing the active composition preserves local edits in an independent recoverable draft', async () => {
+  const h = editor(); await h.render().reload();
+  h.render().patch('headline', { text: 'Keep this unsaved edit' });
+  const before = plain(h.render().project);
+  h.render().detachComposition(h.identity.id);
+  assert.equal(h.render().composition, null);
+  assert.equal(h.session.compositionId, null);
+  assert.notEqual(h.session.draftId, 'original-draft');
+  assert.deepEqual(plain(h.render().project), before);
+  assert.equal(h.render().history.length, 1);
+  await h.render().save();
+  const write = h.requests.find(item => item.method === 'PUT');
+  assert.equal(write.url, `/api/drafts/${h.session.draftId}`);
+  assert.deepEqual(write.body.project, before);
+  await h.render().reload();
+  assert.deepEqual(plain(h.render().project), before);
+  assert.equal(h.render().status, 'Draft saved');
+});
+
+test('a delayed deletion of the previous composition cannot detach a newly selected copy', async () => {
+  const h = editor(); await h.render().reload();
+  const copy = await h.render().saveCopy(h.current.name);
+  const draftId = h.session.draftId;
+  h.render().detachComposition(h.identity.id);
+  assert.equal(h.render().composition.id, copy.id);
+  assert.equal(h.session.compositionId, copy.id);
+  assert.equal(h.session.draftId, draftId);
+  assert.equal(h.render().status, 'All changes saved');
 });
