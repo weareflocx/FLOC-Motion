@@ -8,8 +8,8 @@ import { contentFields } from '../src/template-content.js';
 
 const source = fs.readFileSync(new URL('../src/editor/components/SavedTemplates.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replaceAll('export function', 'function'), { loader: 'jsx' })).code;
-async function library({ entries = [], failure, picker = true } = {}) {
-  const slots = [], requests = [], selections = [];
+async function library({ entries = [], failure, deleteFailure, picker = true } = {}) {
+  const slots = [], requests = [], selections = [], removals = [];
   let cursor = 0, pending;
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
@@ -17,17 +17,17 @@ async function library({ entries = [], failure, picker = true } = {}) {
     useId: () => 'library',
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = typeof next === 'function' ? next(slots[i].value) : next; }]; },
     useEffect(fn) { const i = cursor++; if (!slots[i]) { slots[i] = {}; fn(); } },
-    request(url, options) { requests.push({ url, options }); return pending = failure ? Promise.reject(new Error(failure)) : Promise.resolve({ templates: entries }); }
+    request(url, options) { requests.push({ url, options }); if (options?.method === 'DELETE') return deleteFailure ? Promise.reject(new Error(deleteFailure)) : Promise.resolve({}); return pending = failure ? Promise.reject(new Error(failure)) : Promise.resolve({ templates: entries }); }
   };
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.component = SavedTemplates;', context);
   const nodes = node => [node, ...(node?.children || []).flat(Infinity).flatMap(child => child && typeof child === 'object' ? nodes(child) : [])];
-  const render = (disabled = false) => { cursor = 0; return context.component({ project: demoProject(), picker, disabled, onSelect: entry => selections.push(entry) }); };
+  const render = (disabled = false) => { cursor = 0; return context.component({ project: demoProject(), picker, disabled, onSelect: entry => selections.push(entry), onRemove: id => removals.push(id) }); };
   const find = predicate => nodes(render()).find(predicate);
   render();
   await pending.catch(() => {});
   await new Promise(resolve => setImmediate(resolve));
-  return { render, find, nodes, requests, selections };
+  return { render, find, nodes, requests, selections, removals };
 }
 
 test('the embedded library searches names and tags, selects without opening, and has no management actions', async () => {
@@ -63,4 +63,21 @@ test('the existing Compositions dialog still exposes its management view', async
   assert(h.find(node => node.type === 'form'));
   assert(h.find(node => node.type === 'button' && node.children[0] === 'Delete template'));
   assert.equal(h.selections.length, 0);
+});
+
+
+test('successful library deletion notifies the editor, while a failed deletion keeps the selection', async () => {
+  for (const deleteFailure of [undefined, 'Deletion unavailable']) {
+    const h = await library({ picker: false, entries: [{ id: 'saved', name: 'Saved', tags: [], project: demoProject() }], deleteFailure });
+    h.find(node => node.props.className?.startsWith('preset-tile ')).props.onClick();
+    h.find(node => node.type === 'button' && node.children[0] === 'Delete template').props.onClick();
+    await h.find(node => node.type === 'button' && node.children[0] === 'Confirm delete').props.onClick();
+    assert.deepEqual(h.removals, deleteFailure ? [] : ['saved']);
+    assert.equal(h.requests.at(-1).url, '/api/templates/saved');
+    assert.equal(h.requests.at(-1).options.method, 'DELETE');
+    if (deleteFailure) {
+      assert.equal(h.find(node => node.props.role === 'alert').children[0], deleteFailure);
+      assert(h.find(node => node.type === 'h3' && node.children[0] === 'Saved'));
+    } else assert.equal(h.find(node => node.type === 'h3' && node.children[0] === 'Saved'), undefined);
+  }
 });

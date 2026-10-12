@@ -205,6 +205,10 @@ export function useProject({ userId } = {}) {
     return changed;
   }, [change, session]);
 
+  const detachComposition = useCallback(id => {
+    if (compositionRef.current?.id === id) importDraft(projectRef.current);
+  }, [importDraft]);
+
   const preserveCurrent = useCallback(async () => {
     canvasEdit.current?.();
     const current = projectRef.current;
@@ -277,6 +281,7 @@ export function useProject({ userId } = {}) {
     newComposition,
     openSavedComposition,
     importDraft,
+    detachComposition,
     projectRef,
     loaded,
     status,

@@ -21,7 +21,7 @@ export function TemplatePreview({ project }) {
   }, [setPlaying]);
   return <><div className="saved-template-preview" inert><Stage project={project} time={time} playing={playing} onReady={setReady} onError={setError} onPreview={noop} onSelect={noop} onPatch={noop}/></div>{error && <p role="alert">{error}</p>}<button type="button" className="outline-button" disabled={!ready} onClick={() => setPlaying(value => !value)}>{playing ? 'Pause preview' : 'Play preview'}</button></>;
 }
-export function SavedTemplates({ project, onMetadata, onSaveCurrent, onApply, onUseTemplate, onClose, picker = false, disabled = false, selectedId: initialSelectedId = '', onSelect }) {
+export function SavedTemplates({ project, onMetadata, onRemove, onSaveCurrent, onApply, onUseTemplate, onClose, picker = false, disabled = false, selectedId: initialSelectedId = '', onSelect }) {
   const title = useId();
   const [entries, setEntries] = useState([]);
   const [selectedId, setSelectedId] = useState(initialSelectedId);
@@ -47,7 +47,7 @@ export function SavedTemplates({ project, onMetadata, onSaveCurrent, onApply, on
   }
   async function remove() {
     setBusy(true); setError('');
-    try { await request(`/api/templates/${selected.id}`, { method: 'DELETE' }); setEntries(items => items.filter(item => item.id !== selected.id)); setSelectedId(''); setConfirm(''); }
+    try { await request(`/api/templates/${selected.id}`, { method: 'DELETE' }); onRemove?.(selected.id); setEntries(items => items.filter(item => item.id !== selected.id)); setSelectedId(''); setConfirm(''); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   const filtered = entries.filter(entry => `${entry.name} ${entry.tags.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));

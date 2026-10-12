@@ -36,7 +36,7 @@ import { AuthGate } from './editor/components/AuthGate.jsx';
 import { AccountDialog } from './editor/components/AccountDialog.jsx';
 
 function App({ user, onSignOut }) {
-  const { project, composition, openSavedComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject({ userId: user.id });
+  const { project, composition, openSavedComposition, updateCompositionMetadata, saveCopy, newComposition, importDraft, detachComposition, projectRef, loaded, status, error, setError, history, future, canvasEditing, setCanvasEdit, change, patch, save, undo, redo, reload } = useProject({ userId: user.id });
   const [accountOpen, setAccountOpen] = useState(false);
   const [selected, setSelected] = useState('carousel'); const [leftTab, setLeftTab] = useState('layers'); const [rightTab, setRightTab] = useState('composition');
   const [nudge, setNudge] = useState(loadNudge);
@@ -119,7 +119,7 @@ function App({ user, onSignOut }) {
     {nudgeOpen && <NudgeDialog value={nudge} onChange={setNudge} onClose={() => setNudgeOpen(false)}/>}
     {newOpen && <NewCompositionDialog project={project} onClose={() => setNewOpen(false)} onCreate={async (name, options) => { const next = await newComposition(name, options); setTime(0); setPlaying(false); setSelected(next.layers.at(-1)?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }} onOpen={async entry => { const next = await openSavedComposition(entry); setTime(0); setPlaying(false); setSelected(next.layers[0]?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); return true; }}/>}
     {saveOpen && <SaveCompositionDialog name={project.name} onClose={() => setSaveOpen(false)} onSave={saveCopy}/>}
-    {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async entry => { const next = await openSavedComposition(entry); setTime(0.65); setPlaying(false); setSelected(next.layers[0]?.id ?? null); return next; }}/>}
+    {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onRemove={detachComposition} onUseTemplate={useTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={async entry => { const next = await openSavedComposition(entry); setTime(0.65); setPlaying(false); setSelected(next.layers[0]?.id ?? null); return next; }}/>}
     {accountOpen && <AccountDialog user={user} onClose={() => setAccountOpen(false)} onSignOut={async () => { await save(); await onSignOut(); }}/>}
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}
     {contentTarget && <TemplateContentDialog project={contentTarget.project} copy={contentTarget.copy} name={contentTarget.name} onClose={() => setContentTarget(null)} onSubmit={applyContent}/>}
