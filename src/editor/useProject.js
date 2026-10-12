@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
+import { assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
 import { request } from './request.js';
 import { historyShortcut } from './history-shortcut.js';
 import { editorSession } from './project-session.js';
@@ -37,10 +37,13 @@ export function useProject({ userId } = {}) {
     setHistory([]); setFuture([]);
   }, []);
 
-  const change = useCallback(next => {
+  // Every edit keeps locked layers intact unless the caller names an explicit
+  // composition-wide exception; `replace` is reserved for opening/importing.
+  const change = useCallback((next, { allow = [], replace = false } = {}) => {
     try {
       const valid = validateProject(next);
       const previous = projectRef.current;
+      if (!replace) assertLocksRespected(previous, valid, { allow });
       if (JSON.stringify(valid) === JSON.stringify(previous)) return previous;
       historyRef.current = [...historyRef.current.slice(-19), previous];
       setHistory(historyRef.current);
@@ -171,7 +174,7 @@ export function useProject({ userId } = {}) {
     setComposition(compositionRef.current);
     session.compositionId = entry.id;
     session.remember();
-    const valid = change(next);
+    const valid = change(next, { replace: true });
     if (valid) { dirty.current = false; setStatus('All changes saved'); setError(''); }
     clearHistory();
     return valid;
@@ -199,7 +202,7 @@ export function useProject({ userId } = {}) {
     session.draftId = crypto.randomUUID();
     session.compositionId = null;
     session.remember();
-    const changed = change(valid);
+    const changed = change(valid, { replace: true });
     dirty.current = true;
     setStatus('Unsaved changes');
     return changed;

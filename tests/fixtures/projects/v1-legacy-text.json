@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "Legacy text entrances",
+  "format": "portrait",
+  "duration": 10,
+  "fps": 30,
+  "layout": { "enabled": true, "marginX": 6, "marginY": 4, "guides": false },
+  "images": [],
+  "layers": [
+    { "id": "fade", "type": "text", "name": "Fade", "visible": true, "start": 0, "end": 10, "text": "FADE", "x": 6, "y": 6, "size": 48, "color": "#ffffff", "font": "druk-wide", "weight": 900, "width": 80, "animation": "fade" },
+    { "id": "rise", "type": "text", "name": "Rise", "visible": true, "start": 2, "end": 2.5, "text": "RISE", "x": 10, "y": 40, "size": 32, "color": "#00ff00", "weight": 400, "width": 60, "animation": "rise" },
+    { "id": "none", "type": "text", "name": "None", "visible": false, "start": 1, "end": 9, "text": "NONE", "x": 77, "y": 92, "size": 21, "color": "#ffffff", "font": "geist-mono", "weight": 500, "width": 22, "animation": "none" },
+    { "id": "explicit", "type": "text", "name": "Explicit fades win", "visible": true, "start": 0, "end": 4, "text": "KEEP", "x": 20, "y": 20, "size": 24, "color": "#ffffff", "font": "geist", "weight": 700, "width": 50, "animation": "rise", "fadeIn": 1, "rise": false },
+    { "id": "posed", "type": "text", "name": "Posed", "visible": true, "start": 0, "end": 6, "text": "POSE", "x": 30, "y": 30, "size": 40, "color": "#ffffff", "font": "geist", "weight": 400, "width": 40, "roll": 12, "fadeIn": 0, "fadeOut": 0, "rise": false, "contentField": "  Headline  ",
+      "choreography": [
+        { "id": "a", "time": 0, "easing": "linear", "values": { "x": 30, "y": 30, "size": 40, "opacity": 1 } },
+        { "id": "b", "time": 2, "easing": "smooth", "values": { "x": 50, "y": 40, "size": 60, "opacity": 0.5 } }
+      ] },
+    { "id": "mark", "type": "logo", "name": "Mark", "visible": true, "start": 0, "end": 6, "src": "/demo/poster-1.svg", "x": 87, "y": 6, "size": 7,
+      "choreography": [{ "id": "only", "time": 1, "easing": "ease-in", "values": { "x": 80, "y": 10, "size": 9, "opacity": 1 } }] }
+  ]
+}

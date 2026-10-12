@@ -8,7 +8,8 @@ import { CONTENT_PROPERTIES } from './template-content.js';
 import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from './backgrounds.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from './text-style.js';
 import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
-import { assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
+import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
+import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
 export const TEMPLATES = [
@@ -36,10 +37,10 @@ export const CAROUSEL_EFFECTS = [
   { id: 'fluted-glass', name: 'Fluted glass', source: 'Paper Shaders' }
 ];
 export function blankProject(name = 'Untitled') {
-  return { version: 1, name, format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT }, images: [], layers: [] };
+  return { version: CURRENT_PROJECT_VERSION, name, format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT }, images: [], layers: [] };
 }
 export function demoProject() {
-  return { version: 1, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT },
+  return { version: CURRENT_PROJECT_VERSION, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT },
     images: Array.from({ length: 6 }, (_, i) => ({ id: `demo-${i}`, src: `/demo/poster-${i + 1}.svg`, name: `Studio study ${String(i + 1).padStart(2, '0')}` })),
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
@@ -85,16 +86,43 @@ export const fitFades = (fadeIn, fadeOut, span) => fadeIn + fadeOut > span + 1e-
 export function validAsset(src, allowEmpty = true) {
   return typeof src === 'string' && ((allowEmpty && src === '') || Object.values(BRAND.assets).includes(src) || /^\/demo\/poster-[1-6]\.svg$/.test(src) || /^\/assets\/[a-f0-9-]{36}\.(?:png|jpg|jpeg|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb)$/.test(src));
 }
+// The closed current shape: unknown keys are dropped after migration. Misplaced
+// effects, scope, opacity, choreography and content fields stay so they still fail.
+const PROJECT_KEYS = new Set(['version', 'name', 'format', 'duration', 'fps', 'layout', 'images', 'layers', 'linkedFormats']);
+const IMAGE_KEYS = new Set(['id', 'src', 'name']);
+const LAYER_KEYS = Object.fromEntries(Object.entries({
+  text: ['text', 'x', 'y', 'size', 'width', 'color', 'font', 'weight', 'roll', 'rise', ...Object.keys(DEFAULT_TEXT_STYLE)],
+  logo: ['src', 'x', 'y', 'size', 'roll'],
+  media: ['src', 'x', 'y', 'size', 'roll', 'offset', 'loop'],
+  model: ['src', 'x', 'y', 'size', 'yaw', 'tilt', 'roll', 'offset', 'loop'],
+  carousel: ['images', 'template', 'shader', 'speed', 'cardCount', 'cardAspect', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
+    'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'intensity', 'tint',
+    'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion',
+    'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing'],
+  background: ['color', 'mode', 'src', 'fit', 'offset', 'loop', 'x', 'y', 'roll', ...Object.keys(DEFAULT_PROCEDURAL_BACKGROUND)],
+  music: ['src', 'volume', 'offset', 'fade', 'loop'],
+  effect: []
+}).map(([type, keys]) => [type, new Set(['id', 'type', 'name', 'visible', 'locked', 'start', 'end', 'effects', 'effectScope', 'opacity', 'choreography', 'contentField',
+  ...(FADE_LAYERS.includes(type) ? ['fadeIn', 'fadeOut'] : []), ...keys])]));
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const keepKeys = (value, keys) => { if (record(value)) for (const key of Object.keys(value)) if (!keys.has(key)) delete value[key]; };
+function closeShape(p) {
+  keepKeys(p, PROJECT_KEYS);
+  const layers = Array.isArray(p.layers) ? p.layers.filter(record) : [];
+  for (const images of [p.images, ...layers.filter(l => l.type === 'carousel').map(l => l.images)]) if (Array.isArray(images)) images.forEach(img => keepKeys(img, IMAGE_KEYS));
+  for (const l of layers) if (Object.hasOwn(LAYER_KEYS, l.type)) keepKeys(l, LAYER_KEYS[l.type]);
+  return p;
+}
+// Every caller gets migration: the result always carries CURRENT_PROJECT_VERSION.
 export function validateProject(input) {
-  if (!input || input.version !== 1) fail('Unsupported project version.');
+  const p = closeShape(migrateProject(input));
+  // Check the original objects before structuredClone can erase their prototypes.
   if (Object.hasOwn(input, 'linkedFormats')) assertLinkedFormatInput(input.linkedFormats);
-  const p = structuredClone(input);
   str(p.name, 100, 'project name');
   if (!Object.hasOwn(FORMATS, p.format)) fail('Unknown output format.');
   finite(p.duration, 1, 30, 'Duration');
   if (![24, 30, 60].includes(p.fps)) fail('Frame rate must be 24, 30 or 60.');
-  if (p.layout === undefined) p.layout = { ...DEFAULT_LAYOUT };
-  if (!p.layout || typeof p.layout !== 'object' || Array.isArray(p.layout) || Object.keys(p.layout).some(key => !Object.hasOwn(DEFAULT_LAYOUT, key))) fail('Invalid layout settings.');
+  if (!record(p.layout) || Object.keys(p.layout).some(key => !Object.hasOwn(DEFAULT_LAYOUT, key))) fail('Invalid layout settings.');
   if (typeof p.layout.enabled !== 'boolean' || typeof p.layout.guides !== 'boolean') fail('Layout switches must be booleans.');
   finite(p.layout.marginX, 0, 25, 'Horizontal margin'); finite(p.layout.marginY, 0, 25, 'Vertical margin');
   if (!Array.isArray(p.images) || p.images.length > 24) fail('Use up to 24 images.');
@@ -103,7 +131,11 @@ export function validateProject(input) {
   const ids = new Set();
   const validateImages = images => {
     if (!Array.isArray(images) || images.length > 24) fail('Use up to 24 carousel cards.');
-  images.forEach(img => { str(img.id, 80, 'image ID'); asset(img.src); if (/\.(mp3|wav|m4a|ogg|glb)$/i.test(img.src)) fail('Carousel cards require an image, GIF or video.'); if (!img.src) fail('Image source is required.'); str(img.name, 200, 'image name'); });
+    const imageIds = new Set();
+    images.forEach(img => {
+      str(img.id, 80, 'image ID'); if (!img.id.trim() || imageIds.has(img.id)) fail('Image IDs must be nonempty and unique.'); imageIds.add(img.id);
+      asset(img.src); if (/\.(mp3|wav|m4a|ogg|glb)$/i.test(img.src)) fail('Carousel cards require an image, GIF or video.'); if (!img.src) fail('Image source is required.'); str(img.name, 200, 'image name');
+    });
   };
   validateImages(p.images);
   if (!Array.isArray(p.layers) || p.layers.length > 20) fail('Use up to 20 layers.');
@@ -134,9 +166,7 @@ export function validateProject(input) {
       finite(l.lineHeight, 0.5, 3, 'Line height'); finite(l.letterSpacing, -0.15, 0.5, 'Letter spacing');
       if (!['left', 'center', 'right'].includes(l.textAlign) || !TEXT_REVEALS.some(({ id }) => id === l.reveal)) fail('Unknown text alignment or reveal.');
       finite(l.revealDuration, 0, 5, 'Reveal duration'); l.revealDuration = Math.min(l.revealDuration, l.end - l.start);
-      if (!fontDefinition(l.font)?.weights.includes(l.weight) || (l.animation !== undefined && !['none', 'fade', 'rise'].includes(l.animation))) fail('Unknown text style.');
-      // Legacy text entrance: fixed 0.45 s in / 0.25 s out ramps, optionally rising.
-      if (l.animation !== undefined) { l.fadeIn ??= l.animation === 'none' ? 0 : 0.45; l.fadeOut ??= l.animation === 'none' ? 0 : 0.25; l.rise ??= l.animation === 'rise'; delete l.animation; }
+      if (!fontDefinition(l.font)?.weights.includes(l.weight)) fail('Unknown text style.');
       l.rise ??= false; if (typeof l.rise !== 'boolean') fail('Text rise must be true or false.');
     } else if (l.type === 'carousel') {
       if (l.images !== undefined) validateImages(l.images);
@@ -214,10 +244,7 @@ export function validateProject(input) {
       validateChoreography(l);
       l.fadeIn ??= 0; l.fadeOut ??= 0; finite(l.fadeIn, 0, 30, 'Fade in'); finite(l.fadeOut, 0, 30, 'Fade out');
       Object.assign(l, fitFades(l.fadeIn, l.fadeOut, l.end - l.start));
-    } else {
-      if (Object.hasOwn(l, 'choreography')) fail('This layer cannot have choreography.');
-      delete l.fadeIn; delete l.fadeOut;
-    }
+    } else if (Object.hasOwn(l, 'choreography')) fail('This layer cannot have choreography.');
   }
   if (Object.hasOwn(p, 'linkedFormats')) p.linkedFormats = normalizeLinkedFormats(p, FORMATS, validateProject);
   return p;
@@ -257,6 +284,36 @@ export function unlinkFormats(project) {
 }
 export function resizeDuration(project, duration) {
   return validateProject({ ...project, duration, layers: project.layers.map(l => ({ ...l, start: Math.min(l.start, duration - 0.05), end: l.end === project.duration ? duration : Math.min(l.end, duration) })) });
+}
+// Whole-project edits must leave locked layers as they were. `allow` names the
+// explicit composition-wide exceptions: 'timing' (duration resize), 'format'
+// (linked-format layout fields) and 'content' (declared template content).
+const canonicalJson = value => Array.isArray(value) ? `[${value.map(canonicalJson).join(',')}]`
+  : value && typeof value === 'object' ? `{${Object.keys(value).filter(key => value[key] !== undefined).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  : JSON.stringify(value);
+function lockedView(project, layer, allow) {
+  const { locked, visible, ...view } = layer;
+  if (layer.type === 'carousel') view.images = carouselImages(project, layer);
+  if (allow.includes('timing')) for (const field of ['start', 'end', 'fadeIn', 'fadeOut', 'revealDuration']) delete view[field];
+  if (allow.includes('content') && layer.contentField && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) delete view[CONTENT_PROPERTIES[layer.type]];
+  if (allow.includes('format')) {
+    for (const field of FORMAT_LOCAL_FIELDS[layer.type] ?? []) if (field !== 'choreography') delete view[field];
+    if (view.choreography) view.choreography = view.choreography.map(({ values, ...state }) => ({ ...state, values: Object.hasOwn(values, 'opacity') ? { opacity: values.opacity } : {} }));
+  }
+  return canonicalJson(view);
+}
+export function assertLocksRespected(previous, next, { allow = [] } = {}) {
+  if (allow.some(item => !['timing', 'format', 'content'].includes(item))) fail('Unknown lock exception.');
+  const locked = previous.layers.filter(l => l.locked);
+  for (const layer of locked) {
+    const after = next.layers.find(l => l.id === layer.id);
+    if (!after || after.type !== layer.type) fail(`Unlock “${layer.name}” before deleting it.`);
+    if (lockedView(previous, layer, allow) !== lockedView(next, after, allow)) fail(`Unlock “${layer.name}” before editing it.`);
+  }
+  const order = next.layers.filter(l => locked.some(item => item.id === l.id));
+  const moved = locked.find((layer, index) => order[index].id !== layer.id);
+  if (moved) fail(`Unlock “${moved.name}” before reordering it.`);
+  return next;
 }
 export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');

@@ -127,7 +127,7 @@ The bundled catalog is a local reconstructed recipe dataset. `floc_apply_preset`
 
 Example request: “Switch to the arc template, use monochrome at 70%, add a title at the top, and show me the frame at 3 seconds.”
 
-A local HTTP API is also available: `GET /api/catalog` (templates, catalog metadata and the raw catalog URL), `GET /api/templates`, `GET /api/templates/:id`, `PUT /api/templates/:id` with `{name, project, updatedAt}`, `GET/PUT /api/drafts/:id` with `{project, revision}` for draft writes, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project}`, and `GET /api/exports/:id`. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Browser mutations require a same-origin request and a valid session cookie; authentication is enforced by the server.
+A local HTTP API is also available: `GET /api/catalog` (templates, catalog metadata and the raw catalog URL), `GET /api/templates`, `GET /api/templates/:id`, `PUT /api/templates/:id` with `{name, project, updatedAt}`, `GET/PUT /api/drafts/:id` with `{project, revision}` for draft writes, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project}`, `GET /api/exports` (the 20 most recent exports visible to this browser), `GET /api/exports/:id`, and `POST /api/exports/:id/cancel`. Exports end as `done`, `failed` or `cancelled`; exports still running when the editor restarts are marked `failed` at startup. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Browser mutations require a same-origin request and a valid session cookie; authentication is enforced by the server.
 
 ## Add a carousel or shader
 
@@ -203,7 +203,7 @@ Correct a version with the ordinary inspector and canvas controls. **Reset from 
 
 The layer list shows frontmost layers first. Drag a row to reorder it; the insertion line indicates its new position. Double-click a name (or use Rename / F2) to rename it, Enter to commit and Escape to cancel. Arrow buttons and Alt+Up/Down provide keyboard ordering. Text and logo layers can be duplicated above their source; background, carousel and music remain singletons, with a 20-layer project limit.
 
-Locks persist in project JSON and prevent direct property, timing, order and removal edits. Locked layers can still be selected, hidden/shown and unlocked; the shared patch validator also protects agent edits. Locks are editing safeguards, not permissions: importing a project, Undo and composition-wide duration changes retain their normal behavior. Locking does not change rendering or export.
+Locks persist in project JSON and prevent property, timing, order and removal edits. Locked layers can still be selected, hidden/shown and unlocked. Every editor, visual-alternative and agent change is checked against the previous project, so a locked layer cannot be altered indirectly; moving unlocked layers around it remains possible. Locks are editing safeguards, not permissions: opening or importing a project, Undo/Redo, composition-wide duration changes, linked-format switching/reset (layout fields only) and the Content form (declared fields only) retain their normal behavior. Locking does not change rendering or export.
 
 ### Animated carousel media
 

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "Junk keys and duplicate image IDs",
+  "format": "landscape",
+  "duration": 6,
+  "fps": 60,
+  "layout": { "enabled": false, "marginX": 5, "marginY": 5, "guides": true },
+  "exportedBy": "FLOC Motion 0.9",
+  "selection": "headline",
+  "images": [
+    { "id": "image-2", "src": "/demo/poster-1.svg", "name": "One", "thumbnail": "/demo/poster-1.svg" },
+    { "id": "", "src": "/demo/poster-2.svg", "name": "Two" },
+    { "id": "image-2", "src": "/demo/poster-3.svg", "name": "Three" },
+    { "id": "  ", "src": "/demo/poster-4.svg", "name": "Four", "width": 400 }
+  ],
+  "layers": [
+    { "id": "background", "type": "background", "name": "Background", "visible": true, "start": 0, "end": 6, "color": "#101010", "mode": "color", "src": "", "fit": "cover", "offset": 0, "loop": true, "size": 3, "text": "stale" },
+    { "id": "headline", "type": "text", "name": "Headline", "visible": true, "start": 0, "end": 6, "text": "JUNK", "x": 6, "y": 6, "size": 48, "color": "#ffffff", "font": "geist", "weight": 700, "width": 80, "fadeIn": 0, "fadeOut": 0, "rise": false, "src": "/demo/poster-1.svg", "speed": 4, "expanded": true },
+    { "id": "carousel", "type": "carousel", "name": "Carousel", "visible": true, "start": 0, "end": 6, "template": "stack", "speed": 18, "tilt": -12, "roll": 0, "size": 1, "gap": 0.28, "curve": 0.8, "x": 50, "y": 54, "shader": "none", "intensity": 0.35, "tint": "#0000ff", "text": "stale", "volume": 1, "editorState": { "open": true },
+      "images": [
+        { "id": "a", "src": "/demo/poster-5.svg", "name": "A" },
+        { "id": "a", "src": "/demo/poster-6.svg", "name": "A again", "selected": true },
+        { "id": "a-2", "src": "/demo/poster-1.svg", "name": "Taken" },
+        { "id": "", "src": "/demo/poster-2.svg", "name": "Empty" }
+      ] },
+    { "id": "logo", "type": "logo", "name": "Logo", "visible": true, "start": 0, "end": 6, "src": "/demo/poster-1.svg", "x": 87, "y": 6, "size": 7, "width": 30, "animation": "fade" },
+    { "id": "music", "type": "music", "name": "Music", "visible": true, "start": 0, "end": 6, "src": "", "volume": 0.6, "offset": 0, "fade": 0.5, "loop": false, "x": 3, "waveform": [1, 2, 3] }
+  ]
+}

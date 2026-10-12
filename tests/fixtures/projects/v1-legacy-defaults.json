@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "Legacy defaults",
+  "format": "square",
+  "duration": 12,
+  "fps": 24,
+  "images": [
+    { "id": "card-1", "src": "/demo/poster-1.svg", "name": "One" },
+    { "id": "card-2", "src": "/demo/poster-2.svg", "name": "Two" }
+  ],
+  "layers": [
+    { "id": "background", "type": "background", "name": "Background", "visible": true, "start": 0, "end": 12, "color": "#000000", "mode": "color", "src": "", "fit": "cover", "offset": 0, "loop": true, "fadeIn": 1, "fadeOut": 1 },
+    { "id": "circular", "type": "carousel", "name": "Circular", "visible": true, "start": 0, "end": 12, "template": "circular", "speed": 18, "tilt": -12, "roll": -26, "size": 1.35, "gap": 0.28, "curve": 0.8, "x": 50, "y": 54, "shader": "none", "intensity": 0.35, "tint": "#0000ff" },
+    { "id": "zoom", "type": "carousel", "name": "Zoom", "visible": true, "start": 1, "end": 11, "template": "zoom-through", "speed": 75, "loopDuration": 4.8, "cardCount": 8, "cardAspect": 1.3333333333333333, "tilt": 0, "roll": 0, "size": 1, "gap": 0.2, "curve": 0.5, "x": 50, "y": 50, "shader": "mono", "intensity": 0.5, "tint": "#ffffff",
+      "images": [{ "id": "zoom-1", "src": "/demo/poster-3.svg", "name": "Three" }] },
+    { "id": "shuffle", "type": "carousel", "name": "Shuffle", "visible": true, "start": 0, "end": 12, "template": "stack-shuffle", "speed": 37.5, "tilt": 0, "roll": 0, "size": 0.58, "gap": 0.2, "curve": 0.5, "x": 50, "y": 50, "shader": "none", "intensity": 0.35, "tint": "#0000ff", "motionVariant": "down",
+      "motion": { "mode": "steps", "action": 1.2, "pause": 0.4, "curve": "glide", "intensity": 1 } },
+    { "id": "window", "type": "carousel", "name": "Window", "visible": true, "start": 0, "end": 12, "template": "window-push", "speed": 50, "tilt": 0, "roll": 0, "size": 1, "gap": 0.2, "curve": 0.5, "x": 50, "y": 50, "shader": "none", "intensity": 0.35, "tint": "#0000ff", "fadeIn": 2, "fadeOut": 2.5, "layerEffect": "halftone" },
+    { "id": "clip", "type": "media", "name": "Clip", "visible": true, "start": 0, "end": 12, "src": "/demo/poster-4.svg", "x": 25, "y": 25, "size": 50, "offset": 0, "loop": true },
+    { "id": "grain", "type": "effect", "name": "Grain", "visible": true, "start": 0, "end": 12, "effects": [{ "type": "noise", "enabled": true, "mode": "mono", "sizeX": 1, "sizeY": 1, "linked": true, "density": 1, "opacity": 0.15, "color1": "#000000", "color2": "#ffffff", "animated": false, "seed": 42 }] },
+    { "id": "music", "type": "music", "name": "Music", "visible": true, "start": 0, "end": 12, "src": "", "volume": 0.6, "offset": 0, "fade": 0.5, "loop": false, "fadeIn": 1, "fadeOut": 1 }
+  ]
+}

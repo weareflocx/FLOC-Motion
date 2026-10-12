@@ -68,7 +68,7 @@ test('layer timing and audio seek are independently deterministic', () => {
   assert.equal(audioTime({ ...music, loop: false }, 8, 5), 5);
 });
 test('legacy text entrances migrate to fades and rise without mutating the input', () => {
-  const raw = demoProject(); const legacy = { ...raw.layers[2], id: 'legacy-rise' };
+  const raw = { ...demoProject(), version: 1 }; const legacy = { ...raw.layers[2], id: 'legacy-rise' };
   for (const l of [raw.layers[2], raw.layers[3], legacy]) { delete l.fadeIn; delete l.fadeOut; delete l.rise; }
   raw.layers[2].animation = 'fade'; raw.layers[3].animation = 'none'; legacy.animation = 'rise'; raw.layers.push(legacy);
   const before = structuredClone(raw); const p = validateProject(raw);

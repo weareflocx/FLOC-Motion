@@ -1,5 +1,5 @@
 import { EFFECTS } from './effects.js';
-import { FORMATS, TEMPLATES, SHADERS, CAROUSEL_EFFECTS, patchLayer, validateProject, resizeDuration, switchFormat } from './project.js';
+import { FORMATS, TEMPLATES, SHADERS, CAROUSEL_EFFECTS, assertLocksRespected, patchLayer, validateProject, resizeDuration, switchFormat } from './project.js';
 import { BRAND } from './brand.js';
 import { PROCEDURAL_BACKGROUNDS } from './backgrounds.js';
 import { TEXT_REVEALS } from './text-style.js';
@@ -12,10 +12,11 @@ const choices = values => ({ type: 'string', enum: values });
 export function createTools(api) {
   const carousel = (project, id) => { const layers = project.layers.filter(l => l.type === 'carousel'); if (!layers.length) throw new Error('Add a carousel layer before changing its motion.'); if (!id && layers.length > 1) throw new Error('Specify layerId when editing multiple carousels.'); const layer = id ? layers.find(l => l.id === id) : layers[0]; if (!layer) throw new Error('Carousel layer not found.'); return layer; };
   let mutationQueue = Promise.resolve();
-  const change = build => {
+  const change = (build, locks = {}) => {
     const action = mutationQueue.catch(() => {}).then(async () => {
-      const next = validateProject(build(api.get()));
-      if (api.set(next) === null) throw new Error('Agent edit was rejected.');
+      const current = api.get();
+      const next = assertLocksRespected(validateProject(current), validateProject(build(current)), locks);
+      if (api.set(next, locks) === null) throw new Error('Agent edit was rejected.');
       await api.save();
       return JSON.stringify({ ok: true, project: api.get() });
     });
@@ -45,7 +46,7 @@ export function createTools(api) {
       return JSON.stringify({ state: 'awaiting_selection', names: proposal.alternatives.map(item => item.name) });
     }),
     definition('floc_add_text', 'Add an independently timed text layer, preserving existing layers.', schema({ text: { type: 'string', maxLength: 500 }, x: number(0, 95), y: number(0, 95), size: number(12, 180) }, ['text']), async args => change(p => { const layer = { id: crypto.randomUUID(), type: 'text', name: 'Agent text', visible: true, start: 0, end: p.duration, text: args.text, x: args.x ?? 8, y: args.y ?? 78, size: args.size ?? 40, color: BRAND.colors.white, weight: 600, width: 75, fadeIn: 0.45, fadeOut: 0.25, rise: false }; return { ...p, layers: [...p.layers, layer] }; })),
-    definition('floc_set_output', 'Set output aspect ratio, finite duration and frame rate. Restores linked format framing and type adjustments; automatically adjusts layer timing when duration changes.', schema({ format: choices(Object.keys(FORMATS)), duration: number(1, 30), fps: { type: 'integer', enum: [24, 30, 60] } }), async args => change(current => { let p = current; if (args.duration !== undefined) p = resizeDuration(p, args.duration); if (args.format) p = switchFormat(p, args.format); return { ...p, ...(args.fps ? { fps: args.fps } : {}) }; })),
+    definition('floc_set_output', 'Set output aspect ratio, finite duration and frame rate. Restores linked format framing and type adjustments; automatically adjusts layer timing when duration changes.', schema({ format: choices(Object.keys(FORMATS)), duration: number(1, 30), fps: { type: 'integer', enum: [24, 30, 60] } }), async args => change(current => { let p = current; if (args.duration !== undefined) p = resizeDuration(p, args.duration); if (args.format) p = switchFormat(p, args.format); return { ...p, ...(args.fps ? { fps: args.fps } : {}) }; }, { allow: [...(args.duration !== undefined ? ['timing'] : []), ...(args.format ? ['format'] : [])] })),
     definition('floc_seek_preview', 'Pause and seek the visible composition to a specified time in seconds. Does not modify saved project settings.', schema({ time: number(0, 30) }, ['time']), async ({ time }) => { if (time > api.get().duration) throw new Error('Time exceeds project duration.'); api.seek(time); return JSON.stringify({ time }); }),
     definition('floc_request_export', 'Open the MP4 export confirmation dialog. A person must click Render MP4 in the app; this tool never starts a render or publishes files.', schema(), async () => { api.requestExport(); return JSON.stringify({ state: 'awaiting_user_confirmation', localOnly: true }); }),
     definition('floc_get_export_status', 'Read the latest local export status and download path, if available.', schema(), async () => JSON.stringify(api.exportStatus()), true)
