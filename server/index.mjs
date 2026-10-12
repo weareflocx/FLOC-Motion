@@ -5,7 +5,8 @@ import path from 'node:path';
 import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
 import { TEMPLATES, SHADERS, CAROUSEL_EFFECTS } from '../src/project.js';
 import { catalogSummary } from '../src/catalog.js';
-import { startExport, jobs, run } from './export.mjs';
+import { startExport, cancelExport, recoverInterruptedJobs, listJobs, jobs, run } from './export.mjs';
+import { isTerminalJobState } from '../src/export-jobs.js';
 import { ensureGifVideo } from './card-media.mjs';
 import { createTemplateStore } from './template-store.mjs';
 import { createRenderWorker } from './render-worker.mjs';
@@ -13,7 +14,7 @@ import { createPersonalRenderers, rendererCookie } from './personal-renderers.mj
 import { rendererVersion } from './renderer-version.mjs';
 import { createAuthStore, sessionCookie } from './auth-store.mjs';
 import { createDraftStore } from './draft-store.mjs';
-import { readJson, removeStaleJsonTemps, writeJsonAtomic } from './json-store.mjs';
+import { removeStaleJsonTemps } from './json-store.mjs';
 import { clientAddress, configureHttpServer, requestBody } from './http-boundary.mjs';
 import { createAssetStorage } from './asset-storage.mjs';
 const config = runtimeConfig();
@@ -29,6 +30,7 @@ const personalRenderers = createPersonalRenderers({ data, jobs, version: await r
 await mkdir(assets, { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
 await Promise.all(['access', 'drafts', 'templates', 'renderers'].map(name => removeStaleJsonTemps(path.join(data, name))).concat(removeStaleJsonTemps(path.join(data, 'renders'), { recursive: true })));
+await recoverInterruptedJobs(data);
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] }, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.data/**', `${data}/**`] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = requestBody;
@@ -110,6 +112,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       const asset = await storage.upload(req, { ext, run, convertGif: ensureGifVideo });
       return json(res, { id: asset.id, src: `/assets/${asset.id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
     }
+    if (route === '/api/exports' && req.method === 'GET') return json(res, { jobs: await listJobs(data, jobs, (await personalRenderers.browser(req.headers.cookie))?.id) });
     if (route === '/api/exports' && req.method === 'POST') {
       const input = JSON.parse(await body(req));
       const device = await personalRenderers.browser(req.headers.cookie);
@@ -117,21 +120,19 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       if (config.publicOrigin) return json(res, { error: 'Connect this computer’s renderer in Export before rendering.' }, 503);
       return json(res, await (renderWorker.enabled ? renderWorker.enqueue(input.project, input.settings) : startExport(input.project, input.settings)), 202);
     }
+    const cancelMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})\/cancel$/);
+    if (cancelMatch && req.method === 'POST') {
+      const device = await personalRenderers.browser(req.headers.cookie);
+      const job = await personalRenderers.job(device, cancelMatch[1]);
+      if (!job) return json(res, { error: 'Export not found.' }, 404);
+      if (isTerminalJobState(job.state)) return json(res, { error: 'This export already ended and cannot be cancelled.' }, 409);
+      return json(res, job.rendererId ? await personalRenderers.cancel(device, job.id) : await renderWorker.cancel(job.id) || await cancelExport(job.id));
+    }
     const jobMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})$/);
     if (jobMatch) {
       const device = await personalRenderers.browser(req.headers.cookie) || await personalRenderers.engine(req.headers.authorization);
       let job = await personalRenderers.job(device, jobMatch[1]);
       if (!job?.rendererId) job = await renderWorker.status(jobMatch[1]) || job;
-      if (!job) {
-        const filename = path.join(data, 'renders', jobMatch[1], 'job.json');
-        try {
-          job = await readJson(filename);
-          if (renderWorker.enabled && !['done', 'failed'].includes(job.state)) {
-            Object.assign(job, { state: 'failed', message: 'The editor restarted during export. Please export again.' });
-            await writeJsonAtomic(filename, job);
-          }
-        } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      }
       return json(res, job || { error: 'Export not found.' }, job ? 200 : 404);
     }
     const assetMatch = route.match(/^\/assets\/([a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb))$/);

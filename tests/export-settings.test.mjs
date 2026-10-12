@@ -83,7 +83,8 @@ test('failed exports persist their error so it survives a server restart', async
     const job = await startExport(project);
     let persisted;
     for (let attempt = 0; attempt < 100; attempt++) {
-      try { persisted = JSON.parse(await readFile(path.join(folder, 'renders', job.id, 'job.json'), 'utf8')); break; } catch {}
+      // job.json is written as queued first; wait for the failure to be persisted.
+      try { persisted = JSON.parse(await readFile(path.join(folder, 'renders', job.id, 'job.json'), 'utf8')); if (persisted.state === 'failed') break; } catch {}
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     assert.equal(persisted?.state, 'failed');

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { validateProject } from '../src/project.js';
 import { validateExportSettings, exportDimensions } from '../src/export-settings.js';
 import { readJson, writeJsonAtomic } from './json-store.mjs';
+import { isTerminalJobState, CANCELLED_MESSAGE } from '../src/export-jobs.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const error = (message, status = 409) => Object.assign(new Error(message), { status });
@@ -140,12 +141,19 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
       if (!job) {
         try { job = await readJson(path.join(folder(id), 'job.json')); }
         catch (cause) { if (cause.code === 'ENOENT') return null; throw cause; }
-        if (job.rendererId && !['done', 'failed'].includes(job.state)) {
-          Object.assign(job, { state: 'failed', message: 'The editor restarted during export. Export again.' }); await persistJob(job);
-        }
       }
       if (job?.rendererId && job.rendererId !== device?.id) throw error('Export not found.', 404);
       return job;
+    },
+    // Only the browser that owns the renderer may cancel; the renderer learns it on its next progress update.
+    async cancel(device, id) {
+      if (device) await expire(device);
+      const job = jobs.get(id);
+      if (!job?.rendererId || job.rendererId !== device?.id) throw error('Export not found.', 404);
+      if (isTerminalJobState(job.state)) throw error('This export already ended and cannot be cancelled.');
+      Object.assign(job, { state: 'cancelled', message: CANCELLED_MESSAGE });
+      if (device.active?.id === id) device.active = null;
+      await persistJob(job); return job;
     }
   };
 }

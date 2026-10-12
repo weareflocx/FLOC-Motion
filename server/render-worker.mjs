@@ -8,6 +8,7 @@ import { validateProject } from '../src/project.js';
 import { validateExportSettings, exportDimensions } from '../src/export-settings.js';
 import { verifyExport } from './export.mjs';
 import { writeJsonAtomic } from './json-store.mjs';
+import { CANCELLED_MESSAGE } from '../src/export-jobs.js';
 
 // One trusted Mac pulls jobs outbound. No incoming connection to the Mac is needed.
 export function createRenderWorker({ data, jobs, token, now = Date.now }) {
@@ -75,6 +76,8 @@ export function createRenderWorker({ data, jobs, token, now = Date.now }) {
           size += chunk.length;
           callback(size > 512e6 ? failure('Export exceeds the 512 MB upload limit.', 413) : null, chunk);
         } }), createWriteStream(temp, { flags: 'wx' }));
+        // The job may have been cancelled or expired while the upload streamed.
+        if (active !== id) throw failure('This export is no longer assigned to the Mac.');
         const input = pending.get(id);
         const result = await verifyExport(input.project, temp, input.settings);
         const job = jobs.get(id);
@@ -84,6 +87,15 @@ export function createRenderWorker({ data, jobs, token, now = Date.now }) {
         Object.assign(job, { state: 'done', progress: 100, message: 'MP4 ready', url: `/exports/${id}/video.mp4`, duration: result.duration });
         await persist(job); pending.delete(id); active = null; return job;
       } catch (error) { await rm(temp, { force: true }); throw error; }
+    },
+    // Pending jobs are never terminal; anything else is not this worker's to cancel.
+    async cancel(id) {
+      await expire();
+      if (!pending.has(id)) return null;
+      const job = jobs.get(id);
+      Object.assign(job, { state: 'cancelled', message: CANCELLED_MESSAGE });
+      pending.delete(id); if (active === id) active = null;
+      await persist(job); return job;
     },
     async status(id) { await expire(); return jobs.get(id); }
   };

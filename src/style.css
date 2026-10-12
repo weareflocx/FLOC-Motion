@@ -68,6 +68,10 @@ dialog.modal-backdrop:not([open]){display:none}
 .error-banner{background:#000000;border-color:#ff0000;color:#ffffff}
 .job-status.failed{border-color:#ff0000;color:#ffffff}
 .export-file{overflow-wrap:anywhere}
+.export-history{margin-top:16px}.export-history ol{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto}
+.export-history li{display:flex;flex-direction:column;gap:3px;padding-bottom:8px;border-bottom:1px solid var(--line)}.export-history li>div{display:flex;justify-content:space-between;gap:10px}
+.export-history strong{font-weight:500;color:#dddddd;overflow-wrap:anywhere}.export-history a{color:#dddddd;text-decoration:underline;width:fit-content}
+.export-state{flex-shrink:0;color:#aaaaaa}.export-state.failed{color:#ff0000}
 /* Sidebar layout map and frame-aligned timeline gestures. */
 .placement-control{margin-top:10px}.placement-map{position:relative;margin:0 auto;border:1px solid #ffffff55;background:#000000;overflow:hidden;touch-action:none;user-select:none;cursor:crosshair}
 
