@@ -135,6 +135,9 @@ export function useProject({ userId } = {}) {
   }, [undo, redo]);
 
   const reload = useCallback(async () => {
+    const current = projectRef.current;
+    const identity = compositionRef.current?.id;
+    const draftId = session.draftId;
     await saveQueue.current.catch(() => {});
     let id = compositionRef.current?.id || session.compositionId;
     let entry;
@@ -147,6 +150,7 @@ export function useProject({ userId } = {}) {
     }
     const data = id ? { project: { ...entry.project, name: entry.name }, composition: { id: entry.id, updatedAt: entry.updatedAt } } : entry;
     const next = validateProject(data.project);
+    if (projectRef.current !== current || compositionRef.current?.id !== identity || session.draftId !== draftId) throw new Error('The composition changed while it was being loaded. Try again.');
     projectRef.current = next;
     setProject(next);
     if (!id) draftRevisions.current.set(session.draftId, data.revision);
