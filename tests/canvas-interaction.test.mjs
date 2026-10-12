@@ -34,7 +34,7 @@ function editor() {
     useEffect(fn, deps) { const i = cursor++; if (changed(slots[i]?.deps, deps)) effects.push(() => { slots[i]?.cleanup?.(); slots[i] = { deps, cleanup: fn() }; }); }
   };
   vm.createContext(context); vm.runInContext(compiled + '\nthis.hook = useCanvasInteraction;', context);
-  let props = { root, engine: { current: {} }, project, sceneKey: project, selected: 'headline', time: 1,
+  let props = { root, engine: { current: {} }, project, sceneKey: project, selected: 'headline', time: 1, clock: { get: () => ({ time: props.time }) },
     onSelect() {}, onPatch(id, patch) { patches.push({ id, ...patch }); },
     onPreview(value) { previews.push(value); }, onPendingEdit(commit) { pending = commit; } };
   function render(next = {}) { cursor = 0; props = { ...props, ...next }; const result = context.hook(props); for (const effect of effects.splice(0)) effect(); return result; }

@@ -8,10 +8,11 @@ import { evaluateChoreography } from '../choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from './canvas-resize.js';
 
 // Drag previews commit on release; wheel previews commit after scrolling or before history/selection changes.
-export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled = true }) {
+export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, selected, time, clock, onSelect, onPatch, onPreview, onPendingEdit, enabled = true }) {
   const gesture = useRef(null);
   const wheelDraft = useRef(null);
-  const playhead = useRef(time); playhead.current = time;
+  // Gestures read the live clock: while playing, `time` stays at the playback origin.
+  const playhead = () => clock.get().time;
   const [draft, setDraft] = useState(null);
   const sourceLayer = project.layers.find(l => l.id === selected);
   const layer = sourceLayer && evaluateChoreography(sourceLayer, time);
@@ -69,8 +70,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   function pick(x, y) {
     const box = root.current.getBoundingClientRect();
     for (const source of [...project.layers].reverse()) {
-      const l = evaluateChoreography(source, playhead.current);
-      if (!l.visible || playhead.current < l.start || playhead.current >= l.end || l.type === 'music') continue;
+      const at = playhead(), l = evaluateChoreography(source, at);
+      if (!l.visible || at < l.start || at >= l.end || l.type === 'music') continue;
       const node = nodeFor(l.id); if (!node || Number(node.style.opacity) <= 0) continue;
       const b = node.getBoundingClientRect();
       if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
@@ -86,7 +87,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const resize = event.target.closest('[data-canvas-resize]');
     const selection = event.target.closest('[data-canvas-move]');
     const ringLayer = (ring || resize || selection) && project.layers.find(l => l.id === selected && l.type !== 'music');
-    const l = ringLayer ? evaluateChoreography(ringLayer, playhead.current) : pick(event.clientX, event.clientY);
+    const l = ringLayer ? evaluateChoreography(ringLayer, playhead()) : pick(event.clientX, event.clientY);
     if (!l) { commitWheel(); onSelect(null); onPreview(null); return; }
     if (wheelDraft.current) return;
     event.preventDefault(); onSelect(l.id);
@@ -110,7 +111,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const bounds = resizing && measured;
     const initial = orient ? spatial ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { roll: l.roll ?? 0 } : ['carousel', 'background'].includes(l.type) ? { x: l.x ?? 0, y: l.y ?? 0 } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top), ...(resizing ? { size: l.size } : {}) };
     const visualOffset = !orient && ['text', 'logo', 'media'].includes(l.type) ? { x: (b.left - box.left) / box.width * 100 - initial.x, y: (b.top - box.top) / box.height * 100 - initial.y } : { x: 0, y: 0 };
-    const targets = project.layers.filter(other => other.id !== l.id && other.visible && playhead.current >= other.start && playhead.current < other.end).map(other => evaluateChoreography(other, playhead.current)).flatMap(other => {
+    const at = playhead(), targets = project.layers.filter(other => other.id !== l.id && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at)).flatMap(other => {
       if (other.type === 'carousel') return [{ x: other.x, y: other.y, width: 0, height: 0 }];
       const node = nodeFor(other.id); if (!node || !['text', 'logo', 'media', 'model'].includes(other.type)) return [];
       const rect = node.getBoundingClientRect();
@@ -175,8 +176,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     }
     const target = event.target.closest('[data-floc-layer]');
     const source = target ? project.layers.find(l => l.id === target.dataset.flocLayer) : sourceLayer;
-    const l = source && evaluateChoreography(source, playhead.current);
-    if (!l || !l.visible || playhead.current < l.start || playhead.current >= l.end) return;
+    const at = playhead(), l = source && evaluateChoreography(source, at);
+    if (!l || !l.visible || at < l.start || at >= l.end) return;
     if (event.key === 'Enter') { event.preventDefault(); onSelect(l.id); return; }
     if (l.locked || gesture.current || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault(); onSelect(l.id);

@@ -30,7 +30,7 @@ function controls({ type = 'text', locked = false, states = false, time = 1 } = 
     if (typeof type === 'function') return type({ ...props, children });
     return { type, props: props || {}, children };
   } };
-  const context = { React, CHOREOGRAPHY_EASINGS, captureState, moveState, stateAtTime, evaluateChoreography,
+  const context = { React, CHOREOGRAPHY_EASINGS, captureState, moveState, stateAtTime, evaluateChoreography, usePlaybackTime: clock => clock.get().time,
     useState(value) { const index = cursor++; slots[index] ??= { value }; return [slots[index].value, next => { const value = typeof next === 'function' ? next(slots[index].value) : next; if (!Object.is(value, slots[index].value)) { slots[index].value = value; dirty = true; } }]; },
     useRef(value) { const index = cursor++; return slots[index] ??= { current: value }; },
     useLayoutEffect() {},
@@ -43,7 +43,7 @@ function controls({ type = 'text', locked = false, states = false, time = 1 } = 
   vm.createContext(context);
   for (const code of compiled) vm.runInContext(code, context);
   vm.runInContext('this.component = TimelinePanel;', context);
-  let props = { selected: id, time, playing: true, ready: true, timelineOpen: true,
+  let props = { selected: id, time, clock: { get: () => ({ time: props.time }), subscribe: () => () => {} }, playing: true, ready: true, timelineOpen: true,
     onTimeChange() {}, onSetPlaying(value) { playing.push(value); }, onSetTimelineOpen() {}, onSelect(value) { props.selected = value; },
     onSeek(value) { seeks.push(value); props.time = value; },
     onPatch(layerId, patch) { patches.push(patch); project = patchLayer(project, layerId, patch); },

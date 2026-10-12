@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useCanvasInteraction } from './useCanvasInteraction.jsx';
 import { FORMATS } from '../project.js';
 import { createScene, stageMarkup } from '../scene.js';
@@ -9,8 +9,9 @@ import { PlacementGuides } from './PlacementGuides.jsx';
 import { DEFAULT_LAYOUT } from '../layout.js';
 import { canvasViewport } from './canvas-viewport.js';
 import { evaluateChoreography } from '../choreography.js';
+import { usePlaybackTime } from './usePlayback.js';
 
-export function Stage({ nudge, project, time, playing, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
+export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
   const [activeProject, setActiveProject] = useState(project);
   const [sceneReady, setSceneReady] = useState(false);
   const [geometry, setGeometry] = useState({ rect: null, targets: [] });
@@ -23,8 +24,10 @@ export function Stage({ nudge, project, time, playing, onError, onReady, positio
   const panGesture = useRef();
   const zoomRef = useRef(zoom); zoomRef.current = zoom;
   const synchronized = sceneReady && activeProject === project;
-  const timeRef = useRef({ time, playing });
-  timeRef.current = { time, playing };
+  // React re-renders on play, pause and seek; playback frames seek the scene from the clock subscription below.
+  const playing = useSyncExternalStore(clock.subscribe, () => clock.get().playing);
+  const time = usePlaybackTime(clock, Infinity);
+  const clockRef = useRef(clock); clockRef.current = clock;
 
   const session = useRef();
   const callbacks = useRef();
@@ -49,7 +52,8 @@ export function Stage({ nudge, project, time, playing, onError, onReady, positio
       if (ringRoot.current) { ringRoot.current.style.width = `${w}px`; ringRoot.current.style.height = `${h}px`; ringRoot.current.style.transform = root.current.style.transform; }
       const resolution = Math.min(1, scale * Math.min(window.devicePixelRatio || 1, 2));
       active.scene.setResolution(Math.max(1, Math.round(w * resolution)), Math.max(1, Math.round(h * resolution)));
-      active.scene.seek(timeRef.current.time, timeRef.current.playing);
+      const now = clockRef.current.get();
+      active.scene.seek(now.time, now.playing);
     };
     fitRef.current = fit;
     const manager = createPreviewSession({
@@ -72,10 +76,11 @@ export function Stage({ nudge, project, time, playing, onError, onReady, positio
         const focused = root.current.contains(document.activeElement) ? document.activeElement.dataset.flocLayer : null;
         next.scene.setOrientation(previewRef.current?.id === next.project.layers.find(l => l.id === previewRef.current?.id && l.type === 'carousel')?.id ? previewRef.current : null);
         next.scene.setPlacement(previewRef.current);
-        next.scene.seek(timeRef.current.time, timeRef.current.playing);
+        const now = clockRef.current.get();
+        next.scene.seek(now.time, now.playing);
         root.current.replaceChildren(next.node);
         const layer = next.project.layers.find(l => l.id === focused);
-        if (layer?.visible && timeRef.current.time >= layer.start && timeRef.current.time < layer.end) {
+        if (layer?.visible && now.time >= layer.start && now.time < layer.end) {
           const node = [...next.node.querySelectorAll('[data-floc-layer]')].find(n => n.dataset.flocLayer === focused);
           if (node) { node.tabIndex = 0; node.focus({ preventScroll: true }); }
         }
@@ -94,6 +99,7 @@ export function Stage({ nudge, project, time, playing, onError, onReady, positio
   }, []);
 
   useEffect(() => { session.current?.request(project); }, [project]);
+  useEffect(() => clock.subscribe(() => { const now = clock.get(); if (now.playing) engine.current?.seek(now.time, true); }), [clock]);
   useEffect(() => { offset.current = { x: 0, y: 0 }; fitRef.current?.(); }, [zoom, activeProject.format]);
   useEffect(() => {
     if (!panning) return;
@@ -152,12 +158,14 @@ export function Stage({ nudge, project, time, playing, onError, onReady, positio
     }
     engine.current?.setOrientation(synchronized && positionPreview?.id === activeProject.layers.find(l => l.id === positionPreview?.id && l.type === 'carousel')?.id ? positionPreview : null);
     engine.current?.setPlacement(synchronized ? positionPreview : null);
-    const ready = engine.current?.seek(time, playing);
+    // `time` is exact while paused; while playing, the clock holds the frame to show.
+    const now = clock.get();
+    const ready = engine.current?.seek(now.time, now.playing);
     Promise.resolve(ready).then(() => {
-      if (cancelled || !synchronized || playing) return;
+      if (cancelled || !synchronized || now.playing) return;
       const frame = root.current.getBoundingClientRect(); if (!frame.width || !frame.height) return;
       const nodes = [...root.current.querySelectorAll('[data-floc-layer]')];
-      const rects = activeProject.layers.filter(l => l.visible && time >= l.start && time < l.end).map(l => evaluateChoreography(l, time)).flatMap(l => {
+      const rects = activeProject.layers.filter(l => l.visible && now.time >= l.start && now.time < l.end).map(l => evaluateChoreography(l, now.time)).flatMap(l => {
         if (l.type === 'carousel') return [{ id: l.id, x: l.x, y: l.y, width: 0, height: 0 }];
         if (!['text', 'logo', 'media', 'model'].includes(l.type)) return [];
         const node = nodes.find(n => n.dataset.flocLayer === l.id); if (!node) return [];
@@ -167,8 +175,9 @@ export function Stage({ nudge, project, time, playing, onError, onReady, positio
       setGeometry({ rect: rects.find(r => r.id === selected), targets: rects.filter(r => r.id !== selected), scale: frame.width / FORMATS[activeProject.format][0] });
     });
     return () => { cancelled = true; };
-  }, [positionPreview, project, activeProject, selected, time, playing, synchronized]);
+  }, [positionPreview, project, activeProject, selected, time, playing, synchronized, clock]);
 
-  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, time, onSelect, onPatch, onPreview, onPendingEdit, enabled: synchronized });
-  return <div ref={holder} className={`stage-holder${panning ? ' is-panning' : ''}`} tabIndex={0} aria-label={panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : 'Canvas workspace: click empty space or press Escape to deselect'} onPointerDown={event => { if (!panning && event.target === event.currentTarget) { event.currentTarget.focus({ preventScroll: true }); handlers.onPointerDown(event); } }} onKeyDown={event => { if (!panning && event.target === event.currentTarget) handlers.onKeyDown(event); }} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
+  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, time, clock, onSelect, onPatch, onPreview, onPendingEdit, enabled: synchronized });
+  // Selection chrome is measured at render time, so it is hidden while frames advance without renders.
+  return <div ref={holder} className={`stage-holder${panning ? ' is-panning' : ''}`} tabIndex={0} aria-label={panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : 'Canvas workspace: click empty space or press Escape to deselect'} onPointerDown={event => { if (!panning && event.target === event.currentTarget) { event.currentTarget.focus({ preventScroll: true }); handlers.onPointerDown(event); } }} onKeyDown={event => { if (!panning && event.target === event.currentTarget) handlers.onKeyDown(event); }} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{!playing && ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
 }

@@ -3,6 +3,7 @@ import { ArrowCounterClockwise, ArrowClockwise, SlidersHorizontal, Hand, Minus, 
 import { FORMATS } from '../../project.js';
 import { IconButton } from '../controls.jsx';
 import { Stage } from '../Stage.jsx';
+import { usePlaybackTime } from '../usePlayback.js';
 
 const timeLabel = (seconds, fps) => {
   const totalFrames = Math.floor(seconds * fps + 0.00001);
@@ -12,7 +13,16 @@ const timeLabel = (seconds, fps) => {
   return [minutes, wholeSeconds, frames].map(value => value.toString().padStart(2, '0')).join(':');
 };
 
-export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, onSelect, onPatch, onPreview, onPendingEdit }) {
+// The readout samples the clock at 10 Hz so playback does not re-render the canvas panel.
+function Timecode({ clock, fps, duration }) {
+  const currentTime = timeLabel(usePlaybackTime(clock, 0.1), fps), totalTime = timeLabel(duration, fps);
+  return <span className="timecode" title="Minutes:seconds:frames" aria-label={`Current time ${currentTime} of ${totalTime}, minutes:seconds:frames`}>
+    <span className="timecode-current">{currentTime}</span>
+    <span className="timecode-total">/ {totalTime}</span>
+  </span>;
+}
+
+export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, clock, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, onSelect, onPatch, onPreview, onPendingEdit }) {
   const [zoom, setZoom] = useState('fit');
   const [panning, setPanning] = useState(false);
   const [viewport, setViewport] = useState({ scale: 1, canPan: false });
@@ -23,12 +33,10 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
     setViewport(current => current.scale === next.scale && current.canPan === next.canPan ? current : next);
   }, []);
   function changeZoom(value) { pendingEdit.current?.(); setPanning(false); setZoom(value); }
-  const currentTime = timeLabel(time, project.fps);
-  const totalTime = timeLabel(project.duration, project.fps);
   const selectedLayer = project.layers.find(layer => layer.id === selected && layer.visible && !layer.locked && time >= layer.start && time < layer.end && !['music', 'effect'].includes(layer.type));
   return <section className="center-panel">
     <div className="preview-wrap">
-      <Stage nudge={nudge} selected={selected} onSelect={onSelect} onPatch={onPatch} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} time={time} playing={playing} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
+      <Stage nudge={nudge} selected={selected} onSelect={onSelect} onPatch={onPatch} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
       {ready && !panning && selectedLayer && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · Esc cancels</div>}
       <div className="canvas-toolbar">
@@ -47,10 +55,7 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
         <IconButton className="icon-button canvas-play" label={playing ? 'Pause preview' : 'Play preview'} title={playing ? 'Pause preview (Space)' : 'Play preview (Space)'} aria-keyshortcuts="Space" onClick={() => onSetPlaying(value => !value)} disabled={!ready}>
           {playing ? <Pause size={20} weight="fill"/> : <Play size={20} weight="fill"/>}
         </IconButton>
-        <span className="timecode" title="Minutes:seconds:frames" aria-label={`Current time ${currentTime} of ${totalTime}, minutes:seconds:frames`}>
-          <span className="timecode-current">{currentTime}</span>
-          <span className="timecode-total">/ {totalTime}</span>
-        </span>
+        <Timecode clock={clock} fps={project.fps} duration={project.duration}/>
       </div>
     </div>
   </section>;

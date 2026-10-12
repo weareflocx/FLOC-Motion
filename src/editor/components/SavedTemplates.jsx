@@ -13,13 +13,13 @@ export function TemplatePreview({ project }) {
   projectRef.current = project;
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
-  const { time, playing, setPlaying } = usePlayback({ projectRef, duration: project.duration });
+  const { clock, playing, setPlaying } = usePlayback({ projectRef, duration: project.duration, step: Infinity });
   useEffect(() => {
     const pause = () => { if (document.hidden) setPlaying(false); };
     document.addEventListener('visibilitychange', pause);
     return () => document.removeEventListener('visibilitychange', pause);
   }, [setPlaying]);
-  return <><div className="saved-template-preview" inert><Stage project={project} time={time} playing={playing} onReady={setReady} onError={setError} onPreview={noop} onSelect={noop} onPatch={noop}/></div>{error && <p role="alert">{error}</p>}<button type="button" className="outline-button" disabled={!ready} onClick={() => setPlaying(value => !value)}>{playing ? 'Pause preview' : 'Play preview'}</button></>;
+  return <><div className="saved-template-preview" inert><Stage project={project} clock={clock} onReady={setReady} onError={setError} onPreview={noop} onSelect={noop} onPatch={noop}/></div>{error && <p role="alert">{error}</p>}<button type="button" className="outline-button" disabled={!ready} onClick={() => setPlaying(value => !value)}>{playing ? 'Pause preview' : 'Play preview'}</button></>;
 }
 export function SavedTemplates({ project, onMetadata, onRemove, onSaveCurrent, onApply, onUseTemplate, onClose, picker = false, disabled = false, selectedId: initialSelectedId = '', onSelect }) {
   const title = useId();

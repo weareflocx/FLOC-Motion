@@ -21,7 +21,7 @@ function timeline({ locked = false, time = 3, mode = 'choreography', width = 800
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value: value === 0 ? width : value }; return [slots[i].value, next => { slots[i].value = next; }]; } };
   vm.createContext(context); vm.runInContext(compiled + '\nthis.component = TimelineTracks;', context);
-  let props = { project: { duration: 8, fps: 24, layers: [layer] }, time, mode, selected: layer.id, icons: { text() {} },
+  let props = { project: { duration: 8, fps: 24, layers: [layer] }, time, clock: { get: () => ({ time: props.time }) }, mode, selected: layer.id, icons: { text() {} },
     onSelect(id) { selections.push(id); }, onSeek(value) { seeks.push(value); }, onCommit(id, patch) { patches.push({ id, patch }); } };
   const render = (next = {}) => { cursor = 0; props = { ...props, ...next }; return context.component(props); };
   const nodes = node => [node, ...(node?.children || []).flat(Infinity).flatMap(child => child && typeof child === 'object' ? nodes(child) : [])];
