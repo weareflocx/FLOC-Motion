@@ -14,7 +14,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 function editor({ linked = true } = {}) {
   const slots = [], requests = [];
-  let cursor = 0, revision = 4, create, saveFailure;
+  let cursor = 0, revision = 4, create, saveFailure, readGate;
   const current = validateProject({ ...demoProject(), name: 'Current composition' });
   const identity = linked ? { id: 'current-composition', updatedAt: '2026-10-04T01:00:00Z' } : null;
   const entries = new Map(identity ? [[identity.id, { ...identity, name: current.name, project: current }]] : []);
@@ -26,7 +26,7 @@ function editor({ linked = true } = {}) {
       const body = options?.body && JSON.parse(options.body);
       requests.push({ url, method: options?.method || 'GET', body });
       if (url.startsWith('/api/drafts/') && !options) return { project: current, revision };
-      if (url.startsWith('/api/templates/') && !options) return entries.get(url.split('/').at(-1));
+      if (url.startsWith('/api/templates/') && !options) { if (readGate) await readGate; return entries.get(url.split('/').at(-1)); }
       if (url === '/api/templates' && !options) return { templates: [...entries.values()] };
       if (url === '/api/templates') {
         if (create) await create;
@@ -63,7 +63,8 @@ function editor({ linked = true } = {}) {
     create = new Promise((yes, no) => { resolve = yes; reject = no; });
     return { resolve, reject };
   };
-  return { render, requests, deferCreate, current, identity, entries, session, failNextSave: error => { saveFailure = error; } };
+  const deferRead = () => { let resolve; readGate = new Promise(yes => { resolve = yes; }); return { resolve }; };
+  return { render, requests, deferCreate, deferRead, current, identity, entries, session, failNextSave: error => { saveFailure = error; } };
 }
 
 test('copying another template keeps the current identity until creation succeeds and preserves source design', async () => {
@@ -318,4 +319,42 @@ test('reloading after a conflict allows leaving a clean composition without retr
   await h.render().save();
   assert.equal(h.render().status, 'All changes saved');
   assert.equal(h.requests.filter(item => item.method === 'PUT').length, 1);
+});
+
+
+test('a reload preserves edits made while its read is pending and a later clean reload succeeds', async () => {
+  const h = editor(); await h.render().reload();
+  h.render().patch('headline', { text: 'Before discard confirmation' });
+  const remote = { ...h.entries.get(h.identity.id), updatedAt: 'remote-revision', project: patchLayer(h.current, 'headline', { text: 'Remote saved text' }) };
+  h.entries.set(h.identity.id, remote);
+  const pending = h.deferRead();
+  const reloading = h.render().reload();
+  while (h.requests.filter(item => item.method === 'GET').length < 2) await Promise.resolve();
+  h.render().patch('headline', { text: 'New edit during reload' });
+  pending.resolve();
+  await assert.rejects(reloading, /changed while.*loaded/);
+  assert.equal(h.render().project.layers.find(layer => layer.id === 'headline').text, 'New edit during reload');
+  assert.equal(h.render().history.length, 2);
+  assert.deepEqual(plain(h.render().composition), h.identity);
+  await h.render().reload();
+  assert.equal(h.render().project.layers.find(layer => layer.id === 'headline').text, 'Remote saved text');
+  assert.equal(h.render().composition.updatedAt, 'remote-revision');
+  assert.equal(h.render().history.length, 0);
+  assert.equal(h.render().status, 'All changes saved');
+});
+
+test('a pending reload cannot replace a newly saved copy with identical project content', async () => {
+  const h = editor(); await h.render().reload();
+  const previous = h.render().projectRef.current;
+  const pending = h.deferRead();
+  const reloading = h.render().reload();
+  while (h.requests.filter(item => item.method === 'GET').length < 2) await Promise.resolve();
+  const copy = await h.render().saveCopy(previous.name);
+  assert.equal(h.render().projectRef.current, previous);
+  pending.resolve();
+  await assert.rejects(reloading, /changed while.*loaded/);
+  assert.equal(h.render().composition.id, copy.id);
+  assert.equal(h.session.compositionId, copy.id);
+  await h.render().save();
+  assert.equal(h.requests.filter(item => item.method === 'PUT').length, 0);
 });
