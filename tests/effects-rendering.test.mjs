@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEffects, effectLayer } from '../src/effects.js';
+import { DEFAULT_NOISE, createEffects, effectLayer } from '../src/effects.js';
 import { demoProject, validateProject, layerAlpha, FORMATS, reorderLayer } from '../src/project.js';
 
 // Minimal DOM adapter: assertions exercise composite ownership and timeline
@@ -101,4 +101,36 @@ test('optical warp respects adjustment fades, reverses deterministically and byp
   await effects.seek(8); assert.equal(composite.style.filter, '');
   await effects.seek(4); assert.equal(composite.style.filter, active);
   effects.dispose(); assert.deepEqual(root.childNodes.map(node => node.dataset.flocLayer), project.layers.map(layer => layer.id));
+});
+
+test('animated noise slides one cached texture at 12 Hz, reverses exactly and leaves static noise in place', async () => {
+  const demo = demoProject();
+  const noise = { ...DEFAULT_NOISE, animated: true, sizeX: 2, sizeY: 2, seed: 9 };
+  const project = validateProject({ ...demo, layers: demo.layers.map(layer => layer.id === 'headline' ? { ...layer, start: 1, effects: [noise] } : layer.id === 'signature' ? { ...layer, effects: [{ ...noise, animated: false }] } : layer) });
+  const toDataURL = Node.prototype.toDataURL;
+  let encoded = 0;
+  Node.prototype.toDataURL = function () { encoded++; return toDataURL.call(this); };
+  try {
+    const { root, effects } = fixture(project);
+    const created = encoded;
+    const collect = node => [node, ...node.childNodes.flatMap(collect)];
+    const [moving, still] = collect(root).filter(node => node.tagName === 'feImage');
+    const at = async time => { await effects.seek(time); return [moving, still].map(node => [node.attributes.x, node.attributes.y].map(Number)); };
+    const forward = [];
+    for (let frame = 0; frame < 48; frame++) forward.push(await at(frame / 24));
+    const backward = [];
+    for (let frame = 47; frame >= 0; frame--) backward.unshift(await at(frame / 24));
+    assert.deepEqual(backward, forward);
+    // Before the layer starts and within one 12 Hz step the grain holds; each step moves it by whole 2 px cells.
+    assert.deepEqual(forward[0], forward[24]);
+    assert.deepEqual(forward[26][0], forward[27][0]);
+    assert.notDeepEqual(forward[26][0], forward[28][0]);
+    for (const [[x, y], position] of forward) {
+      assert.ok([x, y].every(value => value <= 0 && value > -256 && value % 2 === 0));
+      assert.deepEqual(position, [0, 0]);
+    }
+    assert.equal(encoded, created);
+    fixture(project);
+    assert.equal(encoded, created);
+  } finally { Node.prototype.toDataURL = toDataURL; }
 });

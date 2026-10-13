@@ -52,25 +52,49 @@ export function opticalWarpOffset(effect, x, y) {
   return effect.axis === 'horizontal' ? [0, offset] : [offset, 0];
 }
 
+// Generated textures depend only on their settings, so scenes rebuilt for
+// unrelated edits reuse them. Each entry keeps its decoded image alive.
+const textures = new Map();
+function cachedTexture(key, create) {
+  let texture = textures.get(key);
+  if (texture) textures.delete(key);
+  else {
+    texture = create();
+    if (textures.size >= 24) textures.delete(textures.keys().next().value);
+  }
+  textures.set(key, texture);
+  return texture;
+}
+function decodable(texture) {
+  if (!texture.url) {
+    texture.url = texture.canvas.toDataURL();
+    texture.image = new Image(); texture.image.src = texture.url;
+    texture.ready = texture.image.decode();
+  }
+  return texture;
+}
+
 // Padded coordinates can displace up to one layer dimension in either
 // direction. Leave half a channel step of headroom around the neutral 128.
 const WARP_MAP_SCALE = 2.01;
 function opticalWarpMap(effect) {
-  const horizontal = effect.axis === 'horizontal';
-  const canvas = document.createElement('canvas');
-  canvas.width = horizontal ? 256 : 768;
-  canvas.height = horizontal ? 768 : 256;
-  const context = canvas.getContext('2d');
-  const pixels = context.createImageData(canvas.width, canvas.height);
-  for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
-    const [dx, dy] = opticalWarpOffset(effect, horizontal ? x / (canvas.width - 1) : -1 + 3 * x / (canvas.width - 1), horizontal ? -1 + 3 * y / (canvas.height - 1) : y / (canvas.height - 1));
-    const index = (y * canvas.width + x) * 4;
-    pixels.data[index] = 128 + Math.round(dx / WARP_MAP_SCALE * 255);
-    pixels.data[index + 1] = 128 + Math.round(dy / WARP_MAP_SCALE * 255);
-    pixels.data[index + 2] = 0; pixels.data[index + 3] = 255;
-  }
-  context.putImageData(pixels, 0, 0);
-  return canvas.toDataURL();
+  return decodable(cachedTexture(`warp:${effect.axis}:${effect.amount}:${effect.center}`, () => {
+    const horizontal = effect.axis === 'horizontal';
+    const canvas = document.createElement('canvas');
+    canvas.width = horizontal ? 256 : 768;
+    canvas.height = horizontal ? 768 : 256;
+    const context = canvas.getContext('2d');
+    const pixels = context.createImageData(canvas.width, canvas.height);
+    for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+      const [dx, dy] = opticalWarpOffset(effect, horizontal ? x / (canvas.width - 1) : -1 + 3 * x / (canvas.width - 1), horizontal ? -1 + 3 * y / (canvas.height - 1) : y / (canvas.height - 1));
+      const index = (y * canvas.width + x) * 4;
+      pixels.data[index] = 128 + Math.round(dx / WARP_MAP_SCALE * 255);
+      pixels.data[index + 1] = 128 + Math.round(dy / WARP_MAP_SCALE * 255);
+      pixels.data[index + 2] = 0; pixels.data[index + 3] = 255;
+    }
+    context.putImageData(pixels, 0, 0);
+    return { canvas };
+  }));
 }
 
 function sample(seed, index) {
@@ -80,20 +104,41 @@ function sample(seed, index) {
   return ((value ^ (value >>> 15)) >>> 0) / 4294967296;
 }
 
-// A supplied time and seed reproduce the same texture on reverse seeks and export.
-export function noisePixels(effect, time, side = 128) {
+export const NOISE_TILE = 128;
+// One seeded tile per look; animation never regenerates it.
+export function noisePixels(effect, side = NOISE_TILE) {
   const pixels = new Uint8ClampedArray(side * side * 4);
   if (!effect.enabled) return pixels;
-  const seed = effect.seed ^ (effect.animated ? Math.floor(Math.max(0, time) * 12 + 1e-8) : 0);
   const rgb = color => [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16));
   const first = rgb(effect.color1), second = rgb(effect.color2);
   for (let i = 0; i < side * side; i++) {
-    if (sample(seed, i * 5) >= effect.density) continue;
-    const tone = sample(seed, i * 5 + 1);
-    for (let channel = 0; channel < 3; channel++) pixels[i * 4 + channel] = effect.mode === 'multi' ? sample(seed, i * 5 + channel + 2) * 255 : effect.mode === 'duo' ? first[channel] + (second[channel] - first[channel]) * tone : first[channel];
+    if (sample(effect.seed, i * 5) >= effect.density) continue;
+    const tone = sample(effect.seed, i * 5 + 1);
+    for (let channel = 0; channel < 3; channel++) pixels[i * 4 + channel] = effect.mode === 'multi' ? sample(effect.seed, i * 5 + channel + 2) * 255 : effect.mode === 'duo' ? first[channel] + (second[channel] - first[channel]) * tone : first[channel];
     pixels[i * 4 + 3] = effect.opacity * (0.2 + tone * 0.8) * 255;
   }
   return pixels;
+}
+
+// Animated grain moves the tile to a new whole-cell offset 12 times per
+// second. Offsets derive from the seed and the frame index, so reverse seeks
+// and export reproduce the preview without regenerating any texture.
+export function noiseOffset(effect, time) {
+  if (!effect.animated) return [0, 0];
+  const frame = Math.floor(Math.max(0, time) * 12 + 1e-8);
+  return [0, 1].map(axis => Math.floor(sample(effect.seed, -2 - 2 * frame - axis) * NOISE_TILE));
+}
+
+// `repeat` × `repeat` copies of the tile, so an offset crop still holds a whole tile.
+function noiseTexture(effect, repeat) {
+  return cachedTexture(`noise:${[effect.enabled, effect.mode, effect.density, effect.opacity, effect.color1, effect.color2, effect.seed, repeat]}`, () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = NOISE_TILE * repeat;
+    const context = canvas.getContext('2d'), pixels = context.createImageData(NOISE_TILE, NOISE_TILE);
+    pixels.data.set(noisePixels(effect));
+    for (let y = 0; y < repeat; y++) for (let x = 0; x < repeat; x++) context.putImageData(pixels, x * NOISE_TILE, y * NOISE_TILE);
+    return { canvas };
+  });
 }
 
 export function effectLayer(id, duration) {
@@ -114,7 +159,7 @@ export function createEffects(root, project, formats, layerAlpha) {
   const sceneId = nextScene++;
   const entries = [];
   const targets = [];
-  const masksReady = [];
+  const imagesReady = [];
   const wrappers = [];
   let layers = project.layers;
   const current = id => layers.find(layer => layer.id === id);
@@ -139,6 +184,7 @@ export function createEffects(root, project, formats, layerAlpha) {
       }
     } else if (layer.type !== 'music') below.push(...nodes);
   });
+  const [width, height] = formats[project.format], unit = Math.min(width, height) / 1080;
   const drawn = new Map();
   project.layers.forEach((layer, layerIndex) => {
     const overlay = layer.type === 'effect' && layer.effectScope !== 'below';
@@ -151,8 +197,8 @@ export function createEffects(root, project, formats, layerAlpha) {
         const horizontal = effect.axis === 'horizontal';
         const bounds = { x: horizontal ? 0 : -1, y: horizontal ? -1 : 0, width: horizontal ? 1 : 3, height: horizontal ? 3 : 1 };
         const filter = element('filter', { id, ...bounds, filterUnits: 'objectBoundingBox', primitiveUnits: 'userSpaceOnUse', 'color-interpolation-filters': 'sRGB' });
-        const source = opticalWarpMap(effect);
-        const image = element('feImage', { href: source, preserveAspectRatio: 'none', result: 'warpMap' });
+        const map = opticalWarpMap(effect);
+        const image = element('feImage', { href: map.url, preserveAspectRatio: 'none', result: 'warpMap' });
         // PNG channels use 128 as neutral. Correct it to exactly 0.5 to avoid
         // translating the untouched axis or the center of the layer. Offset
         // the source rather than rounding the map again in a color transfer.
@@ -160,7 +206,7 @@ export function createEffects(root, project, formats, layerAlpha) {
         const displacement = element('feDisplacementMap', { in: 'centeredSource', in2: 'warpMap', xChannelSelector: 'R', yChannelSelector: 'G' });
         // Antialias the displacement's pixel sampling at curved edges.
         filter.append(image, sourceOffset, displacement, element('feGaussianBlur', { stdDeviation: 0.35 })); defs.append(filter);
-        const decoded = new Image(); decoded.src = source; masksReady.push(decoded.decode());
+        imagesReady.push(map.ready);
         filters.push({ effect, url: `url(#${id})`, displacement, image, sourceOffset });
         return;
       }
@@ -177,7 +223,7 @@ export function createEffects(root, project, formats, layerAlpha) {
           const stops = Array.from({ length: 5 }, (_, stop) => `<stop offset="${stop / 4}" stop-color="white" stop-opacity="${stop === level ? 1 : 0}"/>`).join('');
           const source = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="${ns}" width="128" height="128"><defs><linearGradient id="g" x1="${x1 * 100}%" y1="${y1 * 100}%" x2="${x2 * 100}%" y2="${y2 * 100}%">${stops}</linearGradient></defs><rect width="128" height="128" fill="url(#g)"/></svg>`);
           filter.append(element('feImage', { href: source, x: 0, y: 0, width: '100%', height: '100%', preserveAspectRatio: 'none', result: `mask${level}` }));
-          const decoded = new Image(); decoded.src = source; masksReady.push(decoded.decode());
+          const decoded = new Image(); decoded.src = source; imagesReady.push(decoded.decode());
           let input = 'SourceGraphic';
           if (level) {
             const blur = element('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: 0, result: `blur${level}` });
@@ -194,20 +240,27 @@ export function createEffects(root, project, formats, layerAlpha) {
         return;
       }
       const id = `floc-noise-${sceneId}-${layerIndex}-${index}`;
-      const image = element('feImage', { x: 0, y: 0, preserveAspectRatio: 'none', result: 'noise' });
-      let alpha;
+      const cell = [effect.sizeX * unit, effect.sizeY * unit];
+      let alpha, image;
       if (!overlay) {
+        // Animated noise slides a 2 × 2 copy of the tile under a fixed
+        // one-tile crop: offset tiles must not leave the filter region, which
+        // clips them on layers smaller than the tile.
+        const repeat = effect.animated ? 2 : 1, texture = decodable(noiseTexture(effect, repeat));
+        imagesReady.push(texture.ready);
         const filter = element('filter', { id, x: 0, y: 0, width: '100%', height: '100%', 'color-interpolation-filters': 'sRGB' });
+        image = element('feImage', { href: texture.url, x: 0, y: 0, width: NOISE_TILE * repeat * cell[0], height: NOISE_TILE * repeat * cell[1], preserveAspectRatio: 'none', result: effect.animated ? 'atlas' : 'noise' });
         const transfer = element('feComponentTransfer', { in: 'texture', result: 'fadedTexture' });
         alpha = element('feFuncA', { type: 'linear', slope: 1 }); transfer.append(alpha);
-        filter.append(image, element('feTile', { in: 'noise', result: 'texture' }), transfer, element('feComposite', { in: 'fadedTexture', in2: 'SourceGraphic', operator: 'atop' }));
+        filter.append(image);
+        if (effect.animated) filter.append(element('feOffset', { in: 'atlas', x: 0, y: 0, width: NOISE_TILE * cell[0], height: NOISE_TILE * cell[1], result: 'noise' }));
+        filter.append(element('feTile', { in: 'noise', result: 'texture' }), transfer, element('feComposite', { in: 'fadedTexture', in2: 'SourceGraphic', operator: 'atop' }));
         defs.append(filter); filters.push({ effect, url: `url(#${id})`, alpha });
       }
-      entries.push({ layer, effect, image, key: null, tile: document.createElement('canvas') });
+      entries.push({ layer, effect, image, cell, offset: [0, 0], key: '0:0', tile: overlay && noiseTexture(effect, 1).canvas });
     });
     if (nodes.length && filters.length) targets.push({ id: layer.id, adjustment: layer.type === 'effect', nodes, filters });
   });
-  const [width, height] = formats[project.format];
   async function seek(time) {
     for (const target of targets) {
       const strength = target.adjustment ? layerAlpha(current(target.id), time) : 1;
@@ -232,7 +285,7 @@ export function createEffects(root, project, formats, layerAlpha) {
           return [url];
         }
         if (effect.type === 'blur') {
-          const radius = effect.amount * strength * Math.min(width, height) / 1080;
+          const radius = effect.amount * strength * unit;
           if (!radius) return [];
           if (!blurs) return [`blur(${radius}px)`];
           blurs.forEach(({ blur, level }) => blur.setAttribute('stdDeviation', radius * level / 4));
@@ -243,24 +296,12 @@ export function createEffects(root, project, formats, layerAlpha) {
       }).join(' ');
       target.nodes.forEach(node => { if (node.style.filter !== filters) node.style.filter = filters; });
     }
-    const ready = entries.map(entry => {
-      const { effect, layer, tile, image } = entry;
-      const localTime = Math.max(0, time - layer.start);
-      const key = effect.animated ? Math.floor(localTime * 12 + 1e-8) : 0;
-      if (entry.key === key) return entry.ready;
-      entry.key = key;
-      tile.width = tile.height = 128;
-      const context = tile.getContext('2d');
-      context.putImageData(new ImageData(noisePixels(effect, localTime), 128, 128), 0, 0);
-      const unit = Math.min(width, height) / 1080;
-      image.setAttribute('width', 128 * effect.sizeX * unit);
-      image.setAttribute('height', 128 * effect.sizeY * unit);
-      const source = tile.toDataURL();
-      image.setAttribute('href', source);
-      const decoded = new Image(); decoded.src = source;
-      entry.ready = decoded.decode();
-      return entry.ready;
-    });
+    for (const entry of entries) {
+      const offset = noiseOffset(entry.effect, time - entry.layer.start), key = offset.join(':');
+      if (entry.key === key) continue;
+      entry.key = key; entry.offset = offset;
+      if (entry.image) { entry.image.setAttribute('x', -offset[0] * entry.cell[0]); entry.image.setAttribute('y', -offset[1] * entry.cell[1]); }
+    }
     for (const layer of layers.filter(layer => layer.type === 'effect' && layer.effectScope !== 'below')) {
       const canvas = root.querySelector(`[data-floc-layer="${CSS.escape(layer.id)}"]`);
       const context = canvas?.getContext('2d');
@@ -270,14 +311,14 @@ export function createEffects(root, project, formats, layerAlpha) {
       if (drawn.get(layer.id) === key) continue;
       drawn.set(layer.id, key);
       context.setTransform(1, 0, 0, 1, 0, 0); context.clearRect(0, 0, canvas.width, canvas.height);
-      for (const entry of layerEntries) {
+      for (const { effect, tile, offset } of layerEntries) {
         const unit = Math.min(canvas.width, canvas.height) / 1080;
-        context.save(); context.scale(entry.effect.sizeX * unit, entry.effect.sizeY * unit);
-        context.imageSmoothingEnabled = false; context.fillStyle = context.createPattern(entry.tile, 'repeat');
-        context.fillRect(0, 0, canvas.width / (entry.effect.sizeX * unit), canvas.height / (entry.effect.sizeY * unit)); context.restore();
+        context.save(); context.scale(effect.sizeX * unit, effect.sizeY * unit); context.translate(-offset[0], -offset[1]);
+        context.imageSmoothingEnabled = false; context.fillStyle = context.createPattern(tile, 'repeat');
+        context.fillRect(offset[0], offset[1], canvas.width / (effect.sizeX * unit), canvas.height / (effect.sizeY * unit)); context.restore();
       }
     }
-    await Promise.all([...ready, ...masksReady]);
+    await Promise.all(imagesReady);
   }
   return {
     seek,
