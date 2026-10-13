@@ -180,11 +180,15 @@ export function carouselCard(layer, index, count, time) {
     state.torsion = Math.sin(angle * count + index / count * TAU) * 1.2;
     state.rotation[1] = Math.sin(angle * count) * 0.35;
   } else if (layer.template === 'wheel') {
-    const a = variant === 'rock' ? (index - (count - 1) / 2) * 0.3 + Math.sin(angle) * 0.45 : theta;
+    const rock = variant === 'rock';
     const r = layer.radius > 0 ? radius : Math.max(2.2, count * (size + gap) / TAU);
-    state.position = [Math.sin(a) * r, Math.cos(a) * r - (variant === 'rock' ? r * 0.55 : 0), 0];
+    // Fanned cards overlap by design; the gap widens the fan instead of being ignored.
+    const a = rock ? (index - (count - 1) / 2) * (size * 0.4 + gap) / r + Math.sin(angle) * 0.45 : theta;
+    // Coplanar overlapping cards need distinct depths or they z-fight; stack each card over its left neighbour.
+    const layerDepth = Math.atan2(Math.sin(a), Math.cos(a)) * 0.01;
+    state.position = [Math.sin(a) * r, Math.cos(a) * r - (rock ? r * 0.55 : 0), layerDepth];
     state.rotation[2] = -a;
-    if (variant === 'rock') state.opacity = fadeEdge(a, 1.55);
+    if (rock) state.opacity = fadeEdge(a, 1.55);
   }
   return state;
 }

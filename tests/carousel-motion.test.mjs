@@ -31,6 +31,20 @@ test('every family and variant is finite, seek-safe, changes over time and close
     assert(moving, `${template}/${motionVariant} is static`);
   }
 });
+test('overlapping wheel cards never share a depth, and the gap widens the rocking fan', () => {
+  for (const motionVariant of ['rock', 'ring']) {
+    const layer = { ...base(), template: 'wheel', motionVariant, size: 1.6, gap: 0 };
+    for (let time = 0; time < 4; time += 0.1) {
+      const cards = Array.from({ length: 8 }, (_, i) => carouselCard(layer, i, 8, time)).filter(card => card.opacity > 0);
+      for (let i = 0; i < cards.length; i++) for (let j = i + 1; j < cards.length; j++) {
+        const [a, b] = [cards[i].position, cards[j].position];
+        if (Math.hypot(a[0] - b[0], a[1] - b[1]) < layer.size) assert(Math.abs(a[2] - b[2]) > 1e-3, `${motionVariant} cards ${i}/${j} z-fight at ${time}s`);
+      }
+    }
+  }
+  const spread = gap => { const layer = { ...base(), template: 'wheel', motionVariant: 'rock', gap }; return carouselCard(layer, 5, 6, 0).rotation[2] - carouselCard(layer, 0, 6, 0).rotation[2]; };
+  assert(Math.abs(spread(0.6)) > Math.abs(spread(0.1)));
+});
 test('reverse, pause, nonzero layer start and legacy positions retain their semantics', () => {
   const l = { ...base(), template: 'sphere' };
   close(carouselCard({ ...l, speed: -30 }, 1, 6, 1), carouselCard(l, 1, 6, 3));
