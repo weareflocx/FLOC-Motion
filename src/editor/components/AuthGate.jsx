@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { request } from '../request.js';
+import { CURRENT_PROJECT_VERSION } from '../../project-migrations.js';
 import { LoginBackground } from './LoginBackground.jsx';
 import { BrandLockup } from './BrandLockup.jsx';
 import '../access.css';
+
+function checkProjectVersion(data) {
+  if (data.projectVersion !== CURRENT_PROJECT_VERSION) {
+    const server = Number.isInteger(data.projectVersion) ? `v${data.projectVersion}` : 'unknown';
+    throw new Error(`Editor v${CURRENT_PROJECT_VERSION} and server ${server} use different project versions. Reload this page. For a local editor, restart the server first. Your saved projects have not been changed.`);
+  }
+}
 
 export function AuthGate({ children }) {
   const [invitation, setInvitation] = useState(() => {
@@ -19,7 +27,11 @@ export function AuthGate({ children }) {
   const [error, setError] = useState('');
   useEffect(() => {
     let alive = true;
-    request('/api/auth/session').then(data => { if (alive && !invitation) { setUser(data.user); setEmail(data.user?.email || ''); } }).catch(error => { if (alive) setError(error.message); }).finally(() => { if (alive) setChecking(false); });
+    request('/api/auth/session').then(data => {
+      if (!alive) return;
+      checkProjectVersion(data);
+      if (!invitation) { setUser(data.user); setEmail(data.user?.email || ''); }
+    }).catch(error => { if (alive) setError(error.message); }).finally(() => { if (alive) setChecking(false); });
     const expire = () => { setExpired(true); setPassword(''); };
     window.addEventListener('floc-session-expired', expire);
     return () => { alive = false; window.removeEventListener('floc-session-expired', expire); };
@@ -28,6 +40,7 @@ export function AuthGate({ children }) {
     event.preventDefault(); setBusy(true); setError('');
     try {
       const result = await request(invitation ? '/api/auth/accept' : '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, ...(invitation ? { token: invitation } : {}) }) });
+      checkProjectVersion(result);
       setUser(result.user); setEmail(result.user.email); setPassword(''); setInvitation(null); setExpired(false);
       window.dispatchEvent(new Event('floc-session-restored'));
     } catch (error) { setError(error.message); } finally { setBusy(false); }

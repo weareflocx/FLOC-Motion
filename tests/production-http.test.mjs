@@ -12,6 +12,7 @@ import { root } from '../server/runtime-config.mjs';
 import { createAuthStore } from '../server/auth-store.mjs';
 import { randomUUID } from 'node:crypto';
 import { rendererVersion } from '../server/renderer-version.mjs';
+import { CURRENT_PROJECT_VERSION } from '../src/project-migrations.js';
 
 test('production serves frontend bundles and uploaded media without mixing namespaces', async () => {
   const folder = await mkdtemp(path.join(tmpdir(), 'floc-http-'));
@@ -60,6 +61,11 @@ test('production serves frontend bundles and uploaded media without mixing names
       assert.equal(await hostRequest('/api/auth/logout', { method: 'POST', headers: { Host, Origin: `https://${otherHost}` } }), 403);
     }
     assert.equal(await hostRequest('/api/health', { headers: { Host: 'motion.wearefloc.com.evil.test' } }), 403);
+    const entryPage = await request(`${local}/`);
+    assert.equal(entryPage.status, 200);
+    assert.equal(entryPage.headers.get('cache-control'), 'no-store', 'the entry document must not outlive its matching API schema');
+    assert.equal((await (await request(`${local}/api/auth/session`)).json()).projectVersion, CURRENT_PROJECT_VERSION);
+    assert.equal((await (await request(`${local}/api/health`)).json()).projectVersion, CURRENT_PROJECT_VERSION);
     for (const [url, type, body] of [['/assets/index-test.js', 'text/javascript', 'window.testBundle = true;'], ['/assets/index-test.css', 'text/css', 'body{color:white}'], [`/assets/${media}`, 'image/png', 'uploaded-media']]) {
       const res = await request(`http://127.0.0.1:${port}${url}`);
       assert.equal(res.status, 200); assert.equal(res.headers.get('content-type'), type); assert.equal(await res.text(), body);
