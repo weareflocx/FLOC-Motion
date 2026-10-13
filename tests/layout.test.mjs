@@ -7,7 +7,7 @@ import { nudgePlacement } from '../src/editor-controls.js';
 const layout = { ...DEFAULT_LAYOUT, enabled: true, marginX: 8, marginY: 10 };
 
 test('legacy compositions retain their positions and do not enable margins on load', () => {
-  const raw = demoProject(); delete raw.layout;
+  const raw = { ...demoProject(), version: 1 }; delete raw.layout;
   const before = structuredClone(raw), p = validateProject(raw);
   assert.deepEqual(p.layers.map(l => [l.x, l.y]), before.layers.map(l => [l.x ?? (l.type === 'background' ? 0 : undefined), l.y ?? (l.type === 'background' ? 0 : undefined)]));
   assert.deepEqual(p.layout, DEFAULT_LAYOUT);

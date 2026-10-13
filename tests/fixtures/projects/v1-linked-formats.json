@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "Legacy linked formats",
+  "format": "square",
+  "duration": 8,
+  "fps": 24,
+  "layout": { "enabled": false, "marginX": 5, "marginY": 5, "guides": true },
+  "images": [{ "id": "demo-0", "src": "/demo/poster-1.svg", "name": "Study" }],
+  "layers": [
+    { "id": "headline", "type": "text", "name": "Headline", "visible": true, "start": 0, "end": 8, "text": "LINKED", "x": 6, "y": 6, "size": 48, "color": "#ffffff", "font": "geist", "weight": 700, "width": 80, "animation": "fade" },
+    { "id": "carousel", "type": "carousel", "name": "Carousel", "visible": true, "start": 0, "end": 8, "template": "arc", "speed": 18, "tilt": 0, "roll": 0, "size": 1, "gap": 0.28, "curve": 0.8, "x": 50, "y": 54, "shader": "none", "intensity": 0.35, "tint": "#0000ff" }
+  ],
+  "linkedFormats": {
+    "master": "square",
+    "layouts": {
+      "square": { "layout": { "enabled": false, "marginX": 5, "marginY": 5, "guides": true }, "layers": { "headline": { "x": 6, "y": 6, "size": 48 } } },
+      "portrait": { "layout": { "enabled": true, "marginX": 4, "marginY": 8, "guides": true }, "layers": { "headline": { "x": 10, "y": 12, "size": 40, "width": 70 } } }
+    }
+  }
+}

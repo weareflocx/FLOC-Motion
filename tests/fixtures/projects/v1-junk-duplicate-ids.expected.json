@@ -1,0 +1,208 @@
+{
+  "version": 2,
+  "name": "Junk keys and duplicate image IDs",
+  "format": "landscape",
+  "duration": 6,
+  "fps": 60,
+  "layout": {
+    "enabled": false,
+    "marginX": 5,
+    "marginY": 5,
+    "guides": true
+  },
+  "images": [
+    {
+      "id": "image-2",
+      "src": "/demo/poster-1.svg",
+      "name": "One"
+    },
+    {
+      "id": "image-2-2",
+      "src": "/demo/poster-2.svg",
+      "name": "Two"
+    },
+    {
+      "id": "image-3",
+      "src": "/demo/poster-3.svg",
+      "name": "Three"
+    },
+    {
+      "id": "image-4",
+      "src": "/demo/poster-4.svg",
+      "name": "Four"
+    }
+  ],
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "name": "Background",
+      "visible": true,
+      "start": 0,
+      "end": 6,
+      "color": "#101010",
+      "mode": "color",
+      "src": "",
+      "fit": "cover",
+      "offset": 0,
+      "loop": true,
+      "locked": false,
+      "roll": 0,
+      "x": 0,
+      "y": 0,
+      "pattern": "grid",
+      "patternColor": "#ffffff",
+      "patternScale": 1,
+      "patternIntensity": 0.35,
+      "patternSpeed": 0.2,
+      "patternSeed": 1,
+      "opacity": 1
+    },
+    {
+      "id": "headline",
+      "type": "text",
+      "name": "Headline",
+      "visible": true,
+      "start": 0,
+      "end": 6,
+      "text": "JUNK",
+      "x": 6,
+      "y": 6,
+      "size": 48,
+      "color": "#ffffff",
+      "font": "geist",
+      "weight": 700,
+      "width": 80,
+      "fadeIn": 0,
+      "fadeOut": 0,
+      "rise": false,
+      "locked": false,
+      "roll": 0,
+      "lineHeight": 0.98,
+      "letterSpacing": -0.035,
+      "textAlign": "left",
+      "reveal": "none",
+      "revealDuration": 0.6,
+      "opacity": 1,
+      "choreography": []
+    },
+    {
+      "id": "carousel",
+      "type": "carousel",
+      "name": "Carousel",
+      "visible": true,
+      "start": 0,
+      "end": 6,
+      "template": "stack",
+      "speed": 18,
+      "tilt": -12,
+      "roll": 0,
+      "size": 1,
+      "gap": 0.28,
+      "curve": 0.8,
+      "x": 50,
+      "y": 54,
+      "shader": "none",
+      "intensity": 0.35,
+      "tint": "#0000ff",
+      "images": [
+        {
+          "id": "a",
+          "src": "/demo/poster-5.svg",
+          "name": "A"
+        },
+        {
+          "id": "image-2",
+          "src": "/demo/poster-6.svg",
+          "name": "A again"
+        },
+        {
+          "id": "a-2",
+          "src": "/demo/poster-1.svg",
+          "name": "Taken"
+        },
+        {
+          "id": "image-4",
+          "src": "/demo/poster-2.svg",
+          "name": "Empty"
+        }
+      ],
+      "locked": false,
+      "layerEffect": "none",
+      "layerEffectIntensity": 1,
+      "halftoneSize": 0.35,
+      "ditheringSize": 0.35,
+      "ditheringSteps": 4,
+      "glassSize": 0.35,
+      "glassDistortion": 0.5,
+      "perspective": 38,
+      "yaw": 0,
+      "transitionTurn": 360,
+      "cornerRadius": 0,
+      "cardShape": "rounded",
+      "frontface": "show",
+      "backface": "show",
+      "cardCount": 0,
+      "cardAspect": 0.8771929824561404,
+      "radius": 0,
+      "loopDuration": 0,
+      "motionVariant": "default",
+      "fade": 0,
+      "motion": {
+        "mode": "continuous",
+        "action": 1,
+        "pause": 0,
+        "curve": "native",
+        "intensity": 0.5
+      },
+      "motionBaseline": {
+        "name": "Original motion",
+        "speed": 18,
+        "loopDuration": 0,
+        "motion": {
+          "mode": "continuous",
+          "action": 1,
+          "pause": 0,
+          "curve": "native",
+          "intensity": 0.5
+        }
+      },
+      "opacity": 1,
+      "choreography": [],
+      "fadeIn": 0,
+      "fadeOut": 0
+    },
+    {
+      "id": "logo",
+      "type": "logo",
+      "name": "Logo",
+      "visible": true,
+      "start": 0,
+      "end": 6,
+      "src": "/demo/poster-1.svg",
+      "x": 87,
+      "y": 6,
+      "size": 7,
+      "locked": false,
+      "roll": 0,
+      "opacity": 1,
+      "choreography": [],
+      "fadeIn": 0,
+      "fadeOut": 0
+    },
+    {
+      "id": "music",
+      "type": "music",
+      "name": "Music",
+      "visible": true,
+      "start": 0,
+      "end": 6,
+      "src": "",
+      "volume": 0.6,
+      "offset": 0,
+      "fade": 0.5,
+      "loop": false,
+      "locked": false
+    }
+  ]
+}

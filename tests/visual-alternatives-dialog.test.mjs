@@ -21,7 +21,7 @@ function dialog({ stale = false, apply = async () => true } = {}) {
   const slots = [];
   const previews = [];
   const applications = [];
-  const playback = { time: 0.65, playing: false, calls: 0 };
+  const playback = { time: 0.65, playing: false, calls: 0, clock: { id: 'clock' } };
   let cursor = 0;
   let closes = 0;
   const same = (a = [], b = []) => a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
@@ -51,6 +51,7 @@ function dialog({ stale = false, apply = async () => true } = {}) {
     usePlayback() {
       playback.calls++;
       return {
+        clock: playback.clock,
         time: playback.time,
         playing: playback.playing,
         setTime(value) { playback.time = typeof value === 'function' ? value(playback.time) : value; },
@@ -79,18 +80,19 @@ test('one live stage previews the selected direction, original, and a shared pla
   assert.equal(h.findAll(node => node.type === h.context.Stage).length, 1);
   assert.equal(h.stage().props.project.id, 'editorial');
   assert.equal(h.stage().props.project.preview, true);
-  assert.equal(h.stage().props.time, 0.65);
+  assert.equal(h.stage().props.clock, h.playback.clock);
 
   h.stage().props.onReady(true);
   h.button('Play preview').props.onClick();
   assert.equal(h.playback.playing, true);
   const before = h.previews.length;
-  assert.equal(h.stage().props.time, 0.65);
+  assert.equal(h.stage().props.clock, h.playback.clock);
   assert.equal(h.previews.length, before);
 
   h.find(node => node.type === 'input' && node.props.type === 'radio' && node.props.value === 2).props.onChange();
   assert.equal(h.stage().props.project.id, 'experimental');
-  assert.equal(h.stage().props.time, 0.65);
+  assert.equal(h.stage().props.clock, h.playback.clock);
+  assert.equal(h.playback.time, 0.65);
   assert.equal(h.button('Apply Experimental').props.disabled, true);
   h.stage().props.onReady(true);
   assert.equal(h.button('Apply Experimental').props.disabled, false);

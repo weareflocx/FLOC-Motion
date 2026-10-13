@@ -10,8 +10,8 @@ import './timeline-choreography.css';
 const isFade = kind => kind === 'fadeIn' || kind === 'fadeOut';
 const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model', effect: 'Effect' };
 
-export function TimelineTracks({ project, selected, time, icons, mode = 'timing', controlsLayerId = null, rulerControls, onOpenControls, onSelect, onSelectState = onSelect, onSeek, onCommit }) {
-  const ruler = useRef(null);
+export function TimelineTracks({ project, selected, clock, time, icons, mode = 'timing', controlsLayerId = null, rulerControls, onOpenControls, onSelect, onSelectState = onSelect, onSeek, onCommit }) {
+  const ruler = useRef(null); const tracks = useRef(null);
   const [laneWidth, setLaneWidth] = useState(0);
   const context = useRef(null);
   context.current = { selected, mode };
@@ -27,6 +27,11 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+  // Playback moves playheads directly; `time` only changes on pause and seek, which re-render the tracks.
+  useEffect(() => clock.subscribe(() => {
+    const left = `${clock.get().time / project.duration * 100}%`;
+    for (const node of tracks.current?.querySelectorAll('.ruler-playhead, .playhead') ?? []) node.style.left = left;
+  }), [clock, project.duration]);
   useEffect(() => {
     const g = gesture.current;
     if (!g || (g.layer.id === selected && (g.kind === 'state' ? mode === 'choreography' : mode === 'timing'))) return;
@@ -118,7 +123,7 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
   function beginScrub(e) {
     if (e.button !== 0 || scrub.current) return;
     e.currentTarget.focus({ preventScroll: true });
-    scrub.current = { pointerId: e.pointerId, time, target: e.currentTarget };
+    scrub.current = { pointerId: e.pointerId, time: clock.get().time, target: e.currentTarget };
     e.currentTarget.setPointerCapture(e.pointerId);
     seek(e);
   }
@@ -136,14 +141,14 @@ export function TimelineTracks({ project, selected, time, icons, mode = 'timing'
     if (e.key === 'Escape' && scrub.current) { e.preventDefault(); finishScrub(e, true); return; }
     if (scrub.current || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
     e.preventDefault();
-    onSeek(Math.max(0, Math.min(project.duration - 1 / project.fps, e.key === 'Home' ? 0 : e.key === 'End' ? project.duration - 1 / project.fps : time + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps)));
+    onSeek(Math.max(0, Math.min(project.duration - 1 / project.fps, e.key === 'Home' ? 0 : e.key === 'End' ? project.duration - 1 / project.fps : clock.get().time + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps)));
   }
   const status = d => `${project.layers.find(l => l.id === d.id)?.name}: ${d.kind === 'state' ? `state at ${(d.start + d.choreography.find(state => state.id === d.stateId).time).toFixed(2)}s` : isFade(d.kind) ? `fade ${d.kind === 'fadeIn' ? 'in' : 'out'} ${d[d.kind].toFixed(2)}s` : `${d.start.toFixed(2)}s — ${d.end.toFixed(2)}s`}`;
   const rulerStep = project.duration <= 3 ? 0.5 : project.duration <= 6 ? 1 : project.duration <= 15 ? 2 : 5;
   const ticks = Array.from({ length: Math.ceil(project.duration / rulerStep * 5) }, (_, i) => i * rulerStep / 5);
   return <>
     <div className="timeline-feedback" role="status">{draft ? status(draft) : ''}</div>
-    <div className="timeline-track-scroll" style={{ '--timeline-grid': `${rulerStep / project.duration * 100}%` }}>
+    <div ref={tracks} className="timeline-track-scroll" style={{ '--timeline-grid': `${rulerStep / project.duration * 100}%` }}>
     <div className="timeline-ruler-row"><div className="ruler-track-heading"><span>Layers <small>{project.layers.length}</small></span><div className="ruler-controls">{rulerControls}</div></div><div ref={ruler} className="timeline-ruler" role="slider" tabIndex={0} aria-label="Timeline ruler" aria-valuemin={0} aria-valuemax={project.duration} aria-valuenow={Number(time.toFixed(2))} onPointerDown={beginScrub} onPointerMove={moveScrub} onPointerUp={e => finishScrub(e)} onPointerCancel={e => finishScrub(e, true)} onLostPointerCapture={e => finishScrub(e, true)} onKeyDown={scrubKeys}>
       {ticks.map((tick, i) => <span key={i} className={`timeline-tick ${i % 5 === 0 ? 'major' : ''} ${i % 10 === 5 ? 'secondary' : ''}`} style={{ left: `${tick / project.duration * 100}%` }} aria-hidden="true">{i % 5 === 0 && (tick === 0 || project.duration - tick >= rulerStep * 0.6) && <span className="tick-label">{Number(tick.toFixed(2))}s</span>}</span>)}
       <span className="timeline-tick major endpoint" style={{ left: '100%' }} aria-hidden="true"><span className="tick-label">{project.duration}s</span></span>

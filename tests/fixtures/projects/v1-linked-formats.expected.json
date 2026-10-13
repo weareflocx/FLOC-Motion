@@ -1,0 +1,191 @@
+{
+  "version": 2,
+  "name": "Legacy linked formats",
+  "format": "square",
+  "duration": 8,
+  "fps": 24,
+  "layout": {
+    "enabled": false,
+    "marginX": 5,
+    "marginY": 5,
+    "guides": true
+  },
+  "images": [
+    {
+      "id": "demo-0",
+      "src": "/demo/poster-1.svg",
+      "name": "Study"
+    }
+  ],
+  "layers": [
+    {
+      "id": "headline",
+      "type": "text",
+      "name": "Headline",
+      "visible": true,
+      "start": 0,
+      "end": 8,
+      "text": "LINKED",
+      "x": 6,
+      "y": 6,
+      "size": 48,
+      "color": "#ffffff",
+      "font": "geist",
+      "weight": 700,
+      "width": 80,
+      "locked": false,
+      "roll": 0,
+      "lineHeight": 0.98,
+      "letterSpacing": -0.035,
+      "textAlign": "left",
+      "reveal": "none",
+      "revealDuration": 0.6,
+      "fadeIn": 0.45,
+      "fadeOut": 0.25,
+      "rise": false,
+      "opacity": 1,
+      "choreography": []
+    },
+    {
+      "id": "carousel",
+      "type": "carousel",
+      "name": "Carousel",
+      "visible": true,
+      "start": 0,
+      "end": 8,
+      "template": "arc",
+      "speed": 18,
+      "tilt": 0,
+      "roll": 0,
+      "size": 1,
+      "gap": 0.28,
+      "curve": 0.8,
+      "x": 50,
+      "y": 54,
+      "shader": "none",
+      "intensity": 0.35,
+      "tint": "#0000ff",
+      "locked": false,
+      "layerEffect": "none",
+      "layerEffectIntensity": 1,
+      "halftoneSize": 0.35,
+      "ditheringSize": 0.35,
+      "ditheringSteps": 4,
+      "glassSize": 0.35,
+      "glassDistortion": 0.5,
+      "perspective": 38,
+      "yaw": 0,
+      "transitionTurn": 360,
+      "cornerRadius": 0,
+      "cardShape": "rounded",
+      "frontface": "show",
+      "backface": "show",
+      "cardCount": 0,
+      "cardAspect": 0.8771929824561404,
+      "radius": 0,
+      "loopDuration": 0,
+      "motionVariant": "default",
+      "fade": 0,
+      "motion": {
+        "mode": "continuous",
+        "action": 1,
+        "pause": 0,
+        "curve": "native",
+        "intensity": 0.5
+      },
+      "motionBaseline": {
+        "name": "Original motion",
+        "speed": 18,
+        "loopDuration": 0,
+        "motion": {
+          "mode": "continuous",
+          "action": 1,
+          "pause": 0,
+          "curve": "native",
+          "intensity": 0.5
+        }
+      },
+      "opacity": 1,
+      "choreography": [],
+      "fadeIn": 0,
+      "fadeOut": 0
+    }
+  ],
+  "linkedFormats": {
+    "master": "square",
+    "layouts": {
+      "square": {
+        "layout": {
+          "enabled": false,
+          "marginX": 5,
+          "marginY": 5,
+          "guides": true
+        },
+        "layers": {
+          "headline": {
+            "x": 6,
+            "y": 6,
+            "roll": 0,
+            "size": 48,
+            "width": 80,
+            "font": "geist",
+            "weight": 700,
+            "lineHeight": 0.98,
+            "letterSpacing": -0.035,
+            "textAlign": "left",
+            "choreography": {}
+          },
+          "carousel": {
+            "x": 50,
+            "y": 54,
+            "size": 1,
+            "tilt": 0,
+            "yaw": 0,
+            "roll": 0,
+            "gap": 0.28,
+            "radius": 0,
+            "perspective": 38,
+            "cardAspect": 0.8771929824561404,
+            "choreography": {}
+          }
+        }
+      },
+      "portrait": {
+        "layout": {
+          "enabled": true,
+          "marginX": 4,
+          "marginY": 8,
+          "guides": true
+        },
+        "layers": {
+          "headline": {
+            "x": 10,
+            "y": 12,
+            "roll": 0,
+            "size": 40,
+            "width": 70,
+            "font": "geist",
+            "weight": 700,
+            "lineHeight": 0.98,
+            "letterSpacing": -0.035,
+            "textAlign": "left",
+            "choreography": {}
+          },
+          "carousel": {
+            "x": 50,
+            "y": 52.25,
+            "size": 0.5625,
+            "tilt": 0,
+            "yaw": 0,
+            "roll": 0,
+            "gap": 0.15750000000000003,
+            "radius": 0,
+            "perspective": 38,
+            "cardAspect": 0.8771929824561404,
+            "choreography": {}
+          }
+        }
+      }
+    }
+  }
+}

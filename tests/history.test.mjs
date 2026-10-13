@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { demoProject, patchLayer, validateProject } from '../src/project.js';
+import { assertLocksRespected, demoProject, patchLayer, validateProject } from '../src/project.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
 
 function editor() {
   const slots = []; let cursor = 0;
-  const context = { editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }), demoProject, patchLayer, validateProject, historyShortcut,
+  const context = { editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }), assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut,
     request: async () => ({ id: 'saved', name: 'Saved', updatedAt: 'date', project: demoProject(), revision: 1 }),
     useCallback: fn => fn, useEffect: () => {},
     useRef: value => { const i = cursor++; return slots[i] ??= { current: value }; },

@@ -1,4 +1,4 @@
-import { mkdir, copyFile, writeFile, readFile, stat } from 'node:fs/promises';
+import { mkdir, copyFile, writeFile, readFile, readdir, stat } from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -11,13 +11,15 @@ import { ensureGifVideo } from './card-media.mjs';
 import { cardMediaKind } from '../src/card-media.js';
 import { extractCardFrames } from './card-frames.mjs';
 import { stageMarkup } from '../src/scene.js';
-import { writeJsonAtomic } from './json-store.mjs';
+import { readJson, writeJsonAtomic } from './json-store.mjs';
+import { isTerminalJobState, RESTART_MESSAGE, CANCELLED_MESSAGE } from '../src/export-jobs.js';
 export const jobs = new Map();
-let running = false;
+const controllers = new Map();
+let running = null;
 export { run } from './process.mjs';
 import { run } from './process.mjs';
 const browserPath = process.env.HYPERFRAMES_BROWSER_PATH;
-export async function prepareComposition(input, folder, settings = {}) {
+export async function prepareComposition(input, folder, settings = {}, signal) {
   const original = validateProject(input);
   const { resolution } = validateExportSettings(settings);
   const [outputWidth, outputHeight] = exportDimensions(original.format, resolution);
@@ -32,7 +34,7 @@ export async function prepareComposition(input, folder, settings = {}) {
     let local = src.startsWith('/assets/') ? path.join(runtimeConfig().data, src.slice(1)) : path.join(root, `public${src}`);
     // Normalize GIF cards, including GIFs in projects saved before video support.
     const gifCard = (cards.includes(item) || item.type === 'media') && cardMediaKind(src) === 'gif';
-    if (gifCard) { const video = local.replace(/\.gif$/i, '.webm'); await ensureGifVideo(local, video, run); local = video; }
+    if (gifCard) { const video = local.replace(/\.gif$/i, '.webm'); await ensureGifVideo(local, video, run); local = video; signal?.throwIfAborted(); }
     const dest = `assets/${path.basename(local)}`;
     if (!copied.has(local)) { await copyFile(local, path.join(folder, dest)); copied.add(local); }
     item.src = dest;
@@ -43,7 +45,8 @@ export async function prepareComposition(input, folder, settings = {}) {
   for (const name of ['LICENSE', 'NOTICE']) await copyFile(path.join(root, 'public/licenses/paper-shaders', name), path.join(notices, name));
   await copyFile(path.join(root, 'node_modules/gsap/dist/gsap.min.js'), path.join(folder, 'gsap.min.js'));
   for (const font of FONT_FILES) await copyFile(path.join(root, '.data/engine', font.file), path.join(folder, font.file));
-  const cardFrames = await extractCardFrames(p, folder, run);
+  signal?.throwIfAborted();
+  const cardFrames = await extractCardFrames(p, folder, (command, args, options = {}, onData) => run(command, args, { ...options, signal }, onData));
   const [w, h] = FORMATS[p.format];
   // Music is mixed by FFmpeg after capture to support source offsets, looping and fades.
   const markup = stageMarkup({ ...p, layers: p.layers.filter(l => l.type !== 'music') });
@@ -56,7 +59,7 @@ export async function prepareComposition(input, folder, settings = {}) {
   await writeJsonAtomic(path.join(folder, 'render-input.json'), { project: original, settings: validateExportSettings(settings) });
   return original;
 }
-export async function renderPreparedComposition(input, folder, options = {}, onProgress = () => {}) {
+export async function renderPreparedComposition(input, folder, options = {}, onProgress = () => {}, signal) {
   const p = validateProject(input);
   const settings = validateExportSettings(options);
   const [width, height] = exportDimensions(p.format, settings.resolution);
@@ -64,7 +67,7 @@ export async function renderPreparedComposition(input, folder, options = {}, onP
   onProgress({ message: 'Rendering frames', progress: 0 });
   let logError;
   // Auto keeps PNG for alpha and avoids costly PNG extraction for opaque video.
-  await run(process.execPath, [bin, 'render', folder, '--output', path.join(folder, 'silent.mp4'), '--fps', String(p.fps), '--workers', '1', '--strict', '--sdr', '--quality', settings.quality, '--video-frame-format', 'auto'], { cwd: folder, env: browserPath ? { HYPERFRAMES_BROWSER_PATH: browserPath } : {} }, text => {
+  await run(process.execPath, [bin, 'render', folder, '--output', path.join(folder, 'silent.mp4'), '--fps', String(p.fps), '--workers', '1', '--strict', '--sdr', '--quality', settings.quality, '--video-frame-format', 'auto'], { cwd: folder, signal, env: browserPath ? { HYPERFRAMES_BROWSER_PATH: browserPath } : {} }, text => {
     try { appendFileSync(path.join(folder, 'render.log'), text); } catch (error) { logError = error; }
     const match = text.match(/(\d+)(?:\s*\/\s*(\d+))?\s*(?:frames|%)/i);
     if (match) onProgress({ progress: Math.min(90, match[2] ? Number(match[1]) / Number(match[2]) * 90 : Number(match[1]) * 0.9) });
@@ -80,7 +83,7 @@ export async function renderPreparedComposition(input, folder, options = {}, onP
       args.push('-ss', String(music.offset), '-i', audioPath);
       const length = music.end - music.start;
       const fade = Math.min(music.fade, length / 2);
-      const metadata = JSON.parse(await run('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', audioPath]));
+      const metadata = JSON.parse(await run('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', audioPath], { signal }));
       const remaining = Number(metadata.format.duration) - music.offset;
       if (!(remaining > 0)) throw new Error('Audio offset must be before the end of the soundtrack.');
       const filters = ['aresample=48000', `atrim=duration=${remaining}`, 'asetpts=PTS-STARTPTS'];
@@ -91,8 +94,9 @@ export async function renderPreparedComposition(input, folder, options = {}, onP
       graph.push(`[${index + 1}:a]${filters.join(',')}[track${index}]`);
     }
     graph.push(`${tracks.map((_, i) => `[track${i}]`).join('')}amix=inputs=${tracks.length}:normalize=0[music]`);
-    await run('ffmpeg', [...args, '-filter_complex', graph.join(';'), '-map', '0:v', '-map', '[music]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-t', String(p.duration), '-movflags', '+faststart', path.join(folder, 'video.mp4')]);
+    await run('ffmpeg', [...args, '-filter_complex', graph.join(';'), '-map', '0:v', '-map', '[music]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-t', String(p.duration), '-movflags', '+faststart', path.join(folder, 'video.mp4')], { signal });
   } else await copyFile(path.join(folder, 'silent.mp4'), path.join(folder, 'video.mp4'));
+  signal?.throwIfAborted();
   return verifyExport(p, path.join(folder, 'video.mp4'), settings);
 }
 export async function verifyExport(input, filename, options = {}) {
@@ -115,22 +119,79 @@ export async function startExport(input, options = {}) {
   const id = randomUUID();
   const folder = path.join(runtimeConfig().data, 'renders', id);
   const job = { id, state: 'queued', progress: 0, message: 'Preparing local assets', name: p.name, ...settings, width, height, fps: p.fps, createdAt: new Date().toISOString() };
-  jobs.set(id, job); running = true;
+  const controller = new AbortController(), { signal } = controller;
+  jobs.set(id, job); controllers.set(id, controller); running = id;
   void (async () => {
     try {
+      // Persist each transition so a crash leaves a record that startup recovery can mark as failed.
       await mkdir(folder, { recursive: true });
-      await prepareComposition(p, folder, settings);
+      await writeJsonAtomic(path.join(folder, 'job.json'), job);
+      await prepareComposition(p, folder, settings, signal);
+      signal.throwIfAborted();
       job.state = 'rendering';
-      const result = await renderPreparedComposition(p, folder, settings, update => Object.assign(job, update));
+      await writeJsonAtomic(path.join(folder, 'job.json'), job);
+      const result = await renderPreparedComposition(p, folder, settings, update => { if (!signal.aborted) Object.assign(job, update); }, signal);
+      // A cancelled export never becomes done, even if FFmpeg finished first.
+      signal.throwIfAborted();
       job.state = 'done'; job.progress = 100; job.message = 'MP4 ready'; job.url = `/exports/${id}/video.mp4`; job.duration = result.duration;
     } catch (error) {
-      job.state = 'failed'; job.message = error.message.slice(-2500);
-      try { appendFileSync(path.join(folder, 'render.log'), `\nExport failed: ${error.message}\n`); } catch {}
+      if (!signal.aborted) {
+        job.state = 'failed'; job.message = error.message.slice(-2500);
+        try { appendFileSync(path.join(folder, 'render.log'), `\nExport failed: ${error.message}\n`); } catch {}
+      }
     } finally {
+      controllers.delete(id);
       try { await writeJsonAtomic(path.join(folder, 'job.json'), job); }
-      catch (error) { job.state = 'failed'; job.message = `Could not persist export result: ${error.message}`; }
-      finally { running = false; }
+      catch (error) { if (!signal.aborted) { job.state = 'failed'; job.message = `Could not persist export result: ${error.message}`; } }
+      finally { if (running === id) running = null; }
     }
   })();
   return job;
+}
+// Stops the HyperFrames/FFmpeg subprocesses of a local export and frees the queue at once.
+export async function cancelExport(id) {
+  const job = jobs.get(id), controller = controllers.get(id);
+  if (job && isTerminalJobState(job.state)) throw Object.assign(new Error('This export already ended and cannot be cancelled.'), { status: 409 });
+  if (!job || !controller) throw Object.assign(new Error('Export not found.'), { status: 404 });
+  Object.assign(job, { state: 'cancelled', message: CANCELLED_MESSAGE });
+  controller.abort(); controllers.delete(id);
+  if (running === id) running = null;
+  await writeJsonAtomic(path.join(runtimeConfig().data, 'renders', id, 'job.json'), job);
+  return job;
+}
+
+async function storedJobs(data) {
+  const directory = path.join(data, 'renders');
+  let entries;
+  try { entries = await readdir(directory, { withFileTypes: true }); }
+  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  const stored = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^[a-f0-9-]{36}$/.test(entry.name)) continue;
+    const filename = path.join(directory, entry.name, 'job.json');
+    try { stored.push({ filename, job: await readJson(filename) }); }
+    catch (error) { if (!['ENOENT', 'EINVALIDJSON'].includes(error.code)) throw error; }
+  }
+  return stored;
+}
+// Runs once before the editor accepts requests: nothing that was in flight survives a restart.
+export async function recoverInterruptedJobs(data) {
+  let recovered = 0;
+  for (const { filename, job } of await storedJobs(data)) {
+    if (isTerminalJobState(job.state)) continue;
+    Object.assign(job, { state: 'failed', message: RESTART_MESSAGE });
+    await writeJsonAtomic(filename, job); recovered++;
+  }
+  return recovered;
+}
+const PUBLIC_JOB_FIELDS = ['id', 'state', 'progress', 'message', 'name', 'quality', 'resolution', 'width', 'height', 'fps', 'createdAt', 'duration', 'url', 'file'];
+// Shared jobs plus the jobs of the requesting browser's renderer, newest first.
+export async function listJobs(data, live, rendererId, limit = 20) {
+  const merged = new Map((await storedJobs(data)).map(({ job }) => [job.id, job]));
+  for (const job of live.values()) merged.set(job.id, job);
+  return [...merged.values()]
+    .filter(job => !job.rendererId || job.rendererId === rendererId)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    .slice(0, limit)
+    .map(job => Object.fromEntries(PUBLIC_JOB_FIELDS.filter(key => job[key] !== undefined).map(key => [key, job[key]])));
 }

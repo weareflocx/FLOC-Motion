@@ -1,0 +1,79 @@
+{
+  "captureWidth": 360,
+  "browser": "Chrome/154.0.8037.98",
+  "baselineTolerance": {
+    "channel": 16,
+    "ratio": 0.002
+  },
+  "parityTolerance": {
+    "channel": 32,
+    "ratio": 0.005
+  },
+  "fixtures": {
+    "carousels-circular-depth-arc": {
+      "hash": "9912ddc7c106a964",
+      "format": "landscape",
+      "frames": [
+        "carousels-circular-depth-arc-0.50s.png",
+        "carousels-circular-depth-arc-1.70s.png"
+      ]
+    },
+    "carousels-horizontal-flip-showcase": {
+      "hash": "7f3a276e52da1a9e",
+      "format": "landscape",
+      "frames": [
+        "carousels-horizontal-flip-showcase-0.50s.png",
+        "carousels-horizontal-flip-showcase-1.70s.png"
+      ]
+    },
+    "carousels-nested-rise-zoom-through-sweep-reveal": {
+      "hash": "cb509ee58eeee3bf",
+      "format": "landscape",
+      "frames": [
+        "carousels-nested-rise-zoom-through-sweep-reveal-0.50s.png",
+        "carousels-nested-rise-zoom-through-sweep-reveal-1.70s.png"
+      ]
+    },
+    "carousels-stack-shuffle-sphere-spinner": {
+      "hash": "edd1ad4dcea3d77f",
+      "format": "landscape",
+      "frames": [
+        "carousels-stack-shuffle-sphere-spinner-0.50s.png",
+        "carousels-stack-shuffle-sphere-spinner-1.70s.png"
+      ]
+    },
+    "carousels-stack-stickers-twist": {
+      "hash": "28238b3d00b9256c",
+      "format": "landscape",
+      "frames": [
+        "carousels-stack-stickers-twist-0.50s.png",
+        "carousels-stack-stickers-twist-1.70s.png"
+      ]
+    },
+    "carousels-window-push-wheel": {
+      "hash": "80110203d2b43bad",
+      "format": "landscape",
+      "frames": [
+        "carousels-window-push-wheel-0.50s.png",
+        "carousels-window-push-wheel-1.70s.png"
+      ]
+    },
+    "backgrounds-fonts": {
+      "hash": "6f401fb4bbb2a201",
+      "format": "portrait34",
+      "frames": [
+        "backgrounds-fonts-0.50s.png",
+        "backgrounds-fonts-1.70s.png"
+      ]
+    },
+    "effects": {
+      "hash": "b3b4967a23b33c85",
+      "format": "square",
+      "frames": [
+        "effects-0.50s.png",
+        "effects-1.70s.png",
+        "effects-2.90s.png"
+      ]
+    }
+  }
+}

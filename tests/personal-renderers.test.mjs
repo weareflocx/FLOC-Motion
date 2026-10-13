@@ -4,6 +4,7 @@ import { mkdtemp, rm, readFile, access } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createPersonalRenderers, rendererCookie } from '../server/personal-renderers.mjs';
+import { recoverInterruptedJobs } from '../server/export.mjs';
 import { demoProject } from '../src/project.js';
 import { trustedOrigin, browserCandidates } from '../scripts/renderer-runtime.mjs';
 
@@ -53,6 +54,7 @@ test('personal renderers isolate parallel jobs, credentials, progress and downlo
     const persisted = await readFile(path.join(data, 'renderers', `${a.browser.id}.json`), 'utf8');
     assert.ok(!persisted.includes(a.credentials.token.split('.')[1]));
     assert.ok(!persisted.includes(a.pairing.key.split('.')[1]));
+    await recoverInterruptedJobs(data);
     const restarted = createPersonalRenderers({ data, jobs: new Map(), version, now: () => clock });
     const restored = await restarted.browser(a.cookie);
     assert.equal(restored.id, a.browser.id);
@@ -72,6 +74,37 @@ test('personal renderers isolate parallel jobs, credentials, progress and downlo
     await service.finishPairing({ code: reconnect.code, name: 'New Mac', version });
     assert.equal(await service.engine(`Bearer ${a.credentials.token}`), null, 'old engine credential is revoked');
     assert.equal((await service.job(a.browser, ja.id)).state, 'done');
+  } finally { await rm(data, { recursive: true, force: true }); }
+});
+
+test('only the owning browser cancels a renderer export, and its stale result is rejected', async () => {
+  const data = await mkdtemp(path.join(os.tmpdir(), 'floc-personal-cancel-'));
+  const jobs = new Map(), version = 'current';
+  const service = createPersonalRenderers({ data, jobs, version, now: () => 100000 });
+  async function connect(name) {
+    const pairing = await service.startPairing();
+    const credentials = await service.finishPairing({ code: pairing.code, name, version });
+    const engine = await service.engine(`Bearer ${credentials.token}`);
+    await service.claim(engine, { version });
+    return { browser: await service.browser(rendererCookie(pairing.key, false)), engine };
+  }
+  try {
+    const a = await connect('Mac'), b = await connect('Windows');
+    const project = demoProject(); project.duration = 1; for (const layer of project.layers) { layer.end = 1; layer.fadeIn = 0; layer.fadeOut = 0; }
+    const job = await service.enqueue(a.browser, project, {});
+    await service.claim(a.engine, { version });
+    await assert.rejects(service.cancel(b.browser, job.id), /not found/);
+    await assert.rejects(service.cancel(null, job.id), /not found/);
+    const cancelled = await service.cancel(a.browser, job.id);
+    assert.equal(cancelled.state, 'cancelled'); assert.equal(cancelled.message, 'Export cancelled.');
+    assert.equal((await service.status(a.browser)).busy, false);
+    assert.equal(JSON.parse(await readFile(path.join(data, 'renders', job.id, 'job.json'), 'utf8')).state, 'cancelled');
+    await assert.rejects(service.update(a.engine, job.id, { progress: 60 }), error => error.status === 409 && /no longer assigned/.test(error.message));
+    await assert.rejects(service.complete(a.engine, job.id, { file: 'Movies/FLOC Motion/Late.mp4', duration: 1 }), /no longer assigned/);
+    assert.equal(job.state, 'cancelled'); assert.equal('file' in job, false);
+    await assert.rejects(service.cancel(a.browser, job.id), error => error.status === 409);
+    const next = await service.enqueue(a.browser, project, {});
+    assert.equal((await service.claim(a.engine, { version })).id, next.id, 'the renderer can take the next export');
   } finally { await rm(data, { recursive: true, force: true }); }
 });
 

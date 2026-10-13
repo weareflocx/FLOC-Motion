@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { transform } from 'esbuild';
-import { blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../src/project.js';
+import { assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../src/project.js';
 import { captureState } from '../src/choreography.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
 
@@ -22,7 +22,7 @@ function editor({ linked = true } = {}) {
   const session = { draftId: 'original-draft', compositionId: identity?.id, remember() {} };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = {
-    blankProject, demoProject, fileLayer, patchLayer, validateProject, historyShortcut, editorSession: () => session, crypto: webcrypto,
+    assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject, historyShortcut, editorSession: () => session, crypto: webcrypto,
     request: async (url, options) => {
       const body = options?.body && JSON.parse(options.body);
       requests.push({ url, method: options?.method || 'GET', body });

@@ -55,27 +55,28 @@ function App({ user, onSignOut }) {
   const layer = project.layers.find(l => l.id === selected);
   const carousel = project.layers.find(l => l.type === 'carousel');
   useEffect(() => { if (selected !== null && !project.layers.some(layer => layer.id === selected)) setSelected(project.layers[0]?.id ?? null); }, [project.layers, selected]);
-  const { time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: project.duration });
+  // App-level time holds the playback origin while playing; the stage, timeline playhead and timecode follow the clock directly.
+  const { clock, time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: project.duration, step: Infinity });
   const displayedProject = useMemo(() => project.layers.some(item => item.choreography?.length)
     ? { ...project, layers: project.layers.map(item => evaluateChoreography(item, time)) } : project, [project, time]);
   const displayedLayer = displayedProject.layers.find(item => item.id === layer?.id);
   const editLayer = useCallback((id, fields) => {
-    const current = projectRef.current;
+    const current = projectRef.current, at = clock.get().time;
     const target = current.layers.find(item => item.id === id);
     if (!target) return;
     try {
       if (Object.keys(fields).length === 1 && Object.hasOwn(fields, 'size') && ['logo', 'media', 'model'].includes(target.type)) {
-        const displayed = evaluateChoreography(target, time);
+        const displayed = evaluateChoreography(target, at);
         const bounds = layerResizeBounds(displayed, document.querySelector('.workspace .stage[aria-busy="false"]'));
         if (bounds) fields = centeredResize(displayed, fields.size, bounds);
       }
-      const next = choreographyPatch(target, fields, time, current.fps);
+      const next = choreographyPatch(target, fields, at, current.fps);
       setPlaying(false);
       return patch(id, next);
     } catch (error) { setError(error.message); }
-  }, [patch, projectRef, time, setPlaying, setError]);
+  }, [patch, projectRef, clock, setPlaying, setError]);
   const seek = useCallback(value => { setTime(Math.max(0, Math.min(projectRef.current.duration, value))); setPlaying(false); }, [projectRef, setTime, setPlaying]);
-  const { job, jobRef, busy, render } = useExportJob({ projectRef, setError, setPlaying });
+  const { job, jobRef, busy, recent, render, cancel } = useExportJob({ projectRef, setError, setPlaying, open: exportOpen });
   const alternativesBlocked = canvasEditing || accountOpen || nudgeOpen || exportOpen || newOpen || saveOpen || templatesOpen || contentTarget !== null || addTarget !== null;
   const alternatives = useVisualAlternatives({ projectRef, change, setPlaying, blocked: alternativesBlocked });
   const proposeAlternatives = useCallback(proposal => { alternatives.propose(proposal); setAgentOpen(false); }, [alternatives.propose]);
@@ -95,7 +96,7 @@ function App({ user, onSignOut }) {
       setSelected(draft.layers[0]?.id ?? null);
     } else {
       if (projectRef.current !== contentTarget.project) throw new Error('The composition changed while the form was open. Reopen Content to use its latest values.');
-      if (!change(draft)) throw new Error('Content could not be applied.');
+      if (!change(draft, { allow: ['content'] })) throw new Error('Content could not be applied.');
     }
     setPlaying(false);
     return true;
@@ -111,10 +112,10 @@ function App({ user, onSignOut }) {
     <Header onOpenAccount={() => { setPlaying(false); setAccountOpen(true); }} name={project.name} onChangeName={name => change({ ...project, name })} composition={composition} onNew={() => { setPlaying(false); setNewOpen(true); }} onSave={() => composition ? save().catch(() => {}) : setSaveOpen(true)} onSaveCopy={() => setSaveOpen(true)} hasContent={contentFields(project).length > 0} onOpenContent={() => { setPlaying(false); setContentTarget({ project: projectRef.current, copy: false }); }} onOpenTemplates={() => { setPlaying(false); setTemplatesOpen(true); }} onExplore={() => { try { alternatives.explore(); } catch (error) { setError(error.message); } }} canExplore={!alternativesBlocked && project.layers.some(layer => layer.visible && !layer.locked && layer.type !== 'music')} status={status} agentState={agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)} onImport={() => importInput.current.click()} onDownload={downloadProject} onExport={() => { setPlaying(false); setExportOpen(true); }}/>
     <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={() => { if (window.confirm("Discard your local changes and load the latest saved project? Download your project JSON first to keep a copy.")) reload().catch(reloadError => setError(reloadError.message)); }} onDismiss={() => setError('')}/>
     <div className="workspace">
-      <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration))} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
-      <CanvasPanel nudge={nudge} onOpenNudge={() => { setPlaying(false); setNudgeOpen(true); }} selected={selected} onSelect={selectCanvasLayer} onPatch={editLayer} onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo}/>
+      <LayerPanel project={project} selected={selected} leftTab={leftTab} uploading={uploading} onSelectLayer={setSelected} onSetLeftTab={setLeftTab} onPatch={patch} onOpenAdd={() => setAddTarget('layers')} onRemoveLayer={removeText} onMoveLayer={moveLayer} onDropLayer={dropLayer} onDuplicateLayer={copyLayer} onChangeProject={change} onChangeDuration={duration => change(resizeDuration(project, duration), { allow: ['timing'] })} onChangeFps={fps => change({ ...project, fps })} onReorderImage={reorderImage} onRemoveImage={removeImage}/>
+      <CanvasPanel nudge={nudge} onOpenNudge={() => { setPlaying(false); setNudgeOpen(true); }} selected={selected} onSelect={selectCanvasLayer} onPatch={editLayer} onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview} clock={clock} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo}/>
       <InspectorPanel key={displayedLayer?.id} nudge={nudge} project={displayedProject} layer={displayedLayer} rightTab={rightTab} uploading={uploading} onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={editLayer} onPick={target => setAddTarget(target)} onPreview={previewPosition} onRemoveText={removeText}/>
-      <TimelinePanel project={project} selected={selected} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
+      <TimelinePanel project={project} selected={selected} clock={clock} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen} onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
     </div>
     {nudgeOpen && <NudgeDialog value={nudge} onChange={setNudge} onClose={() => setNudgeOpen(false)}/>}
     {newOpen && <NewCompositionDialog project={project} onClose={() => setNewOpen(false)} onCreate={async (name, options) => { const next = await newComposition(name, options); setTime(0); setPlaying(false); setSelected(next.layers.at(-1)?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); }} onOpen={async entry => { const next = await openSavedComposition(entry); setTime(0); setPlaying(false); setSelected(next.layers[0]?.id ?? null); setLeftTab('layers'); setRightTab('composition'); setPositionPreview(null); return true; }}/>}
@@ -124,7 +125,7 @@ function App({ user, onSignOut }) {
     {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={uploading} onClose={() => setAddTarget(null)} onPick={pick} onAddText={addText} onAddLayer={addLayer}/>}
     {contentTarget && <TemplateContentDialog project={contentTarget.project} copy={contentTarget.copy} name={contentTarget.name} onClose={() => setContentTarget(null)} onSubmit={applyContent}/>}
     {alternatives.proposal && <VisualAlternativesDialog proposal={alternatives.proposal} stale={project !== alternatives.proposal.base || canvasEditing} onClose={alternatives.close} onApply={alternatives.apply}/> }
-    <Dialogs project={project} exportOpen={exportOpen} agentOpen={agentOpen} job={job} busy={busy} agentState={agentState} audit={audit} onCloseExport={() => setExportOpen(false)} onCloseAgent={() => setAgentOpen(false)} onRender={render}/>
+    <Dialogs project={project} exportOpen={exportOpen} agentOpen={agentOpen} job={job} busy={busy} recent={recent} agentState={agentState} audit={audit} onCloseExport={() => setExportOpen(false)} onCloseAgent={() => setAgentOpen(false)} onRender={render} onCancelExport={cancel}/>
   </main>;
 }
 createRoot(document.getElementById('root')).render(<AuthGate>{(user, onSignOut) => <App key={user.id} user={user} onSignOut={onSignOut}/>}</AuthGate>);

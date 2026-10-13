@@ -14,7 +14,8 @@
     "start": "NODE_ENV=production node server/index.mjs",
     "test": "node --test tests/*.test.mjs",
     "previews:templates": "node scripts/generate-motion-previews.mjs",
-    "previews:presets": "node scripts/generate-motion-previews.mjs --presets"
+    "previews:presets": "node scripts/generate-motion-previews.mjs --presets",
+    "golden:update": "node scripts/golden-frames.mjs --update"
   },
   "dependencies": {
     "@fontsource/geist": "latest",

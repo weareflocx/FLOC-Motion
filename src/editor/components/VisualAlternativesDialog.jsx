@@ -22,7 +22,7 @@ export function VisualAlternativesDialog({ proposal, onClose, onApply, stale = f
   const activeProject = useMemo(() => visualAlternativePreview(original ? proposal.base : chosen.project), [original, proposal.base, chosen.project]);
   const projectRef = useRef(activeProject);
   projectRef.current = activeProject;
-  const { time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: activeProject.duration });
+  const { clock, time, playing, setTime, setPlaying } = usePlayback({ projectRef, duration: activeProject.duration });
 
   useEffect(() => {
     const pause = () => { if (document.hidden) setPlaying(false); };
@@ -79,7 +79,7 @@ export function VisualAlternativesDialog({ proposal, onClose, onApply, stale = f
     <div className="visual-alternatives-body">
       <section className="visual-alternatives-preview" aria-label={`${original ? 'Original' : chosen.name} preview`}>
         <div className="visual-alternatives-preview-heading"><span>{original ? 'Original' : chosen.name}</span><span>{FORMAT_LABELS[activeProject.format]}</span></div>
-        <div className="visual-alternatives-stage" inert><Stage project={activeProject} time={time} playing={playing} onReady={stageReady} onError={stageError} onPreview={noop} onSelect={noop} onPatch={noop}/></div>
+        <div className="visual-alternatives-stage" inert><Stage project={activeProject} clock={clock} onReady={stageReady} onError={stageError} onPreview={noop} onSelect={noop} onPatch={noop}/></div>
         <div className="visual-alternatives-transport">
           <IconButton label={playing ? 'Pause preview' : 'Play preview'} disabled={!ready || Boolean(error)} onClick={() => setPlaying(value => !value)}>{playing ? <Pause size={18} weight="fill"/> : <Play size={18} weight="fill"/>}</IconButton>
           <input type="range" aria-label="Preview playhead" min={0} max={Math.max(0, activeProject.duration - 0.001)} step={0.01} value={Math.min(time, activeProject.duration)} onChange={event => { setPlaying(false); setTime(Number(event.target.value)); }}/>

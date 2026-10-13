@@ -16,7 +16,8 @@ process.env.FLOC_DATA_DIR = path.join(root, '.data/render-worker/data');
 await configureRenderer(config);
 const version = await rendererVersion();
 const personal = config.token.includes('.');
-const { startExport } = await import('../server/export.mjs');
+const { startExport, cancelExport } = await import('../server/export.mjs');
+const { isTerminalJobState } = await import('../src/export-jobs.js');
 const { validateProject } = await import('../src/project.js');
 await mkdir(path.join(process.env.FLOC_DATA_DIR, 'assets'), { recursive: true });
 const lock = path.join(root, '.data/render-worker/worker.pid');
@@ -40,10 +41,12 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function request(route, body, stream = false) {
   const response = await fetch(new URL(route, origin), { method: 'POST', headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': stream ? 'video/mp4' : 'application/json' }, body: stream ? body : JSON.stringify(body), ...(stream ? { duplex: 'half' } : {}), signal: AbortSignal.timeout(stream ? 120000 : 15000), redirect: 'error' });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Editor returned ${response.status}.`);
+  if (!response.ok) throw Object.assign(new Error(result.error || `Editor returned ${response.status}.`), { status: response.status });
   return result;
 }
-async function downloadAssets(project) {
+// The editor answers 409 once a job is cancelled, expired or reassigned.
+const revokedError = () => Object.assign(new Error('The export was cancelled in the editor.'), { revoked: true });
+async function downloadAssets(project, signal) {
   const sources = new Set();
   const walk = value => {
     if (!value || typeof value !== 'object') return;
@@ -54,7 +57,7 @@ async function downloadAssets(project) {
   for (const src of sources) {
     if (!/^\/assets\/[a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb)$/.test(src)) throw new Error('Invalid project asset.');
     const dest = path.join(process.env.FLOC_DATA_DIR, src.slice(1)), temp = `${dest}.download`;
-    const response = await fetch(new URL(src, origin), { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(120000), redirect: 'error' });
+    const response = await fetch(new URL(src, origin), { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]), redirect: 'error' });
     if (!response.ok) throw new Error(`Could not download project asset (${response.status}).`);
     let size = 0;
     try {
@@ -70,21 +73,30 @@ while (!stopping) {
     if (!connected) { await log(`Renderer connected to ${origin.origin}`); connected = true; }
     if (input) {
       const route = `/api/render-worker/${input.id}`;
-      let heartbeat;
+      const lease = new AbortController();
+      let heartbeat, localJob;
+      const revoke = () => {
+        if (lease.signal.aborted) return;
+        lease.abort(revokedError());
+        // Terminate HyperFrames/FFmpeg for this job; its result is never saved or uploaded.
+        if (localJob && !isTerminalJobState(localJob.state)) cancelExport(localJob.id).catch(error => console.error(error.message));
+      };
       try {
         const project = validateProject(input.project);
         // Keep the lease alive during downloads, extraction, rendering and upload.
-        let localJob, updating = false;
+        let updating = false;
         heartbeat = setInterval(async () => {
-          if (updating) return; updating = true;
+          if (updating || lease.signal.aborted) return; updating = true;
           try { await request(`${route}/progress`, { progress: localJob?.progress || 0, message: localJob?.message || 'Downloading assets on your computer' }); }
-          catch (error) { console.error(error.message); }
+          catch (error) { if (error.status === 409) revoke(); else console.error(error.message); }
           finally { updating = false; }
         }, 5000);
-        await downloadAssets(project);
+        await downloadAssets(project, lease.signal);
+        lease.signal.throwIfAborted();
         localJob = await startExport(project, input.settings);
-        while (!['done', 'failed'].includes(localJob.state)) await sleep(1000);
+        while (!isTerminalJobState(localJob.state)) await sleep(1000);
         await copyFile(path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, 'render.log'), path.join(process.env.FLOC_DATA_DIR, 'last-render.log')).catch(error => console.error(`Could not retain render diagnostics: ${error.message}`));
+        lease.signal.throwIfAborted();
         if (localJob.state === 'failed') throw new Error(localJob.message);
         const filename = path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, 'video.mp4');
         let send, file;
@@ -105,6 +117,7 @@ while (!stopping) {
           }
           try { await send(); delivered = true; break; }
           catch (error) {
+            if (error.status === 409) throw file ? new Error(`The MP4 was saved to ${file}, but the export was cancelled in the editor.`) : revokedError();
             if (attempt < 2) { await sleep(3000); continue; }
             throw file ? new Error(`The MP4 was saved to ${file}, but the editor could not be notified: ${error.message}`) : error;
           }
@@ -114,8 +127,11 @@ while (!stopping) {
           await rm(path.dirname(filename), { recursive: true, force: true });
         }
       } catch (error) {
-        await log(`Export failed: ${error.message}`);
-        await request(`${route}/progress`, { state: 'failed', message: error.message }).catch(() => {});
+        if (lease.signal.aborted || error.revoked) await log(`Export cancelled: ${input.id}`);
+        else {
+          await log(`Export failed: ${error.message}`);
+          await request(`${route}/progress`, { state: 'failed', message: error.message }).catch(() => {});
+        }
       } finally { clearInterval(heartbeat); }
     }
   } catch (error) { connected = false; await log(error.message); }
