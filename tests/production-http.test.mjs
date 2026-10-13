@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { demoProject, patchLayer } from '../src/project.js';
 import { root } from '../server/runtime-config.mjs';
 import { createAuthStore } from '../server/auth-store.mjs';
@@ -38,7 +39,7 @@ test('production serves frontend bundles and uploaded media without mixing names
     socket.listen(0, '127.0.0.1'); await once(socket, 'listening');
     const port = socket.address().port; await new Promise(resolve => socket.close(resolve));
     async function start() {
-      child = spawn(process.execPath, [path.join(folder, 'server/index.mjs')], { env: { ...process.env, NODE_ENV: 'production', PORT: String(port), FLOC_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, FLOC_DATA_DIR: path.join(folder, '.data') }, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(process.execPath, [path.join(folder, 'server/index.mjs')], { env: { ...process.env, NODE_ENV: 'production', PORT: String(port), FLOC_PUBLIC_ORIGIN: `http://127.0.0.1:${port},https://motion.wearefloc.com,https://floc-motion.fly.dev`, FLOC_DATA_DIR: path.join(folder, '.data') }, stdio: ['ignore', 'pipe', 'pipe'] });
       let ready = false;
       for (let i = 0; i < 100; i++) {
         try { if ((await request(`http://127.0.0.1:${port}/api/health`)).ok) { ready = true; break; } } catch {}
@@ -47,6 +48,18 @@ test('production serves frontend bundles and uploaded media without mixing names
       assert.equal(ready, true, 'production server starts');
     }
     await start();
+    const local = `http://127.0.0.1:${port}`;
+    const hostRequest = (route, options) => new Promise((resolve, reject) => {
+      const req = httpRequest(`${local}${route}`, options, res => { res.resume(); resolve(res.statusCode); });
+      req.on('error', reject); req.end();
+    });
+    for (const Host of ['motion.wearefloc.com', 'floc-motion.fly.dev']) {
+      assert.equal(await hostRequest('/api/health', { headers: { Host } }), 200);
+      assert.equal(await hostRequest('/api/auth/logout', { method: 'POST', headers: { Host, Origin: `https://${Host}` } }), 200);
+      const otherHost = Host === 'motion.wearefloc.com' ? 'floc-motion.fly.dev' : 'motion.wearefloc.com';
+      assert.equal(await hostRequest('/api/auth/logout', { method: 'POST', headers: { Host, Origin: `https://${otherHost}` } }), 403);
+    }
+    assert.equal(await hostRequest('/api/health', { headers: { Host: 'motion.wearefloc.com.evil.test' } }), 403);
     for (const [url, type, body] of [['/assets/index-test.js', 'text/javascript', 'window.testBundle = true;'], ['/assets/index-test.css', 'text/css', 'body{color:white}'], [`/assets/${media}`, 'image/png', 'uploaded-media']]) {
       const res = await request(`http://127.0.0.1:${port}${url}`);
       assert.equal(res.status, 200); assert.equal(res.headers.get('content-type'), type); assert.equal(await res.text(), body);

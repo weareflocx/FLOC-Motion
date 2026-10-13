@@ -43,7 +43,7 @@ The bundlers use official WebAssembly builds to avoid native esbuild/Rollup bina
 
 ## Public hosting (explicit opt-in)
 
-After building, production startup does not load Vite. Set `FLOC_PUBLIC_ORIGIN` to the exact HTTP(S) origin to bind to `0.0.0.0` and permit that host. HTTPS mutation checks use this configured origin behind the proxy. Without it, production remains loopback-only.
+After building, production startup does not load Vite. Set `FLOC_PUBLIC_ORIGIN` to the exact HTTP(S) origin to bind to `0.0.0.0` and permit that host. Multiple origins can be separated by commas; the first is used for generated invitation links. HTTPS mutation checks use the configured origin matching the request host behind the proxy. Without it, production remains loopback-only.
 
 ```sh
 NODE_ENV=production PORT=8080 FLOC_PUBLIC_ORIGIN=https://floc-motion.fly.dev npm start
