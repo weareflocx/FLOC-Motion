@@ -43,8 +43,8 @@ test('local catalog normalizes all source recipes into safe FLOC patches', () =>
   assert.equal(orbit.carouselPatch.shader, 'none');
   assert.equal(orbit.support.kind, 'reconstructed_recipe');
   assert(orbit.thumbnail.startsWith('/catalog/visuals/'));
-  assert.equal(listCatalog({ family: 'Orbit', limit: 200 }).length, 6);
-  assert.equal(listCatalog({ query: 'lightroom' }).length, 3);
+  assert.equal(listCatalog({ family: 'Orbit', limit: 200 }).length, 4);
+  assert.equal(listCatalog({ query: 'lightroom' }).length, 1);
 });
 test('reject external, traversal and executable asset sources', () => {
   for (const src of ['https://example.com/a.png', '/assets/../../secret', 'javascript:alert(1)', '/demo/unknown.svg']) { const p = demoProject(); p.images[0].src = src; assert.throws(() => validateProject(p)); }

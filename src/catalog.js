@@ -7,15 +7,15 @@ const numberValue = value => typeof value === 'number' && Number.isFinite(value)
 
 const familyTemplate = {
   Orbit: 'circular', Spinner: 'spinner', Showcase: 'showcase', Sliders: 'horizontal',
-  Sphere: 'sphere', Stack: 'stack', Stickers: 'stickers', Twist: 'twist', Wheel: 'wheel'
+  Sphere: 'sphere', Stack: 'stack', Stickers: 'stickers', Wheel: 'wheel'
 };
 const modelVariant = {
   circular_orbit_wrapped_faces: 'wrapped', circular_orbit_billboards: 'billboard', inward_facing_orbit: 'inward', splayed_orbit: 'bloom',
   perspective_linear_queue: 'queue', linear_slider: 'strip', linear_slider_with_scale_field: 'focus',
-  spherical_point_cloud_billboards: 'billboard', spherical_tangential_panels: 'tangent', multi_axis_spherical_cloud: 'cloud',
-  axis_rotor: 'rotor', hinged_axis_rotor: 'hinge', fan_axis_rotor: 'fan',
-  stair_deck: 'stairs', arc_deck: 'spread', radial_deck: 'radial', recycled_depth_queue: 'infinite',
-  layered_peeling_posters: 'peel', curling_stickers: 'scatter', torsion_panel_carousel: 'ribbon',
+  spherical_point_cloud_billboards: 'billboard',
+  axis_rotor: 'rotor', hinged_axis_rotor: 'hinge',
+  stair_deck: 'stairs', arc_deck: 'spread', radial_deck: 'radial',
+  curling_stickers: 'scatter',
   large_radius_radial_arc: 'rock', planar_circle_or_ellipse: 'ring'
 };
 const aspectValue = entry => {
@@ -33,7 +33,6 @@ const familyCurve = {
   Sphere: 0.45,
   Stack: 0.18,
   Stickers: 0.12,
-  Twist: 0.5,
   Wheel: 0.55
 };
 

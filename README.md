@@ -88,7 +88,7 @@ Restore verifies the complete manifest, allowed paths, payload inventory, sizes,
 For Fly, create and verify the copy in ephemeral `/tmp` storage, download it before restarting normal writes, and then remove the temporary copy. Do not place the portable backup under `/data/floc-motion`, because that consumes the same volume and is not an independent copy. Fly volume restore remains a separate operator procedure: create a new volume from a selected snapshot, attach it to a stopped replacement machine, verify the workspace, and only then switch service traffic. Never restore over the attached live volume.
 ## Motion library previews
 
-The motion library includes real six-second sample clips for each of the 14 base templates and all 38 catalog presets, rendered through the shared scene/export engine with local studio images. Clips play only while visible; the library provides a pause control and respects reduced-motion preferences. Base-template samples illustrate standard settings; preset samples use their actual supported recipe values, including orientation, card count and loop timing. The six-second excerpt repeats without changing the preset duration. These samples use studio images, not the current composition. Documentary reference sheets remain available in preset details. Presets with no visible cards in the sampled interval display an explicit notice rather than substituting a different configuration.
+The motion library includes real six-second sample clips for each of the 14 base templates and all 17 catalog presets, rendered through the shared scene/export engine with local studio images. Clips play only while visible; the library provides a pause control and respects reduced-motion preferences. Base-template samples illustrate standard settings; preset samples use their actual supported recipe values, including orientation, card count and loop timing. The six-second excerpt repeats without changing the preset duration. These samples use studio images, not the current composition. Documentary reference sheets remain available in preset details. Presets with no visible cards in the sampled interval display an explicit notice rather than substituting a different configuration.
 
 Regenerate the committed 480×270 MP4 clips and JPEG posters with `npm run previews:templates` or `npm run previews:presets`. This uses local Chrome and FFmpeg only; no project is saved or published.
 
@@ -105,7 +105,7 @@ Regenerate the committed 480×270 MP4 clips and JPEG posters with `npm run previ
 - Local MP4 export using HyperFrames, followed by an FFmpeg music mix and FFprobe verification.
 - Autosave, project JSON import/download, optimistic revision checks.
 - Native WebMCP tool registration and visible capability status.
-- A local catalog of 38 reconstructed carousel recipes (curated from 108 observed references to remove duplicates, near-duplicates and weak Orbit variations), with visual contact sheets and a validated adapter into the canonical FLOC carousel model.
+- A local catalog of 17 reconstructed carousel recipes (curated from 108 observed references to remove duplicates, near-duplicates, entries that repeat their base template, and cropped, cluttered or purposeless vertical variations), with visual contact sheets and a validated adapter into the canonical FLOC carousel model.
 
 ## Files and privacy
 
@@ -167,7 +167,7 @@ No simultaneous collaborative editing, cloud rendering, arbitrary plugins, 4K/GI
 
 ## Original family motion engine
 
-The local catalog drives nine original families and 22 motion variants, not 38 separately implemented animations. Orbit and Sliders use Circular and Horizontal; Showcase, Sphere, Spinner, Stack, Stickers, Twist and Wheel now have their own evaluated transforms. The retired Depth, Arc and Nested Rise templates migrate on load (schema v4): Depth becomes Showcase, Arc becomes Wheel with the rocking variant, and Nested Rise becomes Zoom Through. Stored projects are not rewritten until saved.
+The engine has nine original families and 22 motion variants; the 17 catalog presets are recipes over them, not separately implemented animations. Orbit and Sliders use Circular and Horizontal; Showcase, Sphere, Spinner, Stack, Stickers, Twist and Wheel have their own evaluated transforms. The retired Depth, Arc and Nested Rise templates migrate on load (schema v4): Depth becomes Showcase, Arc becomes Wheel with the rocking variant, and Nested Rise becomes Zoom Through. Stored projects are not rewritten until saved.
 
 `src/carousel-motion.js` evaluates each card from absolute time and is consumed by the shared preview/export scene. Controls include motion variant, card count (0 uses the media count; maximum 48), aspect ratio, radius for radial families, orbit rear fade, XYZ orientation and explicit loop duration. Media repeat in their original order when more cards than images are requested. With a positive loop duration, speed selects direction or pauses at zero; with zero duration, legacy speed-based motion is preserved. Shader effects have their own time cycles and are not guaranteed to close with the motion loop.
 
