@@ -71,3 +71,20 @@ test('cancelling a Mac export frees the queue and rejects uploads that were alre
     assert.ok(await worker.enqueue(project, {}), 'the queue accepts the next export');
   } finally { await rm(data, { recursive: true, force: true }); }
 });
+
+test('the Mac queue stays MP4-only and rejects other formats before queuing', async () => {
+  const data = await mkdtemp(path.join(tmpdir(), 'floc-worker-format-'));
+  const jobs = new Map();
+  const worker = createRenderWorker({ data, jobs, token: 'a'.repeat(64), now: () => 100000 });
+  try {
+    const project = demoProject(); project.duration = 1; for (const layer of project.layers) { layer.start = 0; layer.end = 1; layer.fadeIn = 0; layer.fadeOut = 0; }
+    for (const settings of [{ format: 'mov' }, { format: 'png', transparent: true }]) {
+      await assert.rejects(worker.enqueue(project, settings), error => error.status === 400 && /MP4 only/.test(error.message), 'rejected even while the Mac is offline');
+      await worker.claim();
+      await assert.rejects(worker.enqueue(project, settings), error => error.status === 400 && /MP4 only/.test(error.message));
+    }
+    assert.equal(jobs.size, 0);
+    assert.equal(await worker.claim(), null);
+    assert.equal((await worker.enqueue(project, { format: 'mp4' })).format, 'mp4');
+  } finally { await rm(data, { recursive: true, force: true }); }
+});

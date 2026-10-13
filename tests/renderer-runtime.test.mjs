@@ -33,6 +33,13 @@ test('renderer saves collision-safe videos in the platform media directory', asy
     assert.equal(Array.from(unicodeBase).length, 80);
     assert.match(path.basename(unicode), /😀 2026-09-30/);
     assert.doesNotMatch(path.basename(unicode), /�/);
+    // MOV and PNG-sequence exports keep their own extension and the same collision-safe naming.
+    for (const extension of ['mov', 'zip']) {
+      const rendered = path.join(folder, `rendered.${extension}`);
+      await writeFile(rendered, extension);
+      assert.equal(path.basename(await saveRenderedVideo(rendered, 'Test project', destination, date)), `Test project 2026-09-30 12.34.56.${extension}`);
+      assert.equal(path.basename(await saveRenderedVideo(rendered, 'Test project', destination, date)), `Test project 2026-09-30 12.34.56 (2).${extension}`);
+    }
   } finally { await rm(folder, { recursive: true, force: true }); }
 });
 

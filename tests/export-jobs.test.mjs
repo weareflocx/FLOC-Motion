@@ -100,12 +100,13 @@ test('recent exports merge live state over disk, hide other renderers and cap at
     const jobs = Array.from({ length: 24 }, (_, index) => record({ createdAt: new Date(Date.UTC(2026, 9, 1, 0, index)).toISOString() }));
     for (const job of jobs) await store(data, job);
     const live = new Map([[jobs[23].id, { ...jobs[23], state: 'rendering', progress: 50 }]]);
-    const own = record({ rendererId: mine, createdAt: new Date(Date.UTC(2026, 9, 2)).toISOString(), file: 'Movies/FLOC Motion/Mine.mp4' });
+    const own = record({ rendererId: mine, createdAt: new Date(Date.UTC(2026, 9, 2)).toISOString(), file: 'Movies/FLOC Motion/Mine.mov', format: 'mov', transparent: true });
     const foreign = record({ rendererId: theirs, createdAt: new Date(Date.UTC(2026, 9, 3)).toISOString() });
     live.set(own.id, own); live.set(foreign.id, foreign);
     const listed = await listJobs(data, live, mine);
     assert.equal(listed.length, 20);
     assert.equal(listed[0].id, own.id); assert.equal(listed[0].file, own.file);
+    assert.equal(listed[0].format, 'mov'); assert.equal(listed[0].transparent, true, 'recent exports report their format');
     assert.equal(listed[1].state, 'rendering', 'live progress wins over the persisted record');
     assert.ok(!listed.some(job => job.id === foreign.id));
     assert.ok(listed.every(job => !('rendererId' in job) && !('project' in job)));
