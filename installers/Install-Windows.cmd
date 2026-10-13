@@ -63,6 +63,9 @@ if errorlevel 1 goto failed
 set "INSTALL_STEP=Verifying and extracting the Node runtime"
 powershell.exe -NoProfile -Command "$ErrorActionPreference='Stop'; $file=Join-Path $env:DOWNLOAD_DIR $env:ARCHIVE; $expected=(Get-Content (Join-Path $env:DOWNLOAD_DIR 'SHASUMS256.txt') | Where-Object { $_.EndsWith('  '+$env:ARCHIVE) }) -split '\s+'; if (!$expected -or (Get-FileHash $file -Algorithm SHA256).Hash -ne $expected[0]) { Write-Error 'Runtime download verification failed.'; exit 1 }; Expand-Archive -LiteralPath $file -DestinationPath $env:DOWNLOAD_DIR -Force"
 if errorlevel 1 goto failed
+set "INSTALL_STEP=Replacing the private Node runtime"
+if exist "%RENDERER_DIR%\runtime" rmdir /S /Q "%RENDERER_DIR%\runtime"
+if exist "%RENDERER_DIR%\runtime" goto failed
 robocopy "%DOWNLOAD_DIR%\node-%NODE_VERSION%-win-x64" "%RENDERER_DIR%\runtime" /E /NFL /NDL /NJH /NJS /LOG+:"%COPY_LOG%" /TEE
 if errorlevel 8 goto failed
 rmdir /S /Q "%DOWNLOAD_DIR%"
@@ -71,14 +74,25 @@ cd /D "%RENDERER_DIR%"
 if errorlevel 1 goto failed
 set "INSTALL_STEP=Installing engine dependencies"
 echo Installing engine dependencies...
-call runtime\npm.cmd ci --omit=dev --no-audit --no-fund
-if errorlevel 1 goto failed
+set "DEPENDENCY_LOG=%RENDERER_DIR%\installation-dependencies.log"
+echo Private Node runtime: > "%DEPENDENCY_LOG%"
+"%RENDERER_DIR%\runtime\node.exe" --version >> "%DEPENDENCY_LOG%" 2>&1
+if errorlevel 1 goto dependency_failed
+echo Bundled npm version: >> "%DEPENDENCY_LOG%"
+"%RENDERER_DIR%\runtime\node.exe" "%RENDERER_DIR%\runtime\node_modules\npm\bin\npm-cli.js" --version >> "%DEPENDENCY_LOG%" 2>&1
+if errorlevel 1 goto dependency_failed
+"%RENDERER_DIR%\runtime\node.exe" "%RENDERER_DIR%\runtime\node_modules\npm\bin\npm-cli.js" ci --omit=dev --no-audit --no-fund >> "%DEPENDENCY_LOG%" 2>&1
+if errorlevel 1 goto dependency_failed
+type "%DEPENDENCY_LOG%"
 set "INSTALL_STEP=Checking graphics and connecting the renderer"
 runtime\node.exe scripts\renderer-setup.mjs
 if errorlevel 1 goto failed
 echo Ready. Return to FLOC Motion and choose Render MP4.
 pause
 exit /b 0
+:dependency_failed
+type "%DEPENDENCY_LOG%"
+goto failed
 :missing_winget
 echo WinGet is unavailable. Install or update App Installer from the Microsoft Store, then run this installer again.
 goto failed
@@ -88,6 +102,7 @@ echo Installation did not finish.
 echo Failed step: %INSTALL_STEP%
 echo Installer folder: "%SOURCE_DIR%"
 if defined COPY_LOG echo Copy diagnostics: "%COPY_LOG%"
+if defined DEPENDENCY_LOG echo Dependency diagnostics: "%DEPENDENCY_LOG%"
 echo Keep this window open and send a screenshot of the error above.
 if defined DOWNLOAD_DIR if exist "%DOWNLOAD_DIR%" rmdir /S /Q "%DOWNLOAD_DIR%"
 pause
