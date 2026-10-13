@@ -14,7 +14,7 @@ Source: [FLOC Brand System](https://www.figma.com/design/61GRiVYnWbglilWGDN7fUq/
 
 ## Run
 
-Requires Node.js 24+ and FFmpeg/FFprobe on PATH. Rendering uses installed Google Chrome on macOS when present. Set `HYPERFRAMES_BROWSER_PATH` to select a different working Chromium binary.
+Requires Node.js 24+ (`nvm use` picks it up from `.nvmrc`) and FFmpeg/FFprobe on PATH. Rendering uses installed Google Chrome on macOS when present. Set `HYPERFRAMES_BROWSER_PATH` to select a different working Chromium binary.
 
 Server-local and legacy shared-worker exports store renderer output in `render.log` and result or failure metadata in `job.json`; those modes may retain `video.mp4` (server-local exports also `video.mov` or `frames.zip`) and expose an authenticated browser download. Personal renderers store only status and saved-path metadata on the editor server.
 Source video frame format is automatic: the engine keeps PNG for transparency and uses JPEG for opaque footage, independently of the final MP4 quality setting.
