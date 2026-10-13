@@ -1,0 +1,60 @@
+.stage {
+  touch-action: none;
+}
+
+.stage [data-floc-layer]:focus {
+  outline: none;
+}
+
+.stage .canvas-selected {
+  outline: 1px solid #ffffff40;
+  outline-offset: 3px;
+  cursor: move;
+}
+
+.stage [data-floc-layer]:focus-visible {
+  outline: 1px solid #ffffffa6;
+  outline-offset: 3px;
+}
+
+.canvas-interaction-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.canvas-orientation-ring {
+  position: absolute;
+  width: 48%;
+  height: 48%;
+  overflow: visible;
+  transform: translate(-50%,-50%);
+  pointer-events: none;
+  fill: none;
+  stroke: #ffffff80;
+  stroke-width: 1;
+}
+
+.canvas-orientation-ring circle {
+  pointer-events: stroke;
+  cursor: crosshair;
+  stroke-width: 4;
+}
+
+.canvas-orientation-ring .canvas-ring-handle {
+  fill: #fff;
+  stroke: #fff;
+  pointer-events: all;
+}
+
+.canvas-orientation-ring:focus {
+  outline: none;
+}
+
+.canvas-orientation-ring:focus-visible {
+  outline: 1px solid #ffffffa6;
+  outline-offset: 3px;
+}

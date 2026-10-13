@@ -1,0 +1,174 @@
+@media (min-width:1650px) {
+  .workspace {
+    grid-template-columns: 270px minmax(300px,1fr) 290px;
+  }
+  .panel {
+    padding: 14px;
+  }
+  .app-shell {
+    padding: 0 14px 12px;
+    gap: 10px;
+  }
+  .workspace {
+    gap: 12px;
+    height: auto;
+  }
+}
+
+@media (max-width:1100px) {
+  .workspace {
+    grid-template-columns: 205px minmax(250px,1fr) 235px;
+  }
+  .panel {
+    padding: 11px;
+  }
+  .topbar {
+    gap: 12px;
+  }
+  .internal-label {
+    display: none;
+  }
+  .header-actions {
+    gap: 7px;
+  }
+  .save-state {
+    display: none;
+  }
+  .canvas-meta>span {
+    display: none;
+  }
+  .preview-caption {
+    font-size: 8px;
+  }
+  .project-name {
+    max-width: 210px;
+  }
+  .brand em {
+    margin-left: 10px;
+  }
+  .stage-holder {
+    min-height: 320px;
+  }
+}
+
+@media (max-width:850px) {
+  .app-shell {
+    padding: 0 8px 8px;
+  }
+  .topbar {
+    height: 50px;
+    padding: 0 4px;
+  }
+  .brand {
+    font-size: 23px;
+  }
+  .brand em {
+    font-size: 9px;
+    letter-spacing: 1.4px;
+  }
+  .agent-button {
+    font-size: 0;
+    gap: 6px;
+    padding: 8px;
+  }
+  .header-actions>.icon-button {
+    display: none;
+  }
+  .export-button {
+    padding: 9px 11px;
+    font-size: 10px;
+  }
+  .workspace {
+    grid-template-columns: 1fr 250px;
+    grid-template-rows: minmax(0,min(56dvh,560px)) auto auto;
+    height: auto;
+    min-height: 0;
+  }
+  .left-panel {
+    grid-column: 1/-1;
+    grid-row: 3;
+    max-height: 340px;
+  }
+  .center-panel {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    height: 100%;
+  }
+  .stage-holder {
+    min-height: 0;
+  }
+  .right-panel {
+    grid-column: 2;
+    grid-row: 1;
+    max-height: 100%;
+    min-height: 0;
+  }
+  .layer-list {
+    display: grid;
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+  .left-panel>.property-section {
+    display: block;
+  }
+  .left-panel .panel-footer {
+    display: none;
+  }
+  .upload-zone {
+    padding: 15px;
+  }
+}
+
+@media (max-width:600px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(300px,min(56dvh,500px)) auto auto auto;
+  }
+  .center-panel {
+    grid-column: 1;
+  }
+  .right-panel {
+    grid-column: 1;
+    grid-row: 4;
+    max-height: 420px;
+  }
+  .left-panel {
+    grid-row: 3;
+    max-height: 300px;
+  }
+  .layer-list {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .preview-caption>span:last-child {
+    display: none;
+  }
+  .modal {
+    padding: 22px;
+  }
+  .header-actions {
+    gap: 6px;
+  }
+  .brand em {
+    margin-left: 6px;
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+  .topbar {
+    gap: 8px;
+  }
+  .right-panel .property-section {
+    padding: 12px 0;
+  }
+  .two-fields {
+    gap: 16px;
+  }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  button:active {
+    transform: none;
+  }
+  * {
+    scroll-behavior: auto;
+  }
+}

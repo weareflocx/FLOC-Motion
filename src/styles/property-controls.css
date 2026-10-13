@@ -1,0 +1,287 @@
+/* Compact property rows keep the preview as the primary workspace. */
+.panel>.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.field>input,
+.field>select,
+.field>textarea,
+.field>.color-field {
+  min-width: 0;
+}
+
+.field select,
+.field input:not([type=range]) {
+  padding: 7px 8px;
+}
+
+.field:has(textarea),
+.field:has(.segmented) {
+  grid-template-columns: 1fr;
+  gap: 5px;
+}
+
+/* Keep the native slider for keyboard, touch and step handling. */
+.integrated-range {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 0;
+  margin-top: 8px;
+  padding: 0 12px;
+  border: 1px solid #ffffff0a;
+  border-radius: 6px;
+  background: #222225;
+  isolation: isolate;
+}
+
+.range-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,#ff00001a 0%,#ff000080 100%);
+  clip-path: inset(0 calc(100% * (1 - var(--range-progress))) 0 0);
+  pointer-events: none;
+}
+
+.range-ticks {
+  position: absolute;
+  left: 15px;
+  right: 75px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+}
+
+.range-ticks i {
+  width: 1px;
+  height: 8px;
+  background: #ffffff16;
+}
+
+.range-label {
+  position: relative;
+  max-width: calc(100% - 90px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #c5c5cb;
+  pointer-events: none;
+}
+
+.numeric-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.numeric-field input {
+  width: 100%;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.numeric-unit {
+  font-size: 11px;
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.numeric-error {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 200px;
+  padding: 8px;
+  background: #303030;
+  border: 1px solid #777;
+  border-radius: 5px;
+  z-index: 6;
+  font-size: 11px;
+  color: #eee;
+}
+
+.numeric-field input[aria-invalid=true] {
+  outline: 1px solid #bd7878;
+}
+
+.integrated-range .numeric-field {
+  margin-left: auto;
+  width: 82px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.integrated-range .numeric-field input {
+  padding: 6px 2px;
+  background: transparent;
+  border: 0;
+  text-align: right;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.integrated-range .numeric-field input:focus {
+  background: #333;
+  border-radius: 4px;
+}
+
+.integrated-range .numeric-unit {
+  color: #ddd;
+}
+
+.integrated-range input[type=range] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(100% - 94px);
+  height: 100%;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: ew-resize;
+  outline: none;
+}
+
+.integrated-range input[type=range]::-webkit-slider-runnable-track {
+  height: 22px;
+  background: transparent;
+  border: 0;
+}
+
+.integrated-range input[type=range]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 4px;
+  height: 22px;
+  margin: 0;
+  border: 0;
+  border-radius: 2px;
+  background: #8e8e98;
+}
+
+.integrated-range input[type=range]::-moz-range-track {
+  height: 22px;
+  background: transparent;
+  border: 0;
+}
+
+.integrated-range input[type=range]::-moz-range-progress {
+  background: transparent;
+}
+
+.integrated-range input[type=range]::-moz-range-thumb {
+  width: 4px;
+  height: 22px;
+  border: 0;
+  border-radius: 2px;
+  background: #8e8e98;
+}
+
+.integrated-range:hover {
+  border-color: #ffffff26;
+}
+
+.integrated-range:hover input[type=range]::-webkit-slider-thumb {
+  background: #ffffff;
+}
+
+.integrated-range:hover input[type=range]::-moz-range-thumb {
+  background: #ffffff;
+}
+
+.integrated-range:focus-within {
+  border-color: #ffffff40;
+}
+
+.integrated-range:has(input:focus-visible) {
+  outline: 1px solid #a8a8a8;
+  outline-offset: 0;
+}
+
+.two-fields .field {
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+/* Long labels keep the same full-width control instead of splitting it in two. */
+.two-fields:has(.integrated-range) {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.property-section>.outline-button {
+  margin-top: 8px;
+}
+
+@media (max-width:1100px) {
+  .color-field {
+    font-size: 9px;
+  }
+}
+
+@media (max-width:600px) {
+  .integrated-range {
+    min-height: 48px;
+  }
+  .panel>.tabs {
+    position: static;
+  }
+}
+
+.orientation-control {
+  margin-top: 8px;
+}
+
+.orientation-control summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 11px;
+}
+
+.orientation-control summary::before {
+  content: "›";
+  font-size: 16px;
+}
+
+.orientation-control[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.orientation-control summary span {
+  margin-left: auto;
+  color: #aaa;
+  font-size: 10px;
+}
+
+.orientation-control summary:focus-visible {
+  outline: 1px solid #aaa;
+  outline-offset: 2px;
+}
+
+.orientation-fields .field {
+  grid-template-columns: 1fr 64px;
+}
+
+.orientation-fields .field-label {
+  font-size: 10px;
+}
+
+.orientation-fields input {
+  padding: 6px;
+}

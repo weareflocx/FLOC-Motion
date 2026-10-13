@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { browserCandidates } from '../scripts/renderer-runtime.mjs';
+import { editorStyles } from './editor-styles.mjs';
 
 const executablePath = [process.env.HYPERFRAMES_BROWSER_PATH, ...browserCandidates()].find(file => file && existsSync(file));
 
@@ -35,7 +36,7 @@ test('layer names and actions have separate hit areas with mouse, keyboard and t
     try {
       await page.setViewport({ width: touch ? 480 : 1440, height: 600, hasTouch: touch, isMobile: touch });
       await page.setContent('<meta name="viewport" content="width=device-width,initial-scale=1"><div class="panel" style="width:246px"><div id="root"></div></div>');
-      await page.addStyleTag({ content: readFileSync(new URL('../src/style.css', import.meta.url), 'utf8') });
+      await page.addStyleTag({ content: editorStyles() });
       await page.addScriptTag({ content: bundle.outputFiles[0].text });
       await page.waitForSelector('.layer-select');
       for (const select of await page.$$('.layer-select')) {

@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { browserCandidates } from '../scripts/renderer-runtime.mjs';
+import { editorStyles } from './editor-styles.mjs';
 import { editorCommands, filterCommands, fuzzyScore, shortcutLabel } from '../src/editor/commands.js';
 
 const executablePath = [process.env.HYPERFRAMES_BROWSER_PATH, ...browserCandidates()].find(file => file && existsSync(file));
@@ -78,7 +79,7 @@ test('the palette is a keyboard-navigable modal listbox that skips disabled comm
   t.after(() => browser.close());
   const page = await browser.newPage();
   await page.setContent('<div id="root"></div>');
-  await page.addStyleTag({ content: readFileSync(new URL('../src/style.css', import.meta.url), 'utf8') });
+  await page.addStyleTag({ content: editorStyles() });
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   await page.waitForSelector('dialog[open] [role="combobox"]');
   const state = () => page.evaluate(() => {
