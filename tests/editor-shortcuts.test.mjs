@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { assertLocksRespected, demoProject, patchLayer, validateProject } from '../src/project.js';
+import * as historyOps from '../src/editor/history.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useEditorShortcuts.js', import.meta.url), 'utf8');
 const actions = fs.readFileSync(new URL('../src/editor/useCompositionActions.js', import.meta.url), 'utf8');
@@ -12,7 +13,7 @@ function editor({ blocked = false, selected = 'headline', locked = false, modal 
   const slots = []; let cursor = 0, listen = false;
   let playing = false, listener, cleanup, prevented = 0, api;
   const context = {
-    assertLocksRespected, demoProject, patchLayer, validateProject,
+    assertLocksRespected, demoProject, patchLayer, validateProject, ...historyOps,
     editorSession: () => ({ draftId: 'draft' }),
     useCallback: fn => fn,
     useEffect(fn) { if (listen) cleanup = fn(); },

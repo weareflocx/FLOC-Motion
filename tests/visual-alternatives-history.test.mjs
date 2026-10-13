@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { assertLocksRespected, demoProject, patchLayer, validateProject, linkFormats, switchFormat } from '../src/project.js';
 import { createStyleAlternatives, buildVisualAlternatives } from '../src/visual-alternatives.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
+import * as historyOps from '../src/editor/history.js';
 
 function editor() {
   const slots = [], writes = [], playback = [];
@@ -12,7 +13,7 @@ function editor() {
   const original = linkFormats(demoProject());
   const identity = { id: 'saved-study', updatedAt: '2026-10-04T08:00:00Z' };
   const context = {
-    editorSession: () => ({ draftId: 'draft', compositionId: identity.id, remember() {} }), assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives,
+    editorSession: () => ({ draftId: 'draft', compositionId: identity.id, remember() {} }), assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, ...historyOps,
     request: async (url, options) => {
       if (options) { const body = JSON.parse(options.body); writes.push(body); return { revision: writes.length + 1, id: identity.id, updatedAt: `version-${writes.length}`, project: body.project, name: body.name }; }
       if (url === '/api/templates') return { templates: [{ ...identity, project: original, name: original.name }] };

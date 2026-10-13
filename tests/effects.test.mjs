@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_NOISE, EFFECTS, effectLayer, noisePixels, newEffect, opticalWarpOffset } from '../src/effects.js';
+import { DEFAULT_NOISE, EFFECTS, NOISE_TILE, effectLayer, noiseOffset, noisePixels, newEffect, opticalWarpOffset } from '../src/effects.js';
 import { demoProject, validateProject, patchLayer, duplicateLayer, reorderLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
 import { fileLayer } from '../src/project.js';
 import { createTools } from '../src/webmcp.js';
@@ -33,22 +33,28 @@ test('noise rejects unsafe settings, unsupported targets and edits to locked lay
   assert.throws(() => validateProject({ ...demoProject(), layers: [{ ...effectLayer('noise', 12), effects: [] }] }), /at least one/);
 });
 
-test('noise pixels are deterministic, static by default and reversible when animated', () => {
+test('noise tiles are deterministic and animation steps reversible whole-cell offsets at 12 Hz', () => {
   const effect = { ...DEFAULT_NOISE, mode: 'multi' };
-  const first = noisePixels(effect, 0);
-  assert.deepEqual(noisePixels(effect, 8), first);
+  const first = noisePixels(effect);
+  assert.deepEqual(noisePixels({ ...effect }), first);
+  assert.notDeepEqual(noisePixels({ ...effect, seed: 43 }), first);
+  assert.deepEqual(noiseOffset(effect, 8), [0, 0]);
   const animated = { ...effect, animated: true };
-  const frame = noisePixels(animated, 1);
-  assert.notDeepEqual(noisePixels(animated, 2), frame);
-  assert.deepEqual(noisePixels(animated, 1), frame);
+  const steps = Array.from({ length: 36 }, (_, step) => noiseOffset(animated, step / 12));
+  for (const [x, y] of steps) assert.ok([x, y].every(value => Number.isInteger(value) && value >= 0 && value < NOISE_TILE));
+  for (let step = 1; step < steps.length; step++) assert.notDeepEqual(steps[step], steps[step - 1]);
+  assert.ok(new Set(steps.map(String)).size > 30);
+  assert.deepEqual(noiseOffset(animated, 2.99 / 12), steps[2]);
+  assert.deepEqual(noiseOffset(animated, -1), steps[0]);
+  assert.notDeepEqual(Array.from({ length: 12 }, (_, step) => noiseOffset({ ...animated, seed: 43 }, step / 12)), steps.slice(0, 12));
   for (const patch of [{ density: 0 }, { opacity: 0 }, { enabled: false }]) {
-    const pixels = noisePixels({ ...effect, ...patch }, 0);
+    const pixels = noisePixels({ ...effect, ...patch });
     assert.equal(pixels.filter((_, index) => index % 4 === 3).some(alpha => alpha > 0), false);
   }
-  const sparse = noisePixels({ ...effect, density: 0.25 }, 0);
+  const sparse = noisePixels({ ...effect, density: 0.25 });
   const covered = sparse.filter((_, index) => index % 4 === 3).filter(alpha => alpha > 0).length;
   assert.ok(covered > 3500 && covered < 4600);
-  const mono = noisePixels({ ...DEFAULT_NOISE, color1: '#112233', opacity: 1 }, 0);
+  const mono = noisePixels({ ...DEFAULT_NOISE, color1: '#112233', opacity: 1 });
   assert.deepEqual([...mono.slice(0, 3)], [17, 34, 51]);
 });
 

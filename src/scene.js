@@ -10,6 +10,8 @@ import { evaluateChoreography } from './choreography.js';
 import { drawProceduralBackground } from './backgrounds.js';
 import { textTypography, textRevealClip } from './text-style.js';
 import { createEffects } from './effects.js';
+import { createResourceCache, watchContextLoss } from './scene-resources.js';
+import { sceneUpdatePlan } from './scene-update.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -78,12 +80,30 @@ if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacit
 #include <colorspace_fragment>
 }`;
 
-async function createLayerScene(root, p, { renderMode = false, onMediaError = () => {}, cardFrames = {} } = {}) {
+// Values that differ per card. Cards share one geometry and one material; each
+// card copies these into the material just before it is drawn.
+function cardUniforms(texture, imageAspect) {
+  return { uMap: { value: texture }, uImageAspect: { value: imageAspect }, uCrop: { value: new THREE.Vector2(1, 1) }, uCorner: { value: 0 }, uElastic: { value: 0 }, uSide: { value: 0 },
+    uClip: { value: new THREE.Vector4(0, 0, 1, 1) }, uPush: { value: new THREE.Vector4(0, 0, 1, 0) }, uDepth: { value: 1 }, uOpacity: { value: 1 }, uTorsion: { value: 0 } };
+}
+function unloadVideo(video) { pauseMedia(video); video.removeAttribute('src'); video.load(); }
+async function loadCardVideo(src) {
+  const video = document.createElement('video');
+  video.muted = true; video.playsInline = true; video.preload = 'auto';
+  try {
+    await waitForVideo(video, 'loadeddata', () => { video.src = cardVideoSource(src); video.load(); }, () => video.readyState >= 2);
+    if (!Number.isFinite(video.duration) || video.duration <= 0) throw new Error('Carousel videos must have a finite duration.');
+  } catch (error) { unloadVideo(video); throw error; }
+  return video;
+}
+
+async function createLayerScene(root, p, { renderMode = false, onMediaError = () => {}, cardFrames = {}, resources } = {}) {
   const [width, height] = FORMATS[p.format];
   const carousel = p.layers.find(l => l.type === 'carousel');
   let layer = carousel || { ...demoProject().layers.find(l => l.type === 'carousel'), visible: false };
   const canvas = (carousel ? root.querySelector(`[id="carousel-${CSS.escape(carousel.id)}"]`) : null) || document.createElement('canvas');
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+  // Export captures read the canvas after drawing; the preview only composites it.
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: renderMode });
   renderer.setPixelRatio(1); renderer.setSize(width, height, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0, 0);
@@ -98,7 +118,6 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       camera.position.z = Math.max(camera.position.z, extent * 1.12 / (Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, width / height)));
     }
   }
-  updateCamera();
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
   let carouselEffect = null;
@@ -120,15 +139,24 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     if (media.error) queueMicrotask(failed);
     return () => { media.removeEventListener('error', failed); media.removeEventListener('loadedmetadata', loaded); };
   });
+  const context = watchContextLoss(canvas, {
+    restored() { if (!disposed) try { draw(requestedTime, requestedPlaying); } catch (error) { onMediaError(error); } },
+    failed() { if (!disposed) onMediaError(new Error('The preview lost its graphics context and could not restore it. Reload the editor to continue.')); }
+  });
   const imageNodes = layerNodes.filter(node => node.tagName === 'IMG');
   const models = [];
   const meshes = [];
   const textures = [];
+  const handles = [];
   const cardVideos = [];
   const frameCards = [];
   const frameLoader = new THREE.TextureLoader();
+  const imageLoader = new THREE.ImageLoader();
   const placementBounds = new Map();
-  let geometrySize = layer.size;
+  const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, transparent: true,
+    uniforms: { ...cardUniforms(null, 1), uCardSize: { value: layer.size }, uAspect: { value: layer.cardAspect }, uShape: { value: 0 }, uTime: { value: 0 }, uStrength: { value: 0 }, uEffect: { value: 0 }, uTint: { value: new THREE.Color() }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) } } });
+  let geometry = null;
+  let geometryKey = '';
   let requestedTime = 0;
   let requestedPlaying = false;
   function placeLayers(time) {
@@ -190,81 +218,121 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
   }
-  function cardGeometry() {
-    const size = layer.size;
-    const geometry = new THREE.PlaneGeometry(size, size / layer.cardAspect, layer.shader === 'elastic' ? 64 : 32, 16);
-    reshapeCardGeometry(geometry, layer);
-    return geometry;
+  // Every card has the same shape; reshape the shared geometry when it changes.
+  function shapeCards(sampled) {
+    const segments = layer.shader === 'elastic' ? 64 : 32;
+    const key = JSON.stringify([sampled.template, sampled.size, sampled.cardAspect, sampled.radius, sampled.gap, sampled.curve, sampled.cardCount, motionVariant(sampled), segments]);
+    if (key === geometryKey) return;
+    if (geometry?.parameters.widthSegments !== segments) {
+      const previous = geometry;
+      geometry = new THREE.PlaneGeometry(1, 1, segments, 16);
+      meshes.forEach(mesh => { mesh.geometry = geometry; });
+      previous?.dispose();
+    }
+    reshapeCardGeometry(geometry, sampled);
+    material.uniforms.uCardSize.value = sampled.size;
+    geometryKey = key;
+  }
+  // Carousel-wide values; rerun after in-place edits.
+  function applySettings() {
+    camera.fov = layer.perspective ?? 38;
+    camera.updateProjectionMatrix();
+    updateCamera();
+    const uniforms = material.uniforms;
+    uniforms.uStrength.value = layer.intensity;
+    uniforms.uEffect.value = SHADERS.find(s => s.id === layer.shader).mode;
+    uniforms.uTint.value.set(layer.tint);
+    uniforms.uShape.value = layer.cardShape === 'squircle' ? 1 : 0;
+    uniforms.uAspect.value = layer.cardAspect;
+    const side = layer.backface === 'hide' ? THREE.FrontSide : layer.frontface === 'hide' ? THREE.BackSide : THREE.DoubleSide;
+    if (material.side !== side) { material.side = side; material.needsUpdate = true; }
+    shapeCards(layer);
+    for (const mesh of meshes) {
+      const card = mesh.userData.uniforms;
+      const imageRatio = card.uImageAspect.value, cardRatio = layer.cardAspect;
+      if (imageRatio > cardRatio) card.uCrop.value.set(cardRatio / imageRatio, 1); else card.uCrop.value.set(1, imageRatio / cardRatio);
+      card.uCorner.value = layer.cornerRadius / 100;
+      // Vertex wings extend beyond the CPU-side geometry bounds.
+      mesh.frustumCulled = layer.shader !== 'elastic';
+    }
+    if (!carouselEffect?.update(layer)) {
+      carouselEffect?.dispose();
+      carouselEffect = createCarouselEffect(renderer, canvas.width, canvas.height, layer);
+    }
+  }
+  async function cardTexture(src) {
+    if (cardMediaKind(src) === 'image') {
+      const handle = resources.acquire(`image\n${src}`, () => imageLoader.loadAsync(src));
+      handles.push(handle);
+      const texture = new THREE.Texture(await handle.value);
+      texture.needsUpdate = true;
+      return texture;
+    }
+    if (renderMode) {
+      const frames = cardFrames[src];
+      if (!frames) throw new Error(`Prepared carousel frames are missing: ${src}`);
+      const texture = await frameLoader.loadAsync(cardFrameSource(frames, 0));
+      frameCards.push({ texture, frames, index: 0 });
+      return texture;
+    }
+    // Each carousel seeks its own decoder; rebuilds of the same layer reuse it.
+    const handle = resources.acquire(`video\n${layer.id}\n${src}`, () => loadCardVideo(src), unloadVideo);
+    handles.push(handle);
+    const video = await handle.value;
+    const texture = new THREE.VideoTexture(video);
+    cardVideos.push({ video, texture });
+    texture.needsUpdate = true;
+    return texture;
   }
   try {
     await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontDefinition(l.font).family}"`)));
     await document.fonts.ready;
-    for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, width, width));
-    const loader = new THREE.TextureLoader();
-    const results = await Promise.allSettled((carousel ? p.images : []).map(async img => {
-      if (cardMediaKind(img.src) === 'image') return loader.loadAsync(img.src);
-      if (renderMode) {
-        const frames = cardFrames[img.src];
-        if (!frames) throw new Error(`Prepared carousel frames are missing: ${img.src}`);
-        const texture = await frameLoader.loadAsync(cardFrameSource(frames, 0));
-        frameCards.push({ texture, frames, index: 0 });
-        return texture;
-      }
-      const video = document.createElement('video');
-      video.muted = true; video.playsInline = true; video.preload = 'auto';
-      const texture = new THREE.VideoTexture(video);
-      const card = { video, texture }; cardVideos.push(card);
-      await waitForVideo(video, 'loadeddata', () => { video.src = cardVideoSource(img.src); video.load(); }, () => video.readyState >= 2);
-      if (!Number.isFinite(video.duration) || video.duration <= 0) throw new Error('Carousel videos must have a finite duration.');
-      texture.needsUpdate = true;
-      return texture;
-    }));
+    for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, width, width, { resources, renderMode, onError: onMediaError }));
+    const sources = [...new Set((carousel ? p.images : []).map(img => img.src))];
+    const results = await Promise.allSettled(sources.map(cardTexture));
     textures.push(...results.filter(result => result.status === 'fulfilled').map(result => result.value));
     const failed = results.find(result => result.status === 'rejected');
     if (failed) throw failed.reason;
-    const loaded = textures;
+    const loaded = p.images.map(img => textures[sources.indexOf(img.src)]);
+    shapeCards(layer);
     Array.from({ length: loaded.length ? layer.cardCount || loaded.length : 0 }, (_, i) => loaded[i % loaded.length]).forEach(texture => {
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      const size = layer.size;
-      const geometry = cardGeometry();
-      const imageRatio = (texture.image.videoWidth || texture.image.width) / (texture.image.videoHeight || texture.image.height);
-      const cardRatio = layer.cardAspect;
-      const crop = imageRatio > cardRatio ? new THREE.Vector2(cardRatio / imageRatio, 1) : new THREE.Vector2(1, imageRatio / cardRatio);
-      const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, side: layer.backface === 'hide' ? THREE.FrontSide : layer.frontface === 'hide' ? THREE.BackSide : THREE.DoubleSide, transparent: true,
-        uniforms: { uMap: { value: texture }, uTorsion: { value: 0 }, uElastic: { value: 0 }, uSide: { value: 0 }, uCardSize: { value: size }, uOpacity: { value: 1 }, uCorner: { value: layer.cornerRadius / 100 }, uAspect: { value: layer.cardAspect }, uShape: { value: layer.cardShape === 'squircle' ? 1 : 0 }, uTime: { value: 0 }, uStrength: { value: layer.intensity }, uEffect: { value: SHADERS.find(s => s.id === layer.shader).mode }, uTint: { value: new THREE.Color(layer.tint) }, uDepth: { value: 1 }, uCrop: { value: crop }, uClip: { value: new THREE.Vector4(0, 0, 1, 1) }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) }, uPush: { value: new THREE.Vector4(0, 0, 1, 0) }, uImageAspect: { value: imageRatio } }
-      });
+      const card = cardUniforms(texture, (texture.image.videoWidth || texture.image.width) / (texture.image.videoHeight || texture.image.height));
       const mesh = new THREE.Mesh(geometry, material);
-      // Vertex wings extend beyond the CPU-side geometry bounds.
-      if (layer.shader === 'elastic') mesh.frustumCulled = false;
+      mesh.userData.uniforms = card;
+      mesh.onBeforeRender = (renderer, scene, camera, geometry, shared) => {
+        for (const key in card) shared.uniforms[key].value = card[key].value;
+        shared.uniformsNeedUpdate = true;
+      };
       group.add(mesh); meshes.push(mesh);
     });
+    applySettings();
     await Promise.all(imageNodes.map(img => img.decode().catch(() => { throw new Error('An image could not be decoded.'); })));
     placeLayers(0);
-    carouselEffect = createCarouselEffect(renderer, width, height, layer);
   } catch (error) { dispose(); throw error; }
   function dispose() {
     if (disposed) return;
     disposed = true;
     mediaErrors.forEach(remove => remove());
+    context.dispose();
     carouselEffect?.dispose();
     models.forEach(model => model.dispose());
-    cardVideos.forEach(({ video, texture }) => { pauseMedia(video); video.removeAttribute('src'); video.load(); texture.dispose(); });
     mediaNodes.forEach(m => { pauseMedia(m); m.removeAttribute('src'); m.load(); });
-    meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); });
+    geometry?.dispose(); material.dispose();
     textures.forEach(t => t.dispose());
+    // Shared decoders keep playing for the scene that replaces this one.
+    handles.forEach(handle => handle.release());
     renderer.dispose(); renderer.forceContextLoss();
   }
   function draw(time, playing = false) {
     if (disposed) return;
+    if (context.lost && renderMode) throw new Error('The graphics context was lost while rendering.');
     placeLayers(time);
     models.forEach(model => model.draw(time, placement?.id === model.id ? placement : undefined));
     const local = Math.max(0, time - layer.start);
     const sampled = { ...evaluateChoreography(layer, time), ...orientation };
-    if (sampled.size !== geometrySize) {
-      meshes.forEach(mesh => { reshapeCardGeometry(mesh.geometry, sampled); mesh.material.uniforms.uCardSize.value = sampled.size; });
-      geometrySize = sampled.size;
-    }
+    shapeCards(sampled);
     group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
     const position = placement?.id === layer.id ? { ...sampled, ...placement } : sampled;
@@ -275,11 +343,18 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     const windowPush = layer.template === 'window-push';
     const canvasSize = windowPush ? viewHeight * width / height : planar ? Math.min(viewHeight * width / height, viewHeight * sampled.cardAspect) : shuffle ? viewHeight : 1;
     const windowHeight = Math.min(0.72 * sampled.size, 0.96, 0.96 * width / height / sampled.cardAspect);
+    const uniforms = material.uniforms;
+    uniforms.uWindow.value.set(windowPush ? windowHeight * sampled.cardAspect * height / width : 0, windowPush ? windowHeight : 0);
+    if (windowPush) uniforms.uAspect.value = width / height;
+    uniforms.uTime.value = local;
+    material.depthTest = !(planar || shuffle || windowPush);
+    material.depthWrite = !(planar || shuffle || windowPush);
     meshes.forEach((mesh, i) => {
+      const card = mesh.userData.uniforms;
       const state = carouselCard(sampled, i, meshes.length, time);
       const optical = elasticState(sampled, state);
-      mesh.material.uniforms.uElastic.value = optical.strength;
-      mesh.material.uniforms.uSide.value = optical.side;
+      card.uElastic.value = optical.strength;
+      card.uSide.value = optical.side;
       mesh.position.set(...state.position);
       if (planar || shuffle || windowPush) mesh.position.multiplyScalar(canvasSize);
       if (state.positionPixels) {
@@ -289,18 +364,13 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       mesh.rotation.set(...state.rotation);
       mesh.scale.setScalar(state.scale * canvasSize);
       mesh.renderOrder = state.renderOrder ?? 0;
-      mesh.material.uniforms.uClip.value.set(...(state.clip ?? [0, 0, 1, 1]));
-      mesh.material.uniforms.uPush.value.set(...(state.push ?? [0, 0, 1, 0]));
-      mesh.material.uniforms.uWindow.value.set(windowPush ? windowHeight * sampled.cardAspect * height / width : 0, windowPush ? windowHeight : 0);
-      if (windowPush) mesh.material.uniforms.uAspect.value = width / height;
-      mesh.material.depthTest = !(planar || shuffle || windowPush);
-      mesh.material.depthWrite = !(planar || shuffle || windowPush);
-      if (shuffle) mesh.material.uniforms.uCorner.value = Math.min(1, 2 * (sampled.shuffleCorner ?? 15) / (sampled.size * height * Math.min(1, 1 / sampled.cardAspect) * state.scale));
+      card.uClip.value.set(...(state.clip ?? [0, 0, 1, 1]));
+      card.uPush.value.set(...(state.push ?? [0, 0, 1, 0]));
+      if (shuffle) card.uCorner.value = Math.min(1, 2 * (sampled.shuffleCorner ?? 15) / (sampled.size * height * Math.min(1, 1 / sampled.cardAspect) * state.scale));
       mesh.visible = !(layer.frontface === 'hide' && layer.backface === 'hide') && layerAlpha(layer, time) > 0 && state.opacity > 0.001;
-      mesh.material.uniforms.uDepth.value = state.depth;
-      mesh.material.uniforms.uOpacity.value = state.opacity;
-      mesh.material.uniforms.uTorsion.value = state.torsion;
-      mesh.material.uniforms.uTime.value = local;
+      card.uDepth.value = state.depth;
+      card.uOpacity.value = state.opacity;
+      card.uTorsion.value = state.torsion;
     });
     cardVideos.forEach(({ video, texture }) => { if (video.readyState >= 2) texture.needsUpdate = true; });
     if (carouselEffect) carouselEffect.render(scene, camera);
@@ -362,33 +432,68 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     return ready.catch(error => { if (!disposed) onMediaError(error); });
   }
   try { await seek(0); } catch (error) { dispose(); throw error; }
-  function updateLayers(layers) {
-    const previousSize = layer.size;
-    p = { ...p, layers: p.layers.map(previous => layers.find(next => next.id === previous.id) ?? previous) };
-    if (carousel) layer = p.layers.find(next => next.id === carousel.id);
-    if (layer.size !== previousSize) {
-      updateCamera();
-      meshes.forEach(mesh => {
-        const previous = mesh.geometry;
-        mesh.geometry = cardGeometry();
-        mesh.material.uniforms.uCardSize.value = layer.size;
-        previous.dispose();
-      });
-      geometrySize = layer.size;
+  // Takes the engine's slice of a project that sceneUpdatePlan accepted.
+  function update(next) {
+    p = next;
+    if (carousel) {
+      layer = p.layers.find(l => l.id === carousel.id);
+      applySettings();
     }
-    models.forEach(model => model.updateLayer(p.layers.find(next => next.id === model.id)));
+    models.forEach(model => model.updateLayer(p.layers.find(l => l.id === model.id)));
     placementBounds.clear();
   }
-  return { updateLayers, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); carouselEffect?.setResolution(w, h); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
+  return { update, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); carouselEffect?.setResolution(w, h); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
 }
 
+// The first engine also owns every non-carousel layer; each further carousel
+// gets its own renderer.
+function engineProjects(project) {
+  const carousels = project.layers.filter(layer => layer.type === 'carousel');
+  const first = carousels[0];
+  return [
+    { id: first?.id, project: { ...project, images: carouselImages(project, first), layers: project.layers.filter(layer => layer.type !== 'carousel' || layer.id === first?.id) } },
+    ...carousels.slice(1).map(layer => ({ id: layer.id, project: { ...project, images: carouselImages(project, layer), layers: [layer] } }))
+  ];
+}
+
+// Copies attribute, inline style and text differences between the markup of
+// two structurally equal projects onto the live layer nodes. Styles change per
+// property so values written while drawing survive. Null means rebuild.
+function markupPatch(root, previous, next) {
+  const parse = project => { const template = document.createElement('template'); template.innerHTML = stageMarkup(project); return [...template.content.children]; };
+  const before = parse(previous), after = parse(next);
+  if (before.length !== after.length) return null;
+  const live = new Map([...root.querySelectorAll('[data-floc-layer]:not([data-floc-background-content])')].map(node => [node.dataset.flocLayer, node]));
+  const changes = [];
+  const compare = (a, b, node) => {
+    if (!node || a.tagName !== b.tagName || node.tagName !== b.tagName || a.children.length !== b.children.length || node.children.length !== b.children.length) return false;
+    for (const { name, value } of b.attributes) {
+      if (a.getAttribute(name) === value) continue;
+      if (name === 'src') return false;
+      changes.push(name === 'style' ? () => {
+        for (const property of Array.from(b.style)) if (a.style.getPropertyValue(property) !== b.style.getPropertyValue(property)) node.style.setProperty(property, b.style.getPropertyValue(property));
+        for (const property of Array.from(a.style)) if (!b.style.getPropertyValue(property)) node.style.removeProperty(property);
+      } : () => node.setAttribute(name, value));
+    }
+    for (const { name } of a.attributes) if (!b.hasAttribute(name)) changes.push(() => node.removeAttribute(name));
+    if (!b.children.length && a.textContent !== b.textContent) changes.push(() => { node.textContent = b.textContent; });
+    return [...b.children].every((child, i) => compare(a.children[i], child, node.children[i]));
+  };
+  if (!after.every((node, i) => compare(before[i], node, live.get(node.dataset.flocLayer)))) return null;
+  return () => changes.forEach(change => change());
+}
+// A new font face must load before text is measured; that is a rebuild.
+const fontsLoaded = (previous, next) => next.layers.every((layer, i) => layer.type !== 'text' || (layer.font === previous.layers[i].font && layer.weight === previous.layers[i].weight)
+  || document.fonts.check(`${layer.weight} 16px "${fontDefinition(layer.font).family}"`));
+
 export async function createScene(root, project, options = {}) {
+  // Preview sessions pass a shared cache so rebuilds reuse decoded media.
+  options = { ...options, resources: options.resources ?? createResourceCache() };
   let currentProject = project;
   let currentTime = 0;
   let disposed = false;
-  const carousels = project.layers.filter(layer => layer.type === 'carousel');
   const engines = [];
-  const effects = createEffects(root, project, FORMATS, layerAlpha);
+  let effects = createEffects(root, project, FORMATS, layerAlpha);
   const backgrounds = project.layers.filter(layer => layer.type === 'background' && layer.mode === 'procedural').map(layer => ({ id: layer.id, canvas: root.querySelector(`[id="background-${CSS.escape(layer.id)}"]`) })).filter(background => background.canvas);
   function drawBackgrounds(time) {
     if (disposed) return;
@@ -399,18 +504,25 @@ export async function createScene(root, project, options = {}) {
     });
   }
   try {
-    const first = carousels[0];
-    engines.push({ id: first?.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, first), layers: project.layers.filter(layer => layer.type !== 'carousel' || layer.id === first?.id) }, options) });
-    for (const layer of carousels.slice(1)) {
-      engines.push({ id: layer.id, scene: await createLayerScene(root, { ...project, images: carouselImages(project, layer), layers: [layer] }, options) });
-    }
+    for (const { id, project: value } of engineProjects(project)) engines.push({ id, scene: await createLayerScene(root, value, options) });
   } catch (error) { engines.forEach(engine => engine.scene.dispose()); effects.dispose(); throw error; }
   drawBackgrounds(0);
   return {
-    updateLayers: layers => {
-      currentProject = { ...currentProject, layers: currentProject.layers.map(previous => layers.find(layer => layer.id === previous.id) ?? previous) };
-      engines.forEach(engine => engine.scene.updateLayers(layers));
-      effects.updateLayers(currentProject.layers);
+    // Applies parameter edits to the live scene. Returns false, leaving the
+    // scene untouched, when `next` needs a rebuild. Callers seek afterwards.
+    update(next) {
+      if (disposed) return false;
+      const plan = sceneUpdatePlan(currentProject, next);
+      if (!plan || !fontsLoaded(currentProject, next)) return false;
+      const patch = markupPatch(root, currentProject, next);
+      if (!patch) return false;
+      patch();
+      currentProject = next;
+      const parts = engineProjects(next);
+      engines.forEach((engine, i) => engine.scene.update(parts[i].project));
+      if (plan.effects) { effects.dispose(); effects = createEffects(root, next, FORMATS, layerAlpha); }
+      else effects.updateLayers(next.layers);
+      return true;
     },
     seek: (time, playing) => { drawBackgrounds(time); return Promise.all([...engines.map(engine => engine.scene.seek(time, playing)), effects.seek(time)]); },
     hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,

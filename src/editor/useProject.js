@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
 import { request } from './request.js';
 import { historyShortcut } from './history-shortcut.js';
+import { applyDiff, diffProjects, pushHistory, restoreHistory, revertDiff, stashHistory } from './history.js';
 import { editorSession } from './project-session.js';
 
 /**
@@ -22,20 +23,32 @@ export function useProject({ userId } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState('Loading project');
   const [error, setError] = useState('');
+  // Undo/redo entries are reversible diffs; other documents' stacks wait in
+  // `stashes` (keyed by composition id or draft) until they are reopened.
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
   const historyRef = useRef([]);
   const futureRef = useRef([]);
+  const stashes = useRef(new Map());
+  const archived = useRef(null);
   const canvasEdit = useRef(null);
   const [canvasEditing, setCanvasEditing] = useState(false);
   const setCanvasEdit = useCallback(commit => {
     canvasEdit.current = commit;
     setCanvasEditing(Boolean(commit));
   }, []);
-  const clearHistory = useCallback(() => {
-    historyRef.current = []; futureRef.current = [];
-    setHistory([]); setFuture([]);
+  const setStacks = useCallback((past, next) => {
+    historyRef.current = past; futureRef.current = next;
+    setHistory(past); setFuture(next);
   }, []);
+  const clearHistory = useCallback(() => setStacks([], []), [setStacks]);
+  // A draft archived before switching reopens as that library composition.
+  const historyKey = useCallback(() => compositionRef.current?.id
+    ?? (archived.current?.draftId === session.draftId ? archived.current.id : `draft:${session.draftId}`), [session]);
+  const leaveDocument = useCallback(() => {
+    stashHistory(stashes.current, historyKey(), projectRef.current, historyRef.current, futureRef.current);
+    clearHistory();
+  }, [clearHistory, historyKey]);
 
   // Every edit keeps locked layers intact unless the caller names an explicit
   // composition-wide exception; `replace` is reserved for opening/importing.
@@ -44,10 +57,9 @@ export function useProject({ userId } = {}) {
       const valid = validateProject(next);
       const previous = projectRef.current;
       if (!replace) assertLocksRespected(previous, valid, { allow });
-      if (JSON.stringify(valid) === JSON.stringify(previous)) return previous;
-      historyRef.current = [...historyRef.current.slice(-19), previous];
-      setHistory(historyRef.current);
-      futureRef.current = []; setFuture([]);
+      const ops = diffProjects(previous, valid);
+      if (!ops.length) return previous;
+      setStacks(pushHistory(historyRef.current, ops), []);
       projectRef.current = valid;
       setProject(valid);
       dirty.current = true;
@@ -58,7 +70,7 @@ export function useProject({ userId } = {}) {
       setError(validationError.message);
       return null;
     }
-  }, []);
+  }, [setStacks]);
 
   const patch = useCallback((id, fields) => {
     try { return change(patchLayer(projectRef.current, id, fields)); }
@@ -100,31 +112,27 @@ export function useProject({ userId } = {}) {
 
   const undo = useCallback(() => {
     canvasEdit.current?.();
-    const previous = historyRef.current.at(-1);
-    if (!previous) return;
-    futureRef.current = [...futureRef.current, projectRef.current];
-    setFuture(futureRef.current);
-    historyRef.current = historyRef.current.slice(0, -1);
-    setHistory(historyRef.current);
+    const entry = historyRef.current.at(-1);
+    if (!entry) return;
+    const previous = revertDiff(projectRef.current, entry.ops);
+    setStacks(historyRef.current.slice(0, -1), [...futureRef.current, entry]);
     projectRef.current = previous;
     setProject(previous);
     dirty.current = true;
     setStatus('Unsaved changes');
-  }, []);
+  }, [setStacks]);
 
   const redo = useCallback(() => {
     canvasEdit.current?.();
-    const next = futureRef.current.at(-1);
-    if (!next) return;
-    historyRef.current = [...historyRef.current.slice(-19), projectRef.current];
-    setHistory(historyRef.current);
-    futureRef.current = futureRef.current.slice(0, -1);
-    setFuture(futureRef.current);
+    const entry = futureRef.current.at(-1);
+    if (!entry) return;
+    const next = applyDiff(projectRef.current, entry.ops);
+    setStacks([...historyRef.current, entry], futureRef.current.slice(0, -1));
     projectRef.current = next;
     setProject(next);
     dirty.current = true;
     setStatus('Unsaved changes');
-  }, []);
+  }, [setStacks]);
 
   useEffect(() => {
     const onKeyDown = event => {
@@ -170,15 +178,17 @@ export function useProject({ userId } = {}) {
 
   const openComposition = useCallback(entry => {
     const next = validateProject({ ...entry.project, name: entry.name });
+    leaveDocument();
     compositionRef.current = { id: entry.id, updatedAt: entry.updatedAt };
     setComposition(compositionRef.current);
     session.compositionId = entry.id;
     session.remember();
     const valid = change(next, { replace: true });
     if (valid) { dirty.current = false; setStatus('All changes saved'); setError(''); }
-    clearHistory();
+    const stash = restoreHistory(stashes.current, historyKey(), projectRef.current);
+    setStacks(stash?.past ?? [], stash?.future ?? []);
     return valid;
-  }, [change, clearHistory, session]);
+  }, [change, historyKey, leaveDocument, session, setStacks]);
 
   const updateCompositionMetadata = useCallback(entry => {
     if (compositionRef.current?.id !== entry.id) return;
@@ -195,33 +205,44 @@ export function useProject({ userId } = {}) {
     return entry;
   }, [openComposition]);
 
+  // Imports start a fresh history in a new draft.
   const importDraft = useCallback(next => {
     const valid = validateProject(next);
+    leaveDocument();
     compositionRef.current = null;
     setComposition(null);
     session.draftId = crypto.randomUUID();
     session.compositionId = null;
     session.remember();
     const changed = change(valid, { replace: true });
+    clearHistory();
     dirty.current = true;
     setStatus('Unsaved changes');
     return changed;
-  }, [change, session]);
+  }, [change, clearHistory, leaveDocument, session]);
 
+  // The same work continues as a draft, so its history comes along.
   const detachComposition = useCallback(id => {
-    if (compositionRef.current?.id === id) importDraft(projectRef.current);
-  }, [importDraft]);
+    if (compositionRef.current?.id !== id) return;
+    const past = historyRef.current, next = futureRef.current;
+    importDraft(projectRef.current);
+    stashes.current.delete(id);
+    setStacks(past, next);
+  }, [importDraft, setStacks]);
 
   const preserveCurrent = useCallback(async () => {
     canvasEdit.current?.();
     const current = projectRef.current;
+    const draftId = session.draftId;
     await save();
+    let archive = null;
     if (!compositionRef.current) {
       // Preserve this tab's working draft in the shared library before switching.
-      await request('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: current.name.trim() || 'Untitled', tags: [], project: current }) });
+      archive = await request('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: current.name.trim() || 'Untitled', tags: [], project: current }) });
     }
     if (projectRef.current !== current) throw new Error('The composition changed while it was being saved. Try again.');
-  }, [save]);
+    if (archive?.id) archived.current = { draftId, id: archive.id };
+  }, [save, session]);
 
   const newComposition = useCallback(async (name, { format = 'square', assets = [] } = {}) => {
     if (assets.length > 20) throw new Error('Use up to 20 layers.');
@@ -229,12 +250,11 @@ export function useProject({ userId } = {}) {
     const next = validateProject({ ...draft, format, layers: assets.map(asset => fileLayer(asset, draft.duration, crypto.randomUUID())) });
     await preserveCurrent();
     importDraft(next);
-    clearHistory();
     // The previous work is safe. Keep a new draft save failure in the normal
     // retry flow without archiving another copy on a repeated form submission.
     await save().catch(() => {});
     return next;
-  }, [save, importDraft, clearHistory, preserveCurrent]);
+  }, [save, importDraft, preserveCurrent]);
 
   const openSavedComposition = useCallback(async entry => {
     validateProject({ ...entry.project, name: entry.name });

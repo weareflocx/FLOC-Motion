@@ -7,6 +7,7 @@ import { transform } from 'esbuild';
 import { assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../src/project.js';
 import { captureState } from '../src/choreography.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
+import * as historyOps from '../src/editor/history.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useProject.js', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'))).code;
@@ -22,7 +23,7 @@ function editor({ linked = true } = {}) {
   const session = { draftId: 'original-draft', compositionId: identity?.id, remember() {} };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = {
-    assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject, historyShortcut, editorSession: () => session, crypto: webcrypto,
+    assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject, historyShortcut, ...historyOps, editorSession: () => session, crypto: webcrypto,
     request: async (url, options) => {
       const body = options?.body && JSON.parse(options.body);
       requests.push({ url, method: options?.method || 'GET', body });

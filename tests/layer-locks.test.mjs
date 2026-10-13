@@ -7,6 +7,7 @@ import { assertLocksRespected, carouselImages, demoProject, duplicateLayer, link
 import { getCatalogEntry, listCatalog } from '../src/catalog.js';
 import { createStyleAlternatives } from '../src/visual-alternatives.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
+import * as historyOps from '../src/editor/history.js';
 import { createTools } from '../src/webmcp.js';
 
 const layer = (project, id) => project.layers.find(item => item.id === id);
@@ -17,7 +18,7 @@ const check = (previous, next, options) => assertLocksRespected(previous, valida
 function editor() {
   const slots = []; let cursor = 0, selected = 'headline';
   const context = {
-    assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, duplicateLayer, reorderLayer, carouselImages, crypto: webcrypto,
+    assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, duplicateLayer, reorderLayer, carouselImages, crypto: webcrypto, ...historyOps,
     editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }),
     request: async () => { throw new Error('Offline'); },
     useCallback: fn => fn, useEffect() {},

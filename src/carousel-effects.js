@@ -32,19 +32,19 @@ void main(){v_imageUV=uv;gl_Position=vec4(position,1.);}`;
 export function createCarouselEffect(renderer, width, height, layer) {
   const effect = effectShaders[layer.layerEffect];
   if (!effect || !(layer.layerEffectIntensity > 0)) return null;
-  if (!renderer.extensions.has('EXT_color_buffer_float') && !renderer.extensions.has('EXT_color_buffer_half_float')) {
-    throw new Error('Carousel effects require floating-point color buffers. Choose None or use a browser with WebGL2 floating-point support.');
-  }
   const gl = renderer.getContext();
-  const colorSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA16F, gl.SAMPLES);
-  const depthSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, gl.SAMPLES);
+  // Linear 8-bit buffers discard dark premultiplied RGB at translucent edges.
+  // Half floats retain it. Without float color buffers, sRGB-encoded 8-bit
+  // storage keeps the most dark precision; blending and sampling stay linear.
+  const float = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
+  // MSAA must be supported by both attachments.
+  const colorSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, float ? gl.RGBA16F : gl.SRGB8_ALPHA8, gl.SAMPLES) ?? [];
+  const depthSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, gl.SAMPLES) ?? [];
   const samples = Math.max(0, ...colorSamples.filter(count => count <= 4 && depthSamples.includes(count)));
   const target = new THREE.WebGLRenderTarget(width, height, {
-    // Linear 8-bit buffers discard dark premultiplied RGB at translucent edges.
-    // Float precision retains it; MSAA must be supported by both attachments.
-    type: THREE.HalfFloatType,
+    type: float ? THREE.HalfFloatType : THREE.UnsignedByteType,
     samples,
-    colorSpace: THREE.LinearSRGBColorSpace,
+    colorSpace: float ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace,
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
   });
@@ -86,6 +86,13 @@ export function createCarouselEffect(renderer, width, height, layer) {
     setResolution(w, h) {
       target.setSize(w, h);
       material.uniforms.u_imageAspectRatio.value = w / h;
+    },
+    // Parameter edits reuse the target and program; false asks for a new effect.
+    update(next) {
+      if (next.layerEffect !== layer.layerEffect || !(next.layerEffectIntensity > 0)) return false;
+      material.uniforms.u_intensity.value = next.layerEffectIntensity;
+      for (const [key, uniform] of Object.entries(effect.uniforms(next))) material.uniforms[key].value = uniform.value;
+      return true;
     },
     dispose() { target.dispose(); geometry.dispose(); material.dispose(); },
   };

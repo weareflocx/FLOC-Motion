@@ -80,7 +80,7 @@ function effectFixture() {
     { id: 'warped', type: 'media', name: 'Warped poster', ...span, src: '/demo/poster-1.svg', x: 4, y: 6, size: 42, offset: 0, loop: false, fadeIn: 0, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS['optical-warp'], amount: 0.8 }] },
     { id: 'adjustment', type: 'effect', name: 'Monochrome adjustment', ...span, start: 1, effectScope: 'below', effects: [{ ...DEFAULT_FILTERS.monochrome, amount: 0.85 }], opacity: 1, fadeIn: 0.4, fadeOut: 0 },
     { ...carousel('stack', 1, 70), y: 36, size: 0.6, shader: 'none', layerEffect: 'none', effects: [{ ...DEFAULT_FILTERS.blur, mode: 'progressive', direction: 'bottom', amount: 18 }] },
-    { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 8, y: 62, size: 22, fadeIn: 1, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS.blur, amount: 6 }] },
+    { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 8, y: 62, size: 22, fadeIn: 1, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS.blur, amount: 6 }, { ...DEFAULT_NOISE, animated: true, color1: '#ff0040', opacity: 0.7, sizeX: 3, sizeY: 3, seed: 11 }] },
     text('grain-title', { text: 'NOISE\nTEXT', x: 44, y: 66, size: 96, font: 'druk-wide', weight: 900, width: 54, effects: [{ ...DEFAULT_NOISE, mode: 'duo', color1: '#ff0040', color2: '#00e0ff', opacity: 0.8, sizeX: 3, sizeY: 3 }] }),
     { id: 'grain', type: 'effect', name: 'Grain', ...span, effectScope: 'overlay', effects: [{ ...DEFAULT_NOISE, mode: 'multi', animated: true, opacity: 0.25, sizeX: 6, sizeY: 6, seed: 7 }], opacity: 0.8, fadeIn: 0, fadeOut: 0 }
   ];
