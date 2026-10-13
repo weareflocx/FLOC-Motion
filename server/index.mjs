@@ -5,6 +5,7 @@ import path from 'node:path';
 import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
 import { TEMPLATES } from '../src/project.js';
 import { EFFECTS } from '../src/effects.js';
+import { CURRENT_PROJECT_VERSION } from '../src/project-migrations.js';
 import { catalogSummary } from '../src/catalog.js';
 import { startExport, cancelExport, recoverInterruptedJobs, listJobs, jobs, run, onExportEnded } from './export.mjs';
 import { isTerminalJobState } from '../src/export-jobs.js';
@@ -46,6 +47,7 @@ const json = (res, value, code = 200) => { res.writeHead(code, { 'Content-Type':
 async function file(req, res, filename, type) {
   const info = await stat(filename); const mime = type || types[path.extname(filename).slice(1)] || 'application/octet-stream';
   const headers = { ...(mime === 'image/svg+xml' ? { 'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" } : {}), 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'X-Content-Type-Options': 'nosniff' };
+  if (mime === 'text/html') headers['Cache-Control'] = 'no-store';
   if (filename.startsWith(data + path.sep)) Object.assign(headers, { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' });
   const range = req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
   if (range) { const start = Number(range[1]); const end = Math.min(range[2] ? Number(range[2]) : info.size - 1, info.size - 1); if (start >= info.size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }); return res.end(); } res.writeHead(206, { ...headers, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${info.size}` }); createReadStream(filename, { start, end }).pipe(res); }
@@ -57,8 +59,8 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     if (!origin) return json(res, { error: config.publicOrigin ? 'Host not allowed.' : 'Local access only.' }, 403);
     if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== origin) return json(res, { error: 'Cross-origin mutations are not allowed.' }, 403);
     const url = new URL(req.url, origin); const route = url.pathname;
-    if (route === '/api/health') return json(res, { ok: true, localOnly: !config.publicOrigin, version: '0.1.0' });
-    if (route === '/api/auth/session' && req.method === 'GET') return json(res, { user: await auth.user(req.headers.cookie) });
+    if (route === '/api/health') return json(res, { ok: true, localOnly: !config.publicOrigin, version: '0.1.0', projectVersion: CURRENT_PROJECT_VERSION });
+    if (route === '/api/auth/session' && req.method === 'GET') return json(res, { user: await auth.user(req.headers.cookie), projectVersion: CURRENT_PROJECT_VERSION });
     if (['/api/auth/login', '/api/auth/accept', '/api/auth/logout'].includes(route) && req.method === 'POST') {
       if (req.headers.origin !== origin) return json(res, { error: 'A same-origin request is required.' }, 403);
       if (route === '/api/auth/logout') {
@@ -69,7 +71,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       const input = JSON.parse(await body(req, 4096));
       const result = await auth[route.endsWith('login') ? 'login' : 'accept'](input, clientAddress(req, config));
       res.setHeader('Set-Cookie', sessionCookie(result.token, origin.startsWith('https:')));
-      return json(res, { user: result.user });
+      return json(res, { user: result.user, projectVersion: CURRENT_PROJECT_VERSION });
     }
     if (route === '/api/renderers/connect' && req.method === 'POST') return json(res, await personalRenderers.finishPairing(JSON.parse(await body(req))));
     if (route.startsWith('/api/render-worker/')) {
