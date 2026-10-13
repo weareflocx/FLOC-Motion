@@ -43,8 +43,8 @@
   .project-name {
     max-width: 210px;
   }
-  .brand em {
-    margin-left: 10px;
+  .brand .brand-lockup {
+    width: 200px;
   }
   .stage-holder {
     min-height: 320px;
@@ -59,12 +59,8 @@
     height: 50px;
     padding: 0 4px;
   }
-  .brand {
-    font-size: 23px;
-  }
-  .brand em {
-    font-size: 9px;
-    letter-spacing: 1.4px;
+  .brand .brand-lockup {
+    width: 180px;
   }
   .agent-button {
     font-size: 0;
@@ -148,10 +144,8 @@
   .header-actions {
     gap: 6px;
   }
-  .brand em {
-    margin-left: 6px;
-    font-size: 8px;
-    letter-spacing: 1px;
+  .brand .brand-lockup {
+    width: 150px;
   }
   .topbar {
     gap: 8px;

@@ -1,8 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import linescape from '../shaders/linescape.frag?raw';
-
-export const LOGIN_CHROMATIC_SPLIT = Object.freeze({ x: 3, y: 0.6 });
+import { BRAND_CHROMATIC_SPLIT } from './BrandLockup.jsx';
 
 export function LoginBackground() {
   const canvasRef = useRef(null);
@@ -65,7 +64,7 @@ export function LoginBackground() {
       const w = Math.max(1, Math.round(width * scale)), h = Math.max(1, Math.round(height * scale));
       renderer.setSize(w, h, false);
       target.setSize(w, h);
-      split.set(LOGIN_CHROMATIC_SPLIT.x / Math.max(1, width), LOGIN_CHROMATIC_SPLIT.y / Math.max(1, height));
+      split.set(BRAND_CHROMATIC_SPLIT.x / Math.max(1, width), BRAND_CHROMATIC_SPLIT.y / Math.max(1, height));
       uniforms.RENDERSIZE.value.set(w, h);
       draw(performance.now());
       if (!reducedMotion.matches) frame = requestAnimationFrame(tick);
