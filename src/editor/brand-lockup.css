@@ -1,0 +1,83 @@
+/* FLOC* MOTION lockup; consumers set the width. */
+.brand-lockup {
+  position: relative;
+  display: block;
+  aspect-ratio: 2684.199/254.428;
+}
+
+.brand-lockup img {
+  position: absolute;
+  display: block;
+  height: auto;
+  filter: invert(1);
+}
+
+.brand-lockup-lettering {
+  left: 0;
+  top: 2.2475%;
+  width: 35.54799%;
+}
+
+.brand-lockup-asterisk {
+  left: 37.18077%;
+  top: 0;
+  width: 5.37941%;
+}
+
+.brand-lockup-motion {
+  position: absolute;
+  isolation: isolate;
+  left: 44.19192%;
+  top: 2.52654%;
+  width: 55.80808%;
+  aspect-ratio: 1498/248;
+}
+
+.brand-lockup-motion>span,
+.brand-lockup-motion::before,
+.brand-lockup-motion::after {
+  position: absolute;
+  inset: 0;
+  -webkit-mask: var(--motion-mask) center/contain no-repeat;
+  mask: var(--motion-mask) center/contain no-repeat;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.brand-lockup-motion>span {
+  background: #00ff00;
+}
+
+.brand-lockup-motion::before,
+.brand-lockup-motion::after {
+  content: "";
+  animation: brand-motion-split 4.5s ease-in-out infinite;
+}
+
+.brand-lockup-motion::before {
+  --split-side:-1;
+  background: #ff0000;
+}
+
+.brand-lockup-motion::after {
+  --split-side:1;
+  background: #0000ff;
+}
+
+@keyframes brand-motion-split {
+  0%,
+  100% {
+    transform: translate(calc(var(--split-side)*var(--split-x)/3),calc(var(--split-side)*var(--split-y)/3));
+  }
+  50% {
+    transform: translate(calc(var(--split-side)*var(--split-x)),calc(var(--split-side)*var(--split-y)));
+  }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .brand-lockup-motion::before,
+  .brand-lockup-motion::after {
+    animation: none;
+    transform: translate(calc(var(--split-side)*var(--split-x)),calc(var(--split-side)*var(--split-y)));
+  }
+}

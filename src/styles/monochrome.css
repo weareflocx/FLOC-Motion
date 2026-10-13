@@ -1,9 +1,4 @@
 /* Monochrome workspace. Pure brand RGB is reserved for semantic indicators. */
-.brand img {
-  display: block;
-  object-fit: contain;
-  flex-shrink: 0;
-}
 
 .status-dot.saved,
 .small-dot.active {
