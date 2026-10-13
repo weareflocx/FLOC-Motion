@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
-import { FORMATS, assertLocksRespected, demoProject, duplicateLayer, linkFormats, patchLayer, reorderLayer, resetFormat, resizeDuration, switchFormat, unlinkFormats, validateProject } from '../src/project.js';
+import { FORMATS, PROJECT_LIMITS, assertLocksRespected, demoProject, duplicateLayer, linkFormats, patchLayer, reorderLayer, resetFormat, resizeDuration, switchFormat, unlinkFormats, validateProject } from '../src/project.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
 import * as historyOps from '../src/editor/history.js';
 
@@ -12,7 +12,7 @@ const offline = async () => ({ id: 'saved', name: 'Saved', updatedAt: 'date', pr
 
 function editor(request = offline) {
   const slots = []; let cursor = 0;
-  const context = { editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }), assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, ...historyOps, request, crypto: webcrypto,
+  const context = { editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }), PROJECT_LIMITS, assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, ...historyOps, request, crypto: webcrypto,
     useCallback: fn => fn, useEffect: () => {},
     useRef: value => { const i = cursor++; return slots[i] ??= { current: value }; },
     useState: value => { const i = cursor++; if (!(i in slots)) slots[i] = typeof value === 'function' ? value() : value; return [slots[i], next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; }]; }

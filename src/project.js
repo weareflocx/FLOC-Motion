@@ -1,15 +1,18 @@
 import { MOTION_VARIANTS } from './carousel-motion.js';
 import { BRAND } from './brand.js';
-import { fontDefinition } from './fonts.js';
+import { textFontValid } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
 import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline } from './motion-timing.js';
-import { CHOREOGRAPHY_EASINGS, choreographyFields, evaluateChoreography } from './choreography.js';
-import { CONTENT_PROPERTIES } from './template-content.js';
+import { choreographyFields, optionalChoreographyFields, evaluateChoreography } from './choreography.js';
+import { isEasing } from './easing.js';
+import { CONTENT_PROPERTIES, normalizeContentField } from './template-content.js';
 import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from './backgrounds.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from './text-style.js';
 import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
 import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
+import { PROJECT_LIMITS } from './project-limits.js';
+export { PROJECT_LIMITS } from './project-limits.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
 export const TEMPLATES = [
@@ -61,7 +64,7 @@ function validateMotion(motion) {
 }
 const FADE_LAYERS = ['text', 'logo', 'carousel', 'media', 'model', 'effect'];
 function validateChoreography(layer) {
-  const fields = choreographyFields(layer);
+  const fields = choreographyFields(layer), optional = optionalChoreographyFields(layer);
   if (!Array.isArray(layer.choreography) || layer.choreography.length > 32) fail('Use up to 32 choreography states.');
   const ids = new Set();
   let previousTime = -1;
@@ -70,14 +73,20 @@ function validateChoreography(layer) {
     str(state.id, 80, 'state ID');
     if (!state.id.trim() || ids.has(state.id)) fail('State IDs must be nonempty and unique.');
     ids.add(state.id);
-    finite(state.time, 0, 30, 'State time');
+    finite(state.time, 0, PROJECT_LIMITS.maxDuration, 'State time');
     if (state.time <= previousTime) fail('State times must be unique and increasing.');
     previousTime = state.time;
-    if (!CHOREOGRAPHY_EASINGS.some(([id]) => id === state.easing)) fail('Unknown choreography easing.');
-    if (!state.values || typeof state.values !== 'object' || Array.isArray(state.values) || Object.keys(state.values).some(key => !Object.hasOwn(fields, key))) fail('Invalid choreography values.');
+    if (!isEasing(state.easing)) fail('Unknown choreography easing.');
+    if (!state.values || typeof state.values !== 'object' || Array.isArray(state.values) || Object.keys(state.values).some(key => !Object.hasOwn(fields, key) && !Object.hasOwn(optional, key))) fail('Invalid choreography values.');
     for (const [field, [min, max]] of Object.entries(fields)) {
       if (field === 'roll' && ['text', 'logo', 'media'].includes(layer.type) && state.values.roll === undefined) state.values.roll = layer.roll ?? 0;
       finite(state.values[field], min, max, `State ${field}`);
+    }
+    // Optional values may outlive their effect; they apply again when it returns.
+    for (const [field, kind] of Object.entries(optional)) {
+      if (!Object.hasOwn(state.values, field)) continue;
+      if (kind === 'color') { if (typeof state.values[field] !== 'string' || !/^#[0-9a-f]{6}$/i.test(state.values[field])) fail(`State ${field} must be a six-digit hex color.`); }
+      else finite(state.values[field], kind[0], kind[1], `State ${field}`);
     }
   }
 }
@@ -120,17 +129,17 @@ export function validateProject(input) {
   if (Object.hasOwn(input, 'linkedFormats')) assertLinkedFormatInput(input.linkedFormats);
   str(p.name, 100, 'project name');
   if (!Object.hasOwn(FORMATS, p.format)) fail('Unknown output format.');
-  finite(p.duration, 1, 30, 'Duration');
+  finite(p.duration, PROJECT_LIMITS.minDuration, PROJECT_LIMITS.maxDuration, 'Duration');
   if (![24, 30, 60].includes(p.fps)) fail('Frame rate must be 24, 30 or 60.');
   if (!record(p.layout) || Object.keys(p.layout).some(key => !Object.hasOwn(DEFAULT_LAYOUT, key))) fail('Invalid layout settings.');
   if (typeof p.layout.enabled !== 'boolean' || typeof p.layout.guides !== 'boolean') fail('Layout switches must be booleans.');
   finite(p.layout.marginX, 0, 25, 'Horizontal margin'); finite(p.layout.marginY, 0, 25, 'Vertical margin');
-  if (!Array.isArray(p.images) || p.images.length > 24) fail('Use up to 24 images.');
+  if (!Array.isArray(p.images) || p.images.length > PROJECT_LIMITS.maxImages) fail(`Use up to ${PROJECT_LIMITS.maxImages} images.`);
   const asset = src => validAsset(src) || fail('Only local studio assets are accepted.');
   const color = c => /^#[0-9a-f]{6}$/i.test(c) || fail('Use a six-digit hex color.');
-  const ids = new Set();
+  const ids = new Set(), contentIds = new Set();
   const validateImages = images => {
-    if (!Array.isArray(images) || images.length > 24) fail('Use up to 24 carousel cards.');
+    if (!Array.isArray(images) || images.length > PROJECT_LIMITS.maxImages) fail(`Use up to ${PROJECT_LIMITS.maxImages} carousel cards.`);
     const imageIds = new Set();
     images.forEach(img => {
       str(img.id, 80, 'image ID'); if (!img.id.trim() || imageIds.has(img.id)) fail('Image IDs must be nonempty and unique.'); imageIds.add(img.id);
@@ -138,7 +147,7 @@ export function validateProject(input) {
     });
   };
   validateImages(p.images);
-  if (!Array.isArray(p.layers) || p.layers.length > 20) fail('Use up to 20 layers.');
+  if (!Array.isArray(p.layers) || p.layers.length > PROJECT_LIMITS.maxLayers) fail(`Use up to ${PROJECT_LIMITS.maxLayers} layers.`);
   for (const l of p.layers) {
     str(l.id, 80, 'layer ID'); if (!l.id || ids.has(l.id)) fail('Layer IDs must be unique.'); ids.add(l.id);
     str(l.name, 100, 'layer name');
@@ -166,7 +175,7 @@ export function validateProject(input) {
       finite(l.lineHeight, 0.5, 3, 'Line height'); finite(l.letterSpacing, -0.15, 0.5, 'Letter spacing');
       if (!['left', 'center', 'right'].includes(l.textAlign) || !TEXT_REVEALS.some(({ id }) => id === l.reveal)) fail('Unknown text alignment or reveal.');
       finite(l.revealDuration, 0, 5, 'Reveal duration'); l.revealDuration = Math.min(l.revealDuration, l.end - l.start);
-      if (!fontDefinition(l.font)?.weights.includes(l.weight)) fail('Unknown text style.');
+      if (!textFontValid(l.font, l.weight)) fail('Unknown text style.');
       l.rise ??= false; if (typeof l.rise !== 'boolean') fail('Text rise must be true or false.');
     } else if (l.type === 'carousel') {
       if (l.images !== undefined) validateImages(l.images);
@@ -197,7 +206,7 @@ export function validateProject(input) {
       if (![l.frontface, l.backface].every(face => ['show', 'hide'].includes(face))) fail('Unknown face visibility.');
       l.cardCount ??= 0; l.cardAspect ??= 1 / 1.14; l.radius ??= 0; l.loopDuration ??= 0; l.motionVariant ??= 'default'; l.fade ??= 0;
       if (!Number.isInteger(l.cardCount)) fail('Card count must be an integer.');
-      finite(l.cardCount, 0, 48, 'Card count'); finite(l.cardAspect, 0.25, 4, 'Card aspect'); finite(l.radius, 0, 6, 'Radius'); finite(l.loopDuration, 0, 60, 'Loop duration'); finite(l.fade, 0, 1, 'Rear fade');
+      finite(l.cardCount, 0, PROJECT_LIMITS.maxCardCount, 'Card count'); finite(l.cardAspect, 0.25, 4, 'Card aspect'); finite(l.radius, 0, 6, 'Radius'); finite(l.loopDuration, 0, 60, 'Loop duration'); finite(l.fade, 0, 1, 'Rear fade');
       if (l.motionVariant !== 'default' && !MOTION_VARIANTS[l.template].some(v => v[0] === l.motionVariant)) fail('Unknown motion variant for this family.');
       finite(l.yaw, -180, 180, 'Orientation Y'); finite(l.speed, -90, 90, 'Speed'); finite(l.tilt, -65, 65, 'Tilt'); finite(l.roll, -180, 180, 'Rotation'); finite(l.size, 0.5, 2.5, 'Card size'); finite(l.gap, 0, 1, 'Gap'); finite(l.curve, 0, 1, 'Curve'); finite(l.x, 10, 90, 'X'); finite(l.y, 10, 90, 'Y'); finite(l.intensity, 0, 1, 'Shader intensity'); color(l.tint);
       if (l.motion === undefined) l.motion = { ...DEFAULT_MOTION };
@@ -230,10 +239,13 @@ export function validateProject(input) {
     } else fail('Unknown layer type.');
     if (Object.hasOwn(l, 'contentField')) {
       if (!Object.hasOwn(CONTENT_PROPERTIES, l.type)) fail('This layer cannot declare a content field.');
-      if (typeof l.contentField !== 'string' || /[\u0000-\u001f\u007f-\u009f]/.test(l.contentField)) fail('Invalid content field name.');
-      l.contentField = l.contentField.trim();
-      str(l.contentField, 60, 'content field name');
-      if (!l.contentField) delete l.contentField;
+      // `null` is how an edit removes a declaration.
+      if (l.contentField === null) delete l.contentField;
+      else {
+        l.contentField = normalizeContentField(l.contentField, l.type);
+        if (contentIds.has(l.contentField.id)) fail('Content field IDs must be unique.');
+        contentIds.add(l.contentField.id);
+      }
     }
     if (EFFECT_LAYER_TYPES.includes(l.type)) {
       if (l.opacity === undefined) l.opacity = 1;
@@ -298,7 +310,9 @@ function lockedView(project, layer, allow) {
   if (allow.includes('content') && layer.contentField && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) delete view[CONTENT_PROPERTIES[layer.type]];
   if (allow.includes('format')) {
     for (const field of FORMAT_LOCAL_FIELDS[layer.type] ?? []) if (field !== 'choreography') delete view[field];
-    if (view.choreography) view.choreography = view.choreography.map(({ values, ...state }) => ({ ...state, values: Object.hasOwn(values, 'opacity') ? { opacity: values.opacity } : {} }));
+    // Only the pose varies by format; opacity and optional values are shared.
+    const pose = Object.keys(choreographyFields(layer)).filter(field => field !== 'opacity');
+    if (view.choreography) view.choreography = view.choreography.map(({ values, ...state }) => ({ ...state, values: Object.fromEntries(Object.entries(values).filter(([field]) => !pose.includes(field))) }));
   }
   return canonicalJson(view);
 }
@@ -337,7 +351,7 @@ export function patchTemplateContent(project, id, value) {
   if (!layer) fail('Layer not found.');
   if (!Object.hasOwn(CONTENT_PROPERTIES, layer.type) || !layer.contentField) fail('Layer has no declared content field.');
   const property = CONTENT_PROPERTIES[layer.type];
-  if (property === 'images' && !Array.isArray(value)) fail('Use up to 24 carousel cards.');
+  if (property === 'images' && !Array.isArray(value)) fail(`Use up to ${PROJECT_LIMITS.maxImages} carousel cards.`);
   return validateProject({ ...p, layers: p.layers.map(l => l.id === id ? { ...l, [property]: value } : l) });
 }
 export function reorderLayer(project, id, targetId, side = 'above') {

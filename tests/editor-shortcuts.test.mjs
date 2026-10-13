@@ -2,18 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { assertLocksRespected, demoProject, patchLayer, validateProject } from '../src/project.js';
+import { PROJECT_LIMITS, assertLocksRespected, demoProject, patchLayer, validateProject } from '../src/project.js';
 import * as historyOps from '../src/editor/history.js';
+import * as selectionOps from '../src/editor/selection.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useEditorShortcuts.js', import.meta.url), 'utf8');
 const actions = fs.readFileSync(new URL('../src/editor/useCompositionActions.js', import.meta.url), 'utf8');
 const projectHook = fs.readFileSync(new URL('../src/editor/useProject.js', import.meta.url), 'utf8');
 
-function editor({ blocked = false, selected = 'headline', locked = false, modal = false } = {}) {
+function editor({ blocked = false, selected = 'headline', selection, locked = false, modal = false } = {}) {
   const slots = []; let cursor = 0, listen = false;
-  let playing = false, listener, cleanup, prevented = 0, api;
+  let playing = false, listener, cleanup, prevented = 0, api, palette = 0, selectAll = 0, notices = [];
   const context = {
-    assertLocksRespected, demoProject, patchLayer, validateProject, ...historyOps,
+    PROJECT_LIMITS, assertLocksRespected, demoProject, patchLayer, validateProject, ...historyOps, ...selectionOps,
     editorSession: () => ({ draftId: 'draft' }),
     useCallback: fn => fn,
     useEffect(fn) { if (listen) cleanup = fn(); },
@@ -29,12 +30,14 @@ function editor({ blocked = false, selected = 'headline', locked = false, modal 
   for (const code of [source, actions, projectHook]) vm.runInContext(code.replace(/^import .*;\n/gm, '').replace(/export function /g, 'function '), context);
   function render() {
     cursor = 0; listen = false; api = context.useProject();
-    const { removeText } = context.useCompositionActions({ project: api.projectRef.current, projectRef: api.projectRef, selected,
-      change: api.change,
-      setSelected(id) { selected = id; }
+    const { removeText, removeLayers } = context.useCompositionActions({ project: api.projectRef.current, projectRef: api.projectRef, selected,
+      change: api.change, report: message => notices.push(message),
+      setSelected(id) { selected = id; selection = undefined; },
+      setSelection(ids) { selection = ids; selected = ids.at(-1) ?? null; }
     });
     listen = true;
-    context.useEditorShortcuts({ blocked, projectRef: api.projectRef, selected, removeLayer: removeText,
+    context.useEditorShortcuts({ blocked, projectRef: api.projectRef, selected, selection, removeLayer: removeText, removeLayers,
+      onSelectAll() { selectAll++; }, onOpenPalette() { palette++; }, onCollapseSelection() { selection = undefined; },
       setPlaying(next) { playing = typeof next === 'function' ? next(playing) : next; }
     });
   }
@@ -44,7 +47,8 @@ function editor({ blocked = false, selected = 'headline', locked = false, modal 
     press(key, extra = {}) { listener({ key, preventDefault() { prevented++; }, ...extra }); render(); },
     undo() { api.undo(); render(); },
     get playing() { return playing; }, get prevented() { return prevented; },
-    get project() { return api.projectRef.current; }, get selected() { return selected; },
+    get project() { return api.projectRef.current; }, get selected() { return selected; }, get selection() { return selection; },
+    get palette() { return palette; }, get selectAll() { return selectAll; }, get notices() { return notices; }, get history() { return api.history; },
     close() { cleanup(); assert.equal(listener, null); }
   };
 }
@@ -109,4 +113,52 @@ test('Space works with canvas, layer selection or playback focus without repeat 
     h.press(' ', { target }); assert.equal(h.playing, false);
     assert.equal(h.prevented, 3);
   }
+});
+
+test('⌘K / Ctrl+K opens the command palette even from fields, but not over another dialog', () => {
+  for (const modifier of ['metaKey', 'ctrlKey']) {
+    const h = editor(), field = { closest: query => query.includes('input') ? {} : null };
+    h.press('k', { [modifier]: true }); h.press('K', { [modifier]: true, target: field }); h.press('k', { [modifier]: true, repeat: true });
+    assert.equal(h.palette, 2); assert.equal(h.prevented, 3);
+  }
+  for (const options of [{ modal: true }, {}]) {
+    const h = editor(options);
+    h.press('k', { metaKey: true, ...(options.modal ? {} : { target: { closest: query => query.includes('[role="dialog"]') ? {} : null } }) });
+    assert.equal(h.palette, 0); assert.equal(h.prevented, 0);
+  }
+  const h = editor({ blocked: true }); h.press('k', { metaKey: true }); assert.equal(h.palette, 0);
+});
+
+test('⌘A / Ctrl+A selects all layers outside text fields and keeps native select-all inside them', () => {
+  const h = editor();
+  h.press('a', { metaKey: true }); h.press('a', { ctrlKey: true });
+  assert.equal(h.selectAll, 2);
+  h.press('a', { metaKey: true, target: { closest: query => query.includes('textarea') ? {} : null } });
+  h.press('a', { metaKey: true, altKey: true });
+  assert.equal(h.selectAll, 2); assert.equal(h.prevented, 2);
+});
+
+test('Escape clears a multi-selection to its primary layer and leaves single selections alone', () => {
+  const h = editor({ selection: ['logo', 'headline'], selected: 'headline' });
+  h.press('Escape'); assert.equal(h.selection, undefined); assert.equal(h.selected, 'headline'); assert.equal(h.prevented, 1);
+  h.press('Escape'); assert.equal(h.prevented, 1);
+});
+
+test('Delete removes every unlocked selected layer as one undoable change and reports locked ones', () => {
+  const h = editor({ selection: ['logo', 'signature', 'headline'], selected: 'headline' });
+  const before = h.project;
+  h.press('Delete');
+  assert.deepEqual(h.project.layers.map(layer => layer.id), before.layers.filter(layer => !['logo', 'signature', 'headline'].includes(layer.id)).map(layer => layer.id));
+  assert.equal(h.history.length, 1);
+  assert.deepEqual(h.selection, [before.layers[0].id]);
+  h.undo(); assert.deepEqual(h.project, before);
+
+  const locked = editor({ selection: ['logo', 'headline'], selected: 'headline', locked: true });
+  const original = locked.project;
+  locked.press('Backspace');
+  assert.equal(locked.project.layers.some(layer => layer.id === 'logo'), false);
+  assert.equal(locked.project.layers.find(layer => layer.id === 'headline').locked, true);
+  assert.deepEqual(locked.selection, ['headline']);
+  assert.match(locked.notices.at(-1), /skipped the locked layer “.+”/);
+  locked.undo(); assert.deepEqual(locked.project, original);
 });

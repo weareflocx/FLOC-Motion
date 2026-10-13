@@ -1,5 +1,5 @@
 import { BRAND } from './brand.js';
-import { patchLayer, validateProject } from './project.js';
+import { PROJECT_LIMITS, patchLayer, validateProject } from './project.js';
 
 const fail = message => { throw new Error(message); };
 const record = value => value && typeof value === 'object' && !Array.isArray(value)
@@ -33,7 +33,7 @@ function validateAlternativeInput(alternative, names) {
   const name = alternative.name.trim();
   if (names.has(name.toLowerCase())) fail('Alternative names must be unique.');
   names.add(name.toLowerCase());
-  if (!Array.isArray(alternative.patches) || !alternative.patches.length || alternative.patches.length > 20) fail('Use between 1 and 20 visual layer patches.');
+  if (!Array.isArray(alternative.patches) || !alternative.patches.length || alternative.patches.length > PROJECT_LIMITS.maxLayers) fail(`Use between 1 and ${PROJECT_LIMITS.maxLayers} visual layer patches.`);
   return name;
 }
 

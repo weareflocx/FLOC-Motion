@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { crc32 } from 'node:zlib';
-import { FONT_FILES, fontFaceCss } from '../src/fonts.js';
+import { FONT_FILES, facesForProject, fontFaceCss, validateFontFaces, workspaceFontFaceCss, workspaceFontFile } from '../src/fonts.js';
 import { runtimeConfig } from './runtime-config.mjs';
 import { root, buildScene } from './build-scene.mjs';
 import { FORMATS, validateProject, escapeHtml } from '../src/project.js';
@@ -17,7 +17,17 @@ import { readJson, writeJsonAtomic } from './json-store.mjs';
 import { isTerminalJobState, RESTART_MESSAGE, CANCELLED_MESSAGE } from '../src/export-jobs.js';
 export const jobs = new Map();
 const controllers = new Map();
+// Local exports run one at a time; later ones wait in a FIFO queue of up to EXPORT_QUEUE_LIMIT.
+export const EXPORT_QUEUE_LIMIT = 50;
+const QUEUED_MESSAGE = 'Waiting for the current export to finish';
+const pending = [];
 let running = null;
+// Server-side observers (the audit log) learn each export's outcome; listeners ignore non-terminal states.
+const endedListeners = new Set();
+export function onExportEnded(listener) { endedListeners.add(listener); return () => endedListeners.delete(listener); }
+export function reportExportEnded(job) {
+  for (const listener of endedListeners) { try { listener(job); } catch (error) { console.error(`Export outcome not recorded: ${error.message}`); } }
+}
 export { run } from './process.mjs';
 import { run } from './process.mjs';
 const browserPath = process.env.HYPERFRAMES_BROWSER_PATH;
@@ -31,8 +41,19 @@ export function renderWorkers({ env = process.env, cpus = os.availableParallelis
   }
   return memory <= 8 * 1024 ** 3 ? 1 : Math.min(4, Math.max(1, cpus - 1));
 }
-export async function prepareComposition(input, folder, settings = {}, signal) {
+// Capture time grows with frames × output pixels. On a busy M2 Pro the heaviest limit composition
+// took up to ~2.5 s per 1080p-equivalent frame per worker (2160p included); allow 6 s as if on one
+// worker, never under 20 minutes (2160p60 at the longest duration: 120 hours, below the timer cap).
+const RENDER_SECONDS_PER_HD_FRAME = 6;
+export function renderTimeoutMs(project, settings) {
+  const [width, height] = exportDimensions(project.format, settings.resolution);
+  const frames = Math.ceil(project.duration * project.fps - 1e-3);
+  return Math.max(20 * 60 * 1000, Math.ceil(frames * width * height / (1920 * 1080) * RENDER_SECONDS_PER_HD_FRAME * 1000));
+}
+// `fonts` lists workspace font faces (see src/fonts.js); their files are read from <data>/fonts.
+export async function prepareComposition(input, folder, settings = {}, signal, fonts = []) {
   const original = validateProject(input);
+  const faces = facesForProject(original, validateFontFaces(fonts));
   const { resolution, format, transparent } = validateExportSettings(settings);
   const [outputWidth, outputHeight] = exportDimensions(original.format, resolution);
   const p = structuredClone(original);
@@ -61,6 +82,9 @@ export async function prepareComposition(input, folder, settings = {}, signal) {
   for (const name of ['LICENSE', 'NOTICE']) await copyFile(path.join(root, 'public/licenses/paper-shaders', name), path.join(notices, name));
   await copyFile(path.join(root, 'node_modules/gsap/dist/gsap.min.js'), path.join(folder, 'gsap.min.js'));
   for (const font of FONT_FILES) await copyFile(path.join(root, '.data/engine', font.file), path.join(folder, font.file));
+  if (faces.length) await mkdir(path.join(folder, 'fonts'), { recursive: true });
+  for (const face of faces) await copyFile(path.join(runtimeConfig().data, 'fonts', workspaceFontFile(face)), path.join(folder, 'fonts', workspaceFontFile(face)));
+  const fontCss = fontFaceCss('./') + workspaceFontFaceCss(faces, face => `./fonts/${workspaceFontFile(face)}`);
   signal?.throwIfAborted();
   const cardFrames = await extractCardFrames(p, folder, (command, args, options = {}, onData) => run(command, args, { ...options, signal }, onData));
   const [w, h] = FORMATS[p.format];
@@ -68,11 +92,11 @@ export async function prepareComposition(input, folder, settings = {}, signal) {
   const markup = stageMarkup({ ...p, layers: p.layers.filter(l => l.type !== 'music') });
   const serialized = JSON.stringify(p).replace(/</g, '\\u003c');
   const scale = outputWidth / w;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(p.name)}</title><style>${fontFaceCss('./')}*{box-sizing:border-box}${backdrop}body{margin:0;font-family:Geist,Arial,sans-serif}.composition{position:relative;width:${outputWidth}px;height:${outputHeight}px;overflow:hidden}.export-scene{position:relative;width:${w}px;height:${h}px;transform:scale(${scale});transform-origin:top left}</style></head><body><div class="composition" data-composition-id="main" data-floc-project="${escapeHtml(serialized)}" data-render-scale="${scale}" data-start="0" data-duration="${p.duration}" data-width="${outputWidth}" data-height="${outputHeight}"><div class="export-scene">${markup}</div></div><script src="gsap.min.js"></script><script>window.__timelines=window.__timelines||{};const clock={time:0};const tl=gsap.timeline({paused:true});tl.to(clock,{time:${p.duration},duration:${p.duration},ease:"none",onUpdate:()=>window.dispatchEvent(new CustomEvent("hf-seek",{detail:{time:clock.time}}))},0);window.__timelines["main"]=tl;</script><script src="scene.js"></script></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(p.name)}</title><style>${fontCss}*{box-sizing:border-box}${backdrop}body{margin:0;font-family:Geist,Arial,sans-serif}.composition{position:relative;width:${outputWidth}px;height:${outputHeight}px;overflow:hidden}.export-scene{position:relative;width:${w}px;height:${h}px;transform:scale(${scale});transform-origin:top left}</style></head><body><div class="composition" data-composition-id="main" data-floc-project="${escapeHtml(serialized)}" data-render-scale="${scale}" data-start="0" data-duration="${p.duration}" data-width="${outputWidth}" data-height="${outputHeight}"><div class="export-scene">${markup}</div></div><script src="gsap.min.js"></script><script>window.__timelines=window.__timelines||{};const clock={time:0};const tl=gsap.timeline({paused:true});tl.to(clock,{time:${p.duration},duration:${p.duration},ease:"none",onUpdate:()=>window.dispatchEvent(new CustomEvent("hf-seek",{detail:{time:clock.time}}))},0);window.__timelines["main"]=tl;</script><script src="scene.js"></script></body></html>`;
   const frameData = JSON.stringify(cardFrames).replace(/</g, '\\u003c');
   await writeFile(path.join(folder, 'index.html'), html.replace('<script src="scene.js">', `<script id="floc-card-frames" type="application/json">${frameData}</script><script src="scene.js">`));
   await writeJsonAtomic(path.join(folder, 'hyperframes.json'), { name: 'motion-export', entry: 'index.html', fps: p.fps, width: outputWidth, height: outputHeight });
-  await writeJsonAtomic(path.join(folder, 'render-input.json'), { project: original, settings: validateExportSettings(settings) });
+  await writeJsonAtomic(path.join(folder, 'render-input.json'), { project: original, settings: validateExportSettings(settings), ...(faces.length && { fonts: faces }) });
   return original;
 }
 export async function renderPreparedComposition(input, folder, options = {}, onProgress = () => {}, signal) {
@@ -84,7 +108,7 @@ export async function renderPreparedComposition(input, folder, options = {}, onP
   onProgress({ message: 'Rendering frames', progress: 0 });
   let logError;
   // Auto keeps PNG for alpha and avoids costly PNG extraction for opaque video.
-  await run(process.execPath, [bin, 'render', folder, '--output', captured, '--format', png ? 'png-sequence' : settings.format, '--fps', String(p.fps), '--workers', String(renderWorkers()), '--strict', '--sdr', '--quality', settings.quality, '--video-frame-format', 'auto'], { cwd: folder, signal, env: browserPath ? { HYPERFRAMES_BROWSER_PATH: browserPath } : {} }, text => {
+  await run(process.execPath, [bin, 'render', folder, '--output', captured, '--format', png ? 'png-sequence' : settings.format, '--fps', String(p.fps), '--workers', String(renderWorkers()), '--strict', '--sdr', '--quality', settings.quality, '--video-frame-format', 'auto'], { cwd: folder, signal, timeoutMs: renderTimeoutMs(p, settings), env: browserPath ? { HYPERFRAMES_BROWSER_PATH: browserPath } : {} }, text => {
     try { appendFileSync(path.join(folder, 'render.log'), text); } catch (error) { logError = error; }
     const match = text.match(/(\d+)(?:\s*\/\s*(\d+))?\s*(?:frames|%)/i);
     if (match) onProgress({ progress: Math.min(90, match[2] ? Number(match[1]) / Number(match[2]) * 90 : Number(match[1]) * 0.9) });
@@ -242,54 +266,76 @@ export async function verifyExport(input, filename, options = {}) {
   if (Number(info.format.duration) < p.duration - 0.15 || !video || video.width !== width || video.height !== height || numerator / denominator !== p.fps || !codec || !soundtrack || Number(video.nb_frames) !== expectedFrames) throw new Error('Export verification failed: duration, dimensions, frame rate, codec or soundtrack did not match.');
   return { width, height, fps: p.fps, duration: Number(info.format.duration) };
 }
-export async function startExport(input, options = {}) {
-  if (running) throw new Error('Another export is running. Wait until it finishes.');
+export async function startExport(input, options = {}, fonts = []) {
   const p = validateProject(input);
+  const faces = validateFontFaces(fonts);
   const settings = validateExportSettings(options);
   const [width, height] = exportDimensions(p.format, settings.resolution);
   if (!p.layers.some(l => l.visible && l.type !== 'music')) throw new Error('Add a visible visual layer before exporting.');
+  if (pending.length >= EXPORT_QUEUE_LIMIT) throw Object.assign(new Error(`Up to ${EXPORT_QUEUE_LIMIT} exports can wait in the queue. Wait for some to finish.`), { status: 429 });
   const id = randomUUID();
   const folder = path.join(runtimeConfig().data, 'renders', id);
-  const job = { id, state: 'queued', progress: 0, message: 'Preparing local assets', name: p.name, ...settings, width, height, fps: p.fps, createdAt: new Date().toISOString() };
-  const controller = new AbortController(), { signal } = controller;
-  jobs.set(id, job); controllers.set(id, controller); running = id;
-  void (async () => {
-    try {
-      // Persist each transition so a crash leaves a record that startup recovery can mark as failed.
-      await mkdir(folder, { recursive: true });
-      await writeJsonAtomic(path.join(folder, 'job.json'), job);
-      await prepareComposition(p, folder, settings, signal);
-      signal.throwIfAborted();
-      job.state = 'rendering';
-      await writeJsonAtomic(path.join(folder, 'job.json'), job);
-      const result = await renderPreparedComposition(p, folder, settings, update => { if (!signal.aborted) Object.assign(job, update); }, signal);
-      // A cancelled export never becomes done, even if FFmpeg finished first.
-      signal.throwIfAborted();
-      const output = exportFormat(settings.format);
-      job.state = 'done'; job.progress = 100; job.message = `${output.name} ready`; job.url = `/exports/${id}/${output.file}`; job.duration = result.duration;
-    } catch (error) {
-      if (!signal.aborted) {
-        job.state = 'failed'; job.message = error.message.slice(-2500);
-        try { appendFileSync(path.join(folder, 'render.log'), `\nExport failed: ${error.message}\n`); } catch {}
-      }
-    } finally {
-      controllers.delete(id);
-      try { await writeJsonAtomic(path.join(folder, 'job.json'), job); }
-      catch (error) { if (!signal.aborted) { job.state = 'failed'; job.message = `Could not persist export result: ${error.message}`; } }
-      finally { if (running === id) running = null; }
-    }
-  })();
+  const job = { id, state: 'queued', progress: 0, message: running || pending.length ? QUEUED_MESSAGE : 'Preparing local assets', name: p.name, ...settings, width, height, fps: p.fps, createdAt: new Date().toISOString() };
+  const controller = new AbortController();
+  jobs.set(id, job); controllers.set(id, controller);
+  // Queued exports are on disk before they wait, so a restart fails them instead of forgetting them.
+  try { await mkdir(folder, { recursive: true }); await writeJsonAtomic(path.join(folder, 'job.json'), job); }
+  catch (error) { jobs.delete(id); controllers.delete(id); throw error; }
+  // Cancelled while its record was being written: keep the cancelled record.
+  if (controller.signal.aborted) { await writeJsonAtomic(path.join(folder, 'job.json'), job); return job; }
+  pending.push({ job, project: p, settings, fonts: faces, folder, signal: controller.signal });
+  nextExport();
   return job;
 }
-// Stops the HyperFrames/FFmpeg subprocesses of a local export and frees the queue at once.
+function nextExport() {
+  if (running || !pending.length) return;
+  const entry = pending.shift();
+  running = entry.job.id;
+  void runExport(entry);
+}
+async function runExport({ job, project: p, settings, fonts, folder, signal }) {
+  const { id } = job;
+  try {
+    // Persist each transition so a crash leaves a record that startup recovery can mark as failed.
+    job.message = 'Preparing local assets';
+    await writeJsonAtomic(path.join(folder, 'job.json'), job);
+    await prepareComposition(p, folder, settings, signal, fonts);
+    signal.throwIfAborted();
+    job.state = 'rendering';
+    await writeJsonAtomic(path.join(folder, 'job.json'), job);
+    const result = await renderPreparedComposition(p, folder, settings, update => { if (!signal.aborted) Object.assign(job, update); }, signal);
+    // A cancelled export never becomes done, even if FFmpeg finished first.
+    signal.throwIfAborted();
+    const output = exportFormat(settings.format);
+    job.state = 'done'; job.progress = 100; job.message = `${output.name} ready`; job.url = `/exports/${id}/${output.file}`; job.duration = result.duration;
+  } catch (error) {
+    if (!signal.aborted) {
+      job.state = 'failed'; job.message = error.message.slice(-2500);
+      try { appendFileSync(path.join(folder, 'render.log'), `\nExport failed: ${error.message}\n`); } catch {}
+    }
+  } finally {
+    controllers.delete(id);
+    try { await writeJsonAtomic(path.join(folder, 'job.json'), job); }
+    catch (error) { if (!signal.aborted) { job.state = 'failed'; job.message = `Could not persist export result: ${error.message}`; } }
+    finally { if (running === id) running = null; reportExportEnded(job); nextExport(); }
+  }
+}
+// Stops the HyperFrames/FFmpeg subprocesses of a running local export and starts the next one
+// at once; a queued export simply leaves the queue.
 export async function cancelExport(id) {
   const job = jobs.get(id), controller = controllers.get(id);
   if (job && isTerminalJobState(job.state)) throw Object.assign(new Error('This export already ended and cannot be cancelled.'), { status: 409 });
   if (!job || !controller) throw Object.assign(new Error('Export not found.'), { status: 404 });
   Object.assign(job, { state: 'cancelled', message: CANCELLED_MESSAGE });
   controller.abort(); controllers.delete(id);
-  if (running === id) running = null;
+  const queued = pending.findIndex(entry => entry.job.id === id);
+  if (queued !== -1) pending.splice(queued, 1);
+  const wasRunning = running === id;
+  if (wasRunning) running = null;
+  nextExport();
   await writeJsonAtomic(path.join(runtimeConfig().data, 'renders', id, 'job.json'), job);
+  // A running export reports its end when its work unwinds; a waiting one ends here.
+  if (!wasRunning) reportExportEnded(job);
   return job;
 }
 
@@ -313,18 +359,30 @@ export async function recoverInterruptedJobs(data) {
   for (const { filename, job } of await storedJobs(data)) {
     if (isTerminalJobState(job.state)) continue;
     Object.assign(job, { state: 'failed', message: RESTART_MESSAGE });
-    await writeJsonAtomic(filename, job); recovered++;
+    await writeJsonAtomic(filename, job); recovered++; reportExportEnded(job);
   }
   return recovered;
 }
-const PUBLIC_JOB_FIELDS = ['id', 'state', 'progress', 'message', 'name', 'quality', 'resolution', 'format', 'transparent', 'width', 'height', 'fps', 'createdAt', 'duration', 'url', 'file'];
-// Shared jobs plus the jobs of the requesting browser's renderer, newest first.
+const PUBLIC_JOB_FIELDS = ['id', 'state', 'progress', 'message', 'name', 'quality', 'resolution', 'format', 'transparent', 'width', 'height', 'fps', 'createdAt', 'duration', 'url', 'file', 'position'];
+// Unfinished jobs first in the order they will run (`live` keeps creation order; waiting ones
+// carry their 1-based place in their queue), then up to `limit` finished jobs, newest first.
+// Shared jobs plus the jobs of the requesting browser's renderer only.
 export async function listJobs(data, live, rendererId, limit = 20) {
+  const visible = job => !job.rendererId || job.rendererId === rendererId;
+  const active = [...live.values()].filter(job => visible(job) && !isTerminalJobState(job.state));
+  const places = new Map();
+  const unfinished = active.map(job => {
+    // A started local export stays `queued` while it prepares assets; it is not waiting.
+    if (job.state !== 'queued' || job.id === running) return job;
+    const queue = job.rendererId ?? '', position = (places.get(queue) ?? 0) + 1;
+    places.set(queue, position);
+    return { ...job, position };
+  });
   const merged = new Map((await storedJobs(data)).map(({ job }) => [job.id, job]));
   for (const job of live.values()) merged.set(job.id, job);
-  return [...merged.values()]
-    .filter(job => !job.rendererId || job.rendererId === rendererId)
+  const finished = [...merged.values()]
+    .filter(job => visible(job) && !active.includes(job))
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
-    .slice(0, limit)
-    .map(job => Object.fromEntries(PUBLIC_JOB_FIELDS.filter(key => job[key] !== undefined).map(key => [key, job[key]])));
+    .slice(0, limit);
+  return [...unfinished, ...finished].map(job => Object.fromEntries(PUBLIC_JOB_FIELDS.filter(key => job[key] !== undefined).map(key => [key, job[key]])));
 }

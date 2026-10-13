@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { fileLayer, carouselImages } from '../project.js';
+import { PROJECT_LIMITS, fileLayer, carouselImages } from '../project.js';
 import { uploadAssets } from './upload-assets.js';
 import { parseProjectFile } from './project-import.js';
 
@@ -13,15 +13,15 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
     setUploading(true);
     setError('');
     try {
-      if (target === 'layers' && projectRef.current.layers.length + files.length > 20) throw new Error('Use up to 20 layers.');
+      if (target === 'layers' && projectRef.current.layers.length + files.length > PROJECT_LIMITS.maxLayers) throw new Error(`Use up to ${PROJECT_LIMITS.maxLayers} layers.`);
       const cardLayer = target.startsWith('cards:') ? projectRef.current.layers.find(l => l.id === target.slice(6) && l.type === 'carousel') : null;
       if (target.startsWith('cards:') && (!cardLayer || cardLayer.locked)) throw new Error('Select an unlocked carousel layer.');
-      if (cardLayer && carouselImages(projectRef.current, cardLayer).length + files.length > 24) throw new Error('Use up to 24 carousel assets.');
+      if (cardLayer && carouselImages(projectRef.current, cardLayer).length + files.length > PROJECT_LIMITS.maxImages) throw new Error(`Use up to ${PROJECT_LIMITS.maxImages} carousel assets.`);
       const values = await uploadAssets(files);
       if (target === 'layers') {
         const current = projectRef.current;
         const layers = values.map(asset => fileLayer(asset, current.duration, crypto.randomUUID()));
-        if (current.layers.length + layers.length > 20) throw new Error('Use up to 20 layers.');
+        if (current.layers.length + layers.length > PROJECT_LIMITS.maxLayers) throw new Error(`Use up to ${PROJECT_LIMITS.maxLayers} layers.`);
         if (change({ ...current, layers: [...current.layers, ...layers] })) { setSelected(layers.at(-1).id); setLeftTab('layers'); }
       } else if (cardLayer) {
         const current = projectRef.current.layers.find(l => l.id === cardLayer.id);

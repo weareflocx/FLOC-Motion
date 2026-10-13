@@ -19,6 +19,29 @@ const assetTriggers = (table, owner) => `
     DELETE FROM asset_references WHERE owner = ${owner('OLD')};
   END;`;
 
+// Workspace font references, maintained like asset references so deleting a font never parses
+// stored projects. Text layers name a face as `workspace:<id>` in any `font` field.
+const fontTriggers = (table, owner) => {
+  const insert = row => `INSERT OR IGNORE INTO font_references (owner, font) SELECT ${owner(row)}, substr(value, 11) FROM json_tree(${row}.project) WHERE key = 'font' AND type = 'text' AND value GLOB 'workspace:?*';`;
+  return `
+  CREATE TRIGGER ${table}_fonts_insert AFTER INSERT ON ${table} BEGIN
+    ${insert('NEW')}
+  END;
+  CREATE TRIGGER ${table}_fonts_update AFTER UPDATE OF project ON ${table} BEGIN
+    DELETE FROM font_references WHERE owner = ${owner('OLD')};
+    ${insert('NEW')}
+  END;
+  CREATE TRIGGER ${table}_fonts_delete AFTER DELETE ON ${table} BEGIN
+    DELETE FROM font_references WHERE owner = ${owner('OLD')};
+  END;`;
+};
+
+// Accounts created before roles: the earliest (lowest rowid, i.e. first inserted) becomes admin.
+// With no accounts yet, a pending invitation is the bootstrap invitation and grants admin.
+const FIRST_ADMIN = `
+  UPDATE users SET role = 'admin' WHERE rowid = (SELECT min(rowid) FROM users) AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin');
+  UPDATE invitations SET role = 'admin' WHERE NOT EXISTS (SELECT 1 FROM users);`;
+
 const MIGRATIONS = [
   `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, salt TEXT NOT NULL, password_hash TEXT NOT NULL);
@@ -39,7 +62,24 @@ const MIGRATIONS = [
   UPDATE composition_versions SET kind = CASE WHEN restored_from IS NOT NULL THEN 'restore' WHEN author_id IS NULL THEN 'import' WHEN version = 1 THEN 'create' ELSE 'save' END;`,
   // created_at shows the latest coalesced save; started_at anchors the coalescing window.
   `ALTER TABLE composition_versions ADD COLUMN started_at TEXT;
-  UPDATE composition_versions SET started_at = created_at;`
+  UPDATE composition_versions SET started_at = created_at;`,
+  // Roles: the earliest account becomes admin; times are epoch milliseconds (unknown for older accounts).
+  // audit_log.actor_id has no foreign key so entries outlive removed accounts.
+  `ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'editor' CHECK (role IN ('admin', 'editor'));
+  ALTER TABLE users ADD COLUMN created_at INTEGER;
+  ALTER TABLE users ADD COLUMN last_seen INTEGER;
+  ALTER TABLE invitations ADD COLUMN role TEXT NOT NULL DEFAULT 'editor' CHECK (role IN ('admin', 'editor'));
+  ${FIRST_ADMIN}
+  CREATE TABLE audit_log (id INTEGER PRIMARY KEY, time INTEGER NOT NULL, actor_id TEXT, action TEXT NOT NULL, target_type TEXT, target_id TEXT, details TEXT NOT NULL);
+  CREATE INDEX audit_log_target ON audit_log (target_type, target_id);`,
+  // Workspace fonts: one row per uploaded face, stored as fonts/<id>.<ext>. No project can name
+  // a workspace font before this table exists, so references start empty.
+  `CREATE TABLE fonts (id TEXT PRIMARY KEY, family TEXT NOT NULL, weight INTEGER NOT NULL CHECK (weight BETWEEN 100 AND 900 AND weight % 100 = 0), style TEXT NOT NULL CHECK (style IN ('normal', 'italic')), ext TEXT NOT NULL CHECK (ext IN ('woff2', 'woff', 'otf', 'ttf')), file_name TEXT NOT NULL, sha256 TEXT NOT NULL UNIQUE, size INTEGER NOT NULL, uploaded_by TEXT, created_at INTEGER NOT NULL, UNIQUE (family, weight, style));
+  CREATE TABLE font_references (owner TEXT NOT NULL, font TEXT NOT NULL, PRIMARY KEY (owner, font)) WITHOUT ROWID;
+  CREATE INDEX font_references_font ON font_references (font);
+  ${fontTriggers('drafts', row => `'draft:' || ${row}.id`)}
+  ${fontTriggers('templates', row => `'template:' || ${row}.id`)}
+  ${fontTriggers('composition_versions', row => `'version:' || ${row}.composition_id || ':' || ${row}.version`)}`
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
@@ -82,6 +122,7 @@ function importLegacyJson(db, data) {
     const auth = legacyJson(path.join(data, 'access', 'auth.json'));
     for (const user of auth?.users || []) { db.prepare('INSERT INTO users (id, email, salt, password_hash) VALUES (?, ?, ?, ?)').run(user.id, user.email, user.salt, user.passwordHash); counts.users++; }
     for (const item of auth?.invitations || []) { db.prepare('INSERT OR REPLACE INTO invitations (email, hash, expires_at) VALUES (?, ?, ?)').run(item.email, item.hash, item.expiresAt); counts.invitations++; }
+    db.exec(FIRST_ADMIN);
     const user = db.prepare('SELECT 1 FROM users WHERE id = ?');
     for (const item of auth?.sessions || []) if (user.get(item.userId)) { db.prepare('INSERT OR IGNORE INTO sessions (hash, user_id, expires_at) VALUES (?, ?, ?)').run(item.hash, item.userId, item.expiresAt); counts.sessions++; }
     for (const file of legacyFiles(path.join(data, 'drafts'))) {

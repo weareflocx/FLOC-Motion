@@ -2,9 +2,9 @@ import { createModelScene } from './model-scene.js';
 import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, cardFrameSource, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
 import { carouselCard, motionVariant, elasticState } from './carousel-motion.js';
 import * as THREE from 'three';
-import { fontDefinition } from './fonts.js';
+import { fontFamily, fontStack } from './fonts.js';
 import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages } from './project.js';
-import { constrainPlacement, fitsSafeArea, safeArea } from './layout.js';
+import { constrainPlacement, fitsSafeArea, rotatedTextBounds, safeArea } from './layout.js';
 import { createCarouselEffect } from './carousel-effects.js';
 import { evaluateChoreography } from './choreography.js';
 import { drawProceduralBackground } from './backgrounds.js';
@@ -30,7 +30,7 @@ export function stageMarkup(p, path = src => src) {
     if (l.type === 'carousel') return `<canvas id="carousel-${esc(l.id)}" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'text') {
       const typography = textTypography(l);
-      return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:${typography.lineHeight};letter-spacing:${typography.letterSpacing};text-align:${typography.textAlign};clip-path:${textRevealClip(l, 0)};font-family:${esc(fontDefinition(l.font).family)};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
+      return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:${typography.lineHeight};letter-spacing:${typography.letterSpacing};text-align:${typography.textAlign};clip-path:${textRevealClip(l, 0)};font-family:${esc(fontStack(l.font))};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
     }
     if (l.type === 'logo' && l.src) return `<img alt="Studio mark" src="${esc(path(l.src))}" ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
     if (l.type === 'model') return `<canvas id="model-${esc(l.id)}" class="clip" ${timing} ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;aspect-ratio:1" width="${w}" height="${w}"></canvas>`;
@@ -121,8 +121,11 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
   let carouselEffect = null;
+  let effectMix = null;
   let orientation = null;
+  // Editor-only previews: `{ id, ...fields }` for one layer or `{ layers: { [id]: fields } }` for a group move.
   let placement = null;
+  const placementFor = id => placement?.id === id ? placement : placement?.layers?.[id] ?? null;
   const layerNodes = [...root.querySelectorAll('[data-floc-layer]')].filter(node => p.layers.some(l => l.id === node.dataset.flocLayer));
   const mediaNodes = layerNodes.filter(node => ['AUDIO', 'VIDEO'].includes(node.tagName));
   const opacityNodes = layerNodes.filter(node => !node.hasAttribute('data-floc-background-content'));
@@ -153,6 +156,8 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   const frameLoader = new THREE.TextureLoader();
   const imageLoader = new THREE.ImageLoader();
   const placementBounds = new Map();
+  // Last animated typography and color written to each text node.
+  const textStyles = new Map();
   const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, transparent: true,
     uniforms: { ...cardUniforms(null, 1), uCardSize: { value: layer.size }, uAspect: { value: layer.cardAspect }, uShape: { value: 0 }, uTime: { value: 0 }, uStrength: { value: 0 }, uEffect: { value: 0 }, uTint: { value: new THREE.Color() }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) } } });
   let geometry = null;
@@ -164,7 +169,8 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model', 'background'].includes(l.type))) {
       const el = layerNodes.find(node => node.dataset.flocLayer === l.id); if (!el) continue;
       const evaluated = evaluateChoreography(l, time);
-      const pos = placement?.id === l.id ? { ...evaluated, ...placement } : evaluated;
+      const placed = placementFor(l.id);
+      const pos = placed ? { ...evaluated, ...placed } : evaluated;
       if (l.type === 'background') {
         for (const node of opacityNodes.filter(node => node.dataset.flocLayer === l.id)) {
           node.style.transform = `translate(${pos.x ?? 0}%,${pos.y ?? 0}%) rotate(${pos.roll ?? 0}deg)`;
@@ -175,17 +181,23 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       const sizeValue = l.type === 'text' ? `${pos.size * width / 1080}px` : `${pos.size}%`;
       if (el.style[sizeProperty] !== sizeValue) el.style[sizeProperty] = sizeValue;
       if (l.type === 'model') el.style.height = `${pos.size * width / 100}px`;
+      let typography = '';
+      if (l.type === 'text') {
+        // Animated typography and color; the markup holds the layer's own values.
+        const { letterSpacing, lineHeight } = textTypography(pos);
+        typography = `${letterSpacing}:${lineHeight}`;
+        if (textStyles.get(el) !== `${typography}:${pos.color}`) {
+          el.style.letterSpacing = letterSpacing; el.style.lineHeight = lineHeight; el.style.color = pos.color;
+          textStyles.set(el, `${typography}:${pos.color}`);
+        }
+      }
       let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha({ ...l, opacity: 1, choreography: [] }, time)) * 24 : 0;
       if (p.layout?.enabled && l.type === 'text') {
         if (frame.width && frame.height) {
-          const key = `${sizeValue}:${frame.width}:${frame.height}:${pos.roll ?? 0}`;
+          const key = `${sizeValue}:${typography}:${frame.width}:${frame.height}:${pos.roll ?? 0}`;
           let bounds = placementBounds.get(el);
           if (bounds?.key !== key) {
-            const angle = (pos.roll ?? 0) * Math.PI / 180;
-            const rotatedWidth = Math.abs(el.offsetWidth * Math.cos(angle)) + Math.abs(el.offsetHeight * Math.sin(angle));
-            const rotatedHeight = Math.abs(el.offsetWidth * Math.sin(angle)) + Math.abs(el.offsetHeight * Math.cos(angle));
-            bounds = { key, width: rotatedWidth / width * 100, height: rotatedHeight / height * 100,
-              x: (el.offsetWidth - rotatedWidth) / 2 / width * 100, y: (el.offsetHeight - rotatedHeight) / 2 / height * 100 };
+            bounds = { key, ...rotatedTextBounds(el.offsetWidth, el.offsetHeight, pos.roll, width, height) };
             placementBounds.set(el, bounds);
           }
           if (renderMode && layerAlpha(l, time) > 0 && !fitsSafeArea(bounds, p.layout)) throw new Error(`${l.name} exceeds the safe area. Reduce its width or size before exporting.`);
@@ -255,10 +267,15 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       // Vertex wings extend beyond the CPU-side geometry bounds.
       mesh.frustumCulled = layer.shader !== 'elastic';
     }
-    if (!carouselEffect?.update(layer)) {
+    syncCarouselEffect(layer);
+  }
+  // Reuses the pass unless the effect changes or its mix reaches zero.
+  function syncCarouselEffect(settings) {
+    if (!carouselEffect?.update(settings)) {
       carouselEffect?.dispose();
-      carouselEffect = createCarouselEffect(renderer, canvas.width, canvas.height, layer);
+      carouselEffect = createCarouselEffect(renderer, canvas.width, canvas.height, settings);
     }
+    effectMix = settings.layerEffectIntensity;
   }
   async function cardTexture(src) {
     if (cardMediaKind(src) === 'image') {
@@ -285,7 +302,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     return texture;
   }
   try {
-    await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontDefinition(l.font).family}"`)));
+    await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontFamily(l.font)}"`)));
     await document.fonts.ready;
     for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, width, width, { resources, renderMode, onError: onMediaError }));
     const sources = [...new Set((carousel ? p.images : []).map(img => img.src))];
@@ -329,13 +346,14 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     if (disposed) return;
     if (context.lost && renderMode) throw new Error('The graphics context was lost while rendering.');
     placeLayers(time);
-    models.forEach(model => model.draw(time, placement?.id === model.id ? placement : undefined));
+    models.forEach(model => model.draw(time, placementFor(model.id) ?? undefined));
     const local = Math.max(0, time - layer.start);
     const sampled = { ...evaluateChoreography(layer, time), ...orientation };
     shapeCards(sampled);
     group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
-    const position = placement?.id === layer.id ? { ...sampled, ...placement } : sampled;
+    const placed = placementFor(layer.id);
+    const position = placed ? { ...sampled, ...placed } : sampled;
     group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, 0);
     // Planar carousels size their largest card as a fraction of the canvas.
     const planar = ['nested-rise', 'zoom-through', 'sweep-reveal'].includes(layer.template);
@@ -347,6 +365,8 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     uniforms.uWindow.value.set(windowPush ? windowHeight * sampled.cardAspect * height / width : 0, windowPush ? windowHeight : 0);
     if (windowPush) uniforms.uAspect.value = width / height;
     uniforms.uTime.value = local;
+    uniforms.uStrength.value = sampled.intensity;
+    if (sampled.layerEffectIntensity !== effectMix) syncCarouselEffect(sampled);
     material.depthTest = !(planar || shuffle || windowPush);
     material.depthWrite = !(planar || shuffle || windowPush);
     meshes.forEach((mesh, i) => {
@@ -441,6 +461,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     }
     models.forEach(model => model.updateLayer(p.layers.find(l => l.id === model.id)));
     placementBounds.clear();
+    textStyles.clear();
   }
   return { update, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); carouselEffect?.setResolution(w, h); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
 }
@@ -484,7 +505,7 @@ function markupPatch(root, previous, next) {
 }
 // A new font face must load before text is measured; that is a rebuild.
 const fontsLoaded = (previous, next) => next.layers.every((layer, i) => layer.type !== 'text' || (layer.font === previous.layers[i].font && layer.weight === previous.layers[i].weight)
-  || document.fonts.check(`${layer.weight} 16px "${fontDefinition(layer.font).family}"`));
+  || document.fonts.check(`${layer.weight} 16px "${fontFamily(layer.font)}"`));
 
 export async function createScene(root, project, options = {}) {
   // Preview sessions pass a shared cache so rebuilds reuse decoded media.

@@ -88,7 +88,8 @@ function effectFixture() {
 }
 
 export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixture()].map(fixture => ({ ...fixture, project: validateProject(fixture.project) }));
-export const fixtureHash = fixture => createHash('sha256').update(JSON.stringify({ times: fixture.times, project: fixture.project })).digest('hex').slice(0, 16);
+// The schema version is left out: a version bump that keeps the project's content keeps its frames.
+export const fixtureHash = fixture => createHash('sha256').update(JSON.stringify({ times: fixture.times, project: { ...fixture.project, version: undefined } })).digest('hex').slice(0, 16);
 export const frameName = (id, time) => `${id}-${time.toFixed(2)}s.png`;
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webm': 'video/webm', '.woff2': 'font/woff2', '.json': 'application/json' };

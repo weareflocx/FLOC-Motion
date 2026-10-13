@@ -25,9 +25,10 @@ export async function extractCardFrames(project, folder, run) {
     if (alpha && video.codec_name === 'vp9') args.push('-c:v', 'libvpx-vp9');
     args.push('-i', input, '-an', '-t', String(length), '-vf', `fps=${project.fps}`, '-start_number', '0');
     args.push(...(alpha ? ['-pix_fmt', 'rgba'] : ['-q:v', '2']), path.join(output, `%06d.${extension}`));
-    await run('ffmpeg', args, { timeoutMs: 300000 });
-    const files = (await readdir(output)).filter(name => new RegExp(`^\\d{6}\\.${extension}$`).test(name)).sort();
     const expected = Math.ceil(length * project.fps - 1e-3);
+    // Measured ~20 ms per 4K JPEG and ~150 ms per 4K alpha PNG; allow 500 ms per frame.
+    await run('ffmpeg', args, { timeoutMs: Math.max(300000, expected * 500) });
+    const files = (await readdir(output)).filter(name => new RegExp(`^\\d{6}\\.${extension}$`).test(name)).sort();
     if (!files.length || files.length < expected - 1 || files.some((name, i) => name !== `${String(i).padStart(6, '0')}.${extension}`)) throw new Error(`Carousel frame extraction was incomplete: ${src}`);
     manifest[src] = { directory, extension, duration, fps: project.fps, count: files.length };
   }

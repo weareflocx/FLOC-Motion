@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 2;
+export const CURRENT_PROJECT_VERSION = 3;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -43,8 +43,28 @@ function v1ToV2(project) {
   return project;
 }
 
+// v2 content fields were bare labels. They become typed declarations whose ids are
+// slugs of the label, suffixed in layer order when labels repeat ("headline", "headline-2").
+// The slug rule is frozen here so a v2 file always migrates to the same ids.
+// Anything that is not a label string is left for validation to reject.
+const v2Slug = label => label.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 56).replace(/-+$/, '') || 'field';
+function v2ToV3(project) {
+  const used = new Set();
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || typeof layer.contentField !== 'string') continue;
+    const label = layer.contentField.trim();
+    if (!label) { delete layer.contentField; continue; }
+    const base = v2Slug(label);
+    let id = base;
+    for (let suffix = 2; used.has(id); suffix++) id = `${base}-${suffix}`;
+    used.add(id);
+    layer.contentField = { id, label, required: false };
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2];
+const MIGRATIONS = [v1ToV2, v2ToV3];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

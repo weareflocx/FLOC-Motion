@@ -1,4 +1,5 @@
-import { DEFAULT_MOTION, motionClock, motionEase, smoothProgress, sweepProgress } from './motion-timing.js';
+import { DEFAULT_MOTION, motionClock, motionEase, sweepProgress } from './motion-timing.js';
+import { smoothProgress } from './easing.js';
 // Original, absolute-time motion models shared by preview and export.
 export const MOTION_VARIANTS = {
   circular: [['wrapped', 'Wrapped ring'], ['billboard', 'Upright orbit'], ['inward', 'Inner corridor'], ['bloom', 'Splayed orbit']],

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoProject, validateProject, patchLayer, layerAlpha, resizeDuration, duplicateLayer, fileLayer } from '../src/project.js';
-import { CHOREOGRAPHY_EASINGS, choreographyFields, evaluateChoreography, captureState, stateAtTime, moveState } from '../src/choreography.js';
+import { PROJECT_LIMITS, demoProject, validateProject, patchLayer, layerAlpha, resizeDuration, duplicateLayer, fileLayer } from '../src/project.js';
+import { choreographyFields, evaluateChoreography, captureState, stateAtTime, moveState } from '../src/choreography.js';
 import { editClip } from '../src/editor-controls.js';
 import { createTools } from '../src/webmcp.js';
 
@@ -46,7 +46,7 @@ test('choreography snapshots use complete type-specific numeric fields and bound
 test('imports reject malformed states, unsupported fields, duplicate identities and unordered times', () => {
   const p = validateProject(demoProject()), layer = getLayer(p);
   const first = state(layer, 'first', 0);
-  const malformed = [null, {}, 'states', [null], [{ ...first, id: '' }], [{ ...first, id: '  ' }], [{ ...first, id: 'x'.repeat(81) }], [{ ...first, time: -1 }], [{ ...first, time: 31 }], [{ ...first, time: NaN }], [{ ...first, time: Infinity }], [{ ...first, easing: 'script' }], [{ ...first, values: null }], [{ ...first, values: [] }], [{ ...first, values: { x: 50 } }], [{ ...first, values: { ...first.values, shader: 'wave' } }], [{ ...first, eval: 'code' }], [first, { ...first, time: 1 }], [first, { ...first, id: 'second' }], [state(layer, 'late', 4), first], Array.from({ length: 33 }, (_, i) => state(layer, `s${i}`, i * 0.1))];
+  const malformed = [null, {}, 'states', [null], [{ ...first, id: '' }], [{ ...first, id: '  ' }], [{ ...first, id: 'x'.repeat(81) }], [{ ...first, time: -1 }], [{ ...first, time: PROJECT_LIMITS.maxDuration + 1 }], [{ ...first, time: NaN }], [{ ...first, time: Infinity }], [{ ...first, easing: 'script' }], [{ ...first, values: null }], [{ ...first, values: [] }], [{ ...first, values: { x: 50 } }], [{ ...first, values: { ...first.values, shader: 'wave' } }], [{ ...first, eval: 'code' }], [first, { ...first, time: 1 }], [first, { ...first, id: 'second' }], [state(layer, 'late', 4), first], Array.from({ length: 33 }, (_, i) => state(layer, `s${i}`, i * 0.1))];
   for (const choreography of malformed) assert.throws(() => patchLayer(p, layer.id, { choreography }));
   for (const id of ['background', 'music']) {
     for (const patch of [...(id === 'music' ? [{ opacity: 0.5 }] : []), { choreography: [] }, { choreography: [first] }]) {
@@ -64,7 +64,7 @@ test('poses interpolate position, size, opacity and direct orientation with dest
   const from = state(layer, 'start', 0, { x: 10, y: 20, size: 0.5, opacity: 0, tilt: -65, yaw: -170, roll: 170 }, 'ease-in');
   const to = state(layer, 'end', 4, { x: 90, y: 80, size: 2.5, opacity: 1, tilt: 65, yaw: 170, roll: -170 });
   const expected = { linear: 0.25, smooth: 0.15625, 'ease-in': 0.0625, 'ease-out': 0.4375 };
-  for (const [easing] of CHOREOGRAPHY_EASINGS) {
+  for (const easing of Object.keys(expected)) {
     const authored = { ...layer, start: 2, end: 8, choreography: [from, { ...to, easing }] };
     const pose = evaluateChoreography(authored, 3);
     for (const field of Object.keys(choreographyFields(layer))) assert.equal(pose[field], from.values[field] + (to.values[field] - from.values[field]) * expected[easing]);

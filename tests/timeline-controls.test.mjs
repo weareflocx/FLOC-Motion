@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { captureState, evaluateChoreography, moveState, stateAtTime, CHOREOGRAPHY_EASINGS } from '../src/choreography.js';
+import { capturedProperties, captureState, evaluateChoreography, moveState, stateAtTime } from '../src/choreography.js';
+import { EASINGS, EASING_GROUPS, easeProgress, isCubicBezier } from '../src/easing.js';
 import { choreographyPatch } from '../src/editor/choreography-edit.js';
 import { demoProject, validateProject, patchLayer } from '../src/project.js';
 
@@ -30,7 +31,7 @@ function controls({ type = 'text', locked = false, states = false, time = 1 } = 
     if (typeof type === 'function') return type({ ...props, children });
     return { type, props: props || {}, children };
   } };
-  const context = { React, CHOREOGRAPHY_EASINGS, captureState, moveState, stateAtTime, evaluateChoreography, usePlaybackTime: clock => clock.get().time,
+  const context = { React, EASINGS, EASING_GROUPS, easeProgress, isCubicBezier, capturedProperties, captureState, moveState, stateAtTime, evaluateChoreography, usePlaybackTime: clock => clock.get().time,
     useState(value) { const index = cursor++; slots[index] ??= { value }; return [slots[index].value, next => { const value = typeof next === 'function' ? next(slots[index].value) : next; if (!Object.is(value, slots[index].value)) { slots[index].value = value; dirty = true; } }]; },
     useRef(value) { const index = cursor++; return slots[index] ??= { current: value }; },
     useLayoutEffect() {},
@@ -133,6 +134,40 @@ test('Save state captures the current evaluated pose; Update state preserves ID 
   assert.equal(h.seeks.at(-1), 2.5);
   h.find(node => node.props['aria-label'] === 'Remove state at 2.50 s').props.onClick();
   assert.equal(h.layer().choreography.some(item => item.id === 'last'), false);
+});
+
+test('Save state lists held properties; the easing picker accepts library curves and only valid custom béziers', () => {
+  const h = controls({ states: true });
+  h.open();
+  h.button('Save state').props.onClick();
+  const saved = h.layer().choreography.find(item => item.time === 1);
+  assert.deepEqual([saved.values.color, saved.values.letterSpacing, saved.values.lineHeight], ['#ffffff', -0.035, 0.98]);
+  const note = () => h.find(node => node.type === 'p' && node.children.flat().join('').startsWith('Holds'));
+  assert.equal(note().children.flat().join(''), 'Holds Position, Size, Opacity, Rotation, Color, Letter spacing, Line height.');
+  h.render({ time: 2 });
+  const easing = () => h.find(node => node.props['aria-label'] === 'Transition into state');
+  easing().props.onChange({ target: { value: 'elastic' } });
+  assert.equal(h.layer().choreography.at(-1).easing, 'elastic');
+  easing().props.onChange({ target: { value: 'custom' } });
+  assert.equal(easing().props.value, 'custom');
+  const custom = h.layer().choreography.at(-1).easing;
+  assert(Array.isArray(custom) && custom.length === 4);
+  const bezier = () => h.find(node => node.props['aria-label'] === 'Custom cubic bézier');
+  const attributes = {};
+  const commit = value => bezier().props.onBlur({ currentTarget: { value, setAttribute: (name, next) => { attributes[name] = next; }, removeAttribute: name => { delete attributes[name]; } } });
+  const count = h.patches.length;
+  for (const value of ['1.2, 0, 0.5, 1', '0.2, 0, 0.5', '0.2, , 0.5, 1', 'a, b, c, d']) {
+    commit(value);
+    assert.equal(attributes['aria-invalid'], 'true', value);
+  }
+  assert.equal(h.patches.length, count);
+  commit(' 0.1, -0.4, 0.3, 1.4 ');
+  assert.equal(attributes['aria-invalid'], undefined);
+  assert.deepEqual(h.layer().choreography.at(-1).easing, [0.1, -0.4, 0.3, 1.4]);
+  assert.equal(bezier().props.defaultValue, '0.1, -0.4, 0.3, 1.4');
+  easing().props.onChange({ target: { value: 'smooth' } });
+  assert.equal(h.layer().choreography.at(-1).easing, 'smooth');
+  assert.equal(bezier(), undefined);
 });
 
 test('focusing inline timing restores clip gestures and state selection activates Choreography', () => {

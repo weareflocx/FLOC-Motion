@@ -1,3 +1,4 @@
+import { animatedFields, evaluateChoreography } from './choreography.js';
 export const EFFECTS = [{ id: 'noise', name: 'Noise' }, { id: 'blur', name: 'Blur' }, { id: 'monochrome', name: 'Monochrome' }, { id: 'optical-warp', name: 'Optical Warp' }];
 export const EFFECT_LAYER_TYPES = ['background', 'text', 'logo', 'media', 'model', 'carousel', 'effect'];
 export const DEFAULT_NOISE = Object.freeze({ type: 'noise', enabled: true, mode: 'mono', sizeX: 1, sizeY: 1, linked: true, density: 1, opacity: 0.15, color1: '#000000', color2: '#ffffff', animated: false, seed: 42 });
@@ -191,7 +192,11 @@ export function createEffects(root, project, formats, layerAlpha) {
     let nodes = adjustmentTargets.get(layer.id) ?? (layer.type === 'effect' ? [] : nodesFor(layer));
     if (nodes.length > 1 && layer.effects?.length) nodes = [wrap(nodes, layerIndex)];
     const filters = [];
+    // Animated noise bakes full-strength grain once and fades it per frame.
+    const fadingNoise = animatedFields(layer).includes('noiseOpacity') ? layer.effects?.findIndex(effect => effect.type === 'noise') ?? -1 : -1;
     (layer.effects ?? []).forEach((effect, index) => {
+      const fades = index === fadingNoise;
+      const look = fades ? { ...effect, opacity: 1 } : effect;
       if (effect.type === 'optical-warp') {
         const id = `floc-warp-${sceneId}-${layerIndex}-${index}`;
         const horizontal = effect.axis === 'horizontal';
@@ -207,7 +212,7 @@ export function createEffects(root, project, formats, layerAlpha) {
         // Antialias the displacement's pixel sampling at curved edges.
         filter.append(image, sourceOffset, displacement, element('feGaussianBlur', { stdDeviation: 0.35 })); defs.append(filter);
         imagesReady.push(map.ready);
-        filters.push({ effect, url: `url(#${id})`, displacement, image, sourceOffset });
+        filters.push({ effect, index, url: `url(#${id})`, displacement, image, sourceOffset, amount: effect.amount });
         return;
       }
       if (effect.type === 'blur' && effect.mode === 'progressive') {
@@ -232,11 +237,11 @@ export function createEffects(root, project, formats, layerAlpha) {
           filter.append(element('feComposite', { in: input, in2: `mask${level}`, operator: 'in', result: level ? `part${level}` : 'mix0' }));
           if (level) filter.append(element('feComposite', { in: `mix${level - 1}`, in2: `part${level}`, operator: 'arithmetic', k2: 1, k3: 1, result: `mix${level}` }));
         }
-        defs.append(filter); filters.push({ effect, url: `url(#${id})`, blurs });
+        defs.append(filter); filters.push({ effect, index, url: `url(#${id})`, blurs });
         return;
       }
       if (effect.type !== 'noise') {
-        filters.push({ effect });
+        filters.push({ effect, index });
         return;
       }
       const id = `floc-noise-${sceneId}-${layerIndex}-${index}`;
@@ -246,7 +251,7 @@ export function createEffects(root, project, formats, layerAlpha) {
         // Animated noise slides a 2 × 2 copy of the tile under a fixed
         // one-tile crop: offset tiles must not leave the filter region, which
         // clips them on layers smaller than the tile.
-        const repeat = effect.animated ? 2 : 1, texture = decodable(noiseTexture(effect, repeat));
+        const repeat = effect.animated ? 2 : 1, texture = decodable(noiseTexture(look, repeat));
         imagesReady.push(texture.ready);
         const filter = element('filter', { id, x: 0, y: 0, width: '100%', height: '100%', 'color-interpolation-filters': 'sRGB' });
         image = element('feImage', { href: texture.url, x: 0, y: 0, width: NOISE_TILE * repeat * cell[0], height: NOISE_TILE * repeat * cell[1], preserveAspectRatio: 'none', result: effect.animated ? 'atlas' : 'noise' });
@@ -255,22 +260,34 @@ export function createEffects(root, project, formats, layerAlpha) {
         filter.append(image);
         if (effect.animated) filter.append(element('feOffset', { in: 'atlas', x: 0, y: 0, width: NOISE_TILE * cell[0], height: NOISE_TILE * cell[1], result: 'noise' }));
         filter.append(element('feTile', { in: 'noise', result: 'texture' }), transfer, element('feComposite', { in: 'fadedTexture', in2: 'SourceGraphic', operator: 'atop' }));
-        defs.append(filter); filters.push({ effect, url: `url(#${id})`, alpha });
+        defs.append(filter); filters.push({ effect, index, url: `url(#${id})`, alpha, fades });
       }
-      entries.push({ layer, effect, image, cell, offset: [0, 0], key: '0:0', tile: overlay && noiseTexture(effect, 1).canvas });
+      entries.push({ layer, effect, index, fades, image, cell, offset: [0, 0], key: '0:0', tile: overlay && noiseTexture(look, 1).canvas });
     });
     if (nodes.length && filters.length) targets.push({ id: layer.id, adjustment: layer.type === 'effect', nodes, filters });
   });
   async function seek(time) {
+    const pending = [];
     for (const target of targets) {
-      const strength = target.adjustment ? layerAlpha(current(target.id), time) : 1;
+      const layer = current(target.id);
+      const strength = target.adjustment ? layerAlpha(layer, time) : 1;
+      const live = evaluateChoreography(layer, time).effects ?? [];
       const filters = target.filters.flatMap(filter => {
-        const { effect, url, alpha, blurs, displacement, image, sourceOffset } = filter;
+        const { effect, index, url, alpha, blurs, displacement, image, sourceOffset, fades } = filter;
+        const value = live[index] ?? effect;
         if (!effect.enabled || strength <= 0) return [];
         if (effect.type === 'optical-warp') {
-          if (!effect.amount) return [];
+          // Animated amounts reuse cached maps in hundredths.
+          const amount = value.amount === effect.amount ? effect.amount : Math.round(value.amount * 100) / 100;
+          if (!amount) return [];
           const width = target.nodes[0].offsetWidth, height = target.nodes[0].offsetHeight;
           if (!width || !height) return [];
+          if (filter.amount !== amount) {
+            const map = opticalWarpMap({ ...effect, amount });
+            image.setAttribute('href', map.url);
+            pending.push(map.ready);
+            filter.amount = amount;
+          }
           const key = `${width}:${height}:${strength}`;
           if (filter.key !== key) {
             const horizontal = effect.axis === 'horizontal';
@@ -285,14 +302,14 @@ export function createEffects(root, project, formats, layerAlpha) {
           return [url];
         }
         if (effect.type === 'blur') {
-          const radius = effect.amount * strength * unit;
+          const radius = value.amount * strength * unit;
           if (!radius) return [];
           if (!blurs) return [`blur(${radius}px)`];
           blurs.forEach(({ blur, level }) => blur.setAttribute('stdDeviation', radius * level / 4));
           return [url];
         }
-        if (effect.type === 'monochrome') return [`grayscale(${effect.amount * strength})`];
-        alpha.setAttribute('slope', strength); return [url];
+        if (effect.type === 'monochrome') return [`grayscale(${value.amount * strength})`];
+        alpha.setAttribute('slope', fades ? strength * value.opacity : strength); return [url];
       }).join(' ');
       target.nodes.forEach(node => { if (node.style.filter !== filters) node.style.filter = filters; });
     }
@@ -307,18 +324,21 @@ export function createEffects(root, project, formats, layerAlpha) {
       const context = canvas?.getContext('2d');
       if (!context) continue;
       const layerEntries = entries.filter(entry => entry.layer.id === layer.id);
-      const key = `${canvas.width}:${canvas.height}:${layerEntries.map(entry => entry.key).join(':')}`;
+      const live = evaluateChoreography(layer, time).effects ?? [];
+      const opacity = entry => entry.fades ? live[entry.index].opacity : 1;
+      const key = `${canvas.width}:${canvas.height}:${layerEntries.map(entry => `${entry.key}:${opacity(entry)}`).join(':')}`;
       if (drawn.get(layer.id) === key) continue;
       drawn.set(layer.id, key);
       context.setTransform(1, 0, 0, 1, 0, 0); context.clearRect(0, 0, canvas.width, canvas.height);
-      for (const { effect, tile, offset } of layerEntries) {
+      for (const entry of layerEntries) {
+        const { effect, tile, offset } = entry;
         const unit = Math.min(canvas.width, canvas.height) / 1080;
-        context.save(); context.scale(effect.sizeX * unit, effect.sizeY * unit); context.translate(-offset[0], -offset[1]);
+        context.save(); context.globalAlpha = opacity(entry); context.scale(effect.sizeX * unit, effect.sizeY * unit); context.translate(-offset[0], -offset[1]);
         context.imageSmoothingEnabled = false; context.fillStyle = context.createPattern(tile, 'repeat');
         context.fillRect(offset[0], offset[1], canvas.width / (effect.sizeX * unit), canvas.height / (effect.sizeY * unit)); context.restore();
       }
     }
-    await Promise.all(imagesReady);
+    await Promise.all([...imagesReady, ...pending]);
   }
   return {
     seek,

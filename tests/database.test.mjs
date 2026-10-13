@@ -32,7 +32,7 @@ test('legacy JSON workspaces import once into SQLite and keep the JSON files unt
   const before = await readFile(path.join(data, `templates/${ids.template}.json`), 'utf8');
   const auth = createAuthStore(data), templates = createTemplateStore(data);
   await templates.preserveLegacyProject();
-  assert.deepEqual(await auth.user(sessionCookie(token, false)), { id: ids.user, email: 'owner@example.com' });
+  assert.deepEqual(await auth.user(sessionCookie(token, false)), { id: ids.user, email: 'owner@example.com', role: 'admin' });
   assert.deepEqual(await createDraftStore(data).read(ids.draft), { project: validateProject(project), revision: 7 });
   const [entry] = await templates.list();
   assert.deepEqual(entry, { id: ids.template, name: 'Library', tags: ['Brand'], project: validateProject(project), createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z' });

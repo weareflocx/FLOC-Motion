@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -11,7 +11,7 @@ import { root } from '../server/runtime-config.mjs';
 import { createAuthStore } from '../server/auth-store.mjs';
 import { createPersonalRenderers, rendererCookie } from '../server/personal-renderers.mjs';
 import { rendererVersion } from '../server/renderer-version.mjs';
-import { recoverInterruptedJobs, listJobs, startExport, cancelExport } from '../server/export.mjs';
+import { recoverInterruptedJobs, listJobs, startExport, cancelExport, jobs, EXPORT_QUEUE_LIMIT } from '../server/export.mjs';
 import { RESTART_MESSAGE } from '../src/export-jobs.js';
 import { demoProject } from '../src/project.js';
 
@@ -93,7 +93,7 @@ test('recovery only rewrites unfinished jobs and survives unreadable entries', a
   } finally { await rm(data, { recursive: true, force: true }); }
 });
 
-test('recent exports merge live state over disk, hide other renderers and cap at twenty', async () => {
+test('recent exports list unfinished jobs in queue order, then twenty finished ones newest first, hiding other renderers', async () => {
   const data = await mkdtemp(path.join(tmpdir(), 'floc-list-'));
   try {
     const mine = randomUUID(), theirs = randomUUID();
@@ -103,15 +103,56 @@ test('recent exports merge live state over disk, hide other renderers and cap at
     const own = record({ rendererId: mine, createdAt: new Date(Date.UTC(2026, 9, 2)).toISOString(), file: 'Movies/FLOC Motion/Mine.mov', format: 'mov', transparent: true });
     const foreign = record({ rendererId: theirs, createdAt: new Date(Date.UTC(2026, 9, 3)).toISOString() });
     live.set(own.id, own); live.set(foreign.id, foreign);
+    // Queued in this order within one millisecond: the list keeps their creation order, not timestamp ties.
+    const at = new Date(Date.UTC(2026, 9, 4)).toISOString();
+    const waiting = ['First', 'Second', 'Third'].map(name => record({ name, state: 'queued', progress: 0, createdAt: at }));
+    const ownWaiting = record({ name: 'Mine queued', rendererId: mine, state: 'queued', progress: 0, createdAt: at });
+    for (const job of [waiting[0], ownWaiting, waiting[1], waiting[2]]) live.set(job.id, job);
     const listed = await listJobs(data, live, mine);
-    assert.equal(listed.length, 20);
-    assert.equal(listed[0].id, own.id); assert.equal(listed[0].file, own.file);
-    assert.equal(listed[0].format, 'mov'); assert.equal(listed[0].transparent, true, 'recent exports report their format');
-    assert.equal(listed[1].state, 'rendering', 'live progress wins over the persisted record');
+    assert.equal(listed.length, 25);
+    assert.deepEqual(listed.slice(0, 5).map(job => [job.name, job.state, job.position]), [['Clip', 'rendering', undefined], ['First', 'queued', 1], ['Mine queued', 'queued', 1], ['Second', 'queued', 2], ['Third', 'queued', 3]], 'each queue numbers its own waiting exports');
+    assert.equal(listed[0].progress, 50, 'live progress wins over the persisted record');
+    assert.equal(listed[5].id, own.id); assert.equal(listed[5].file, own.file);
+    assert.equal(listed[5].format, 'mov'); assert.equal(listed[5].transparent, true, 'recent exports report their format');
+    assert.equal(listed[6].id, jobs[22].id, 'finished jobs follow, newest first');
     assert.ok(!listed.some(job => job.id === foreign.id));
     assert.ok(listed.every(job => !('rendererId' in job) && !('project' in job)));
-    assert.ok(!(await listJobs(data, live)).some(job => job.id === own.id), 'browsers without a renderer see shared exports only');
+    assert.ok(!(await listJobs(data, live)).some(job => [own.id, ownWaiting.id].includes(job.id)), 'browsers without a renderer see shared exports only');
   } finally { await rm(data, { recursive: true, force: true }); }
+});
+
+test('local exports wait in a FIFO queue; a waiting export cancels without running and the queue is capped', async () => {
+  const data = await mkdtemp(path.join(tmpdir(), 'floc-queue-'));
+  const previous = process.env.FLOC_DATA_DIR;
+  process.env.FLOC_DATA_DIR = data;
+  try {
+    // Missing assets fail each export quickly once it starts, without rendering.
+    const project = name => ({ ...demoProject(), name, images: [{ id: 'missing', name: 'Missing', src: '/assets/12345678-1234-1234-1234-123456789abc.mp4' }] });
+    const [first, second, third] = [await startExport(project('First')), await startExport(project('Second')), await startExport(project('Third'))];
+    assert.deepEqual([second.state, third.state], ['queued', 'queued']);
+    assert.match(third.message, /Waiting/);
+    assert.equal((await stored(data, third.id)).state, 'queued', 'a waiting export is on disk for restart recovery');
+    assert.deepEqual((await listJobs(data, jobs)).slice(0, 3).map(job => [job.name, job.position]), [['First', undefined], ['Second', 1], ['Third', 2]]);
+    assert.equal((await cancelExport(second.id)).state, 'cancelled');
+    assert.equal((await stored(data, second.id)).state, 'cancelled');
+    assert.equal((await listJobs(data, jobs)).find(job => job.id === third.id).position, 1);
+    for (let i = 0; i < 2400 && !['failed', 'done'].includes(third.state); i++) await new Promise(resolve => setTimeout(resolve, 25));
+    assert.deepEqual([first.state, second.state, third.state], ['failed', 'cancelled', 'failed'], 'the cancelled export never ran');
+    assert.match(third.message, /not found|ENOENT|no such file/i);
+    await assert.rejects(access(path.join(data, 'renders', second.id, 'render.log')), { code: 'ENOENT' });
+
+    // A running export (a real render, which takes seconds) plus EXPORT_QUEUE_LIMIT waiting ones fill the queue.
+    const filled = [await startExport({ ...demoProject(), name: 'Running' })];
+    for (let i = 0; i < EXPORT_QUEUE_LIMIT; i++) filled.push(await startExport(project(`Fill ${i}`)));
+    assert.ok(filled.slice(1).every(job => job.state === 'queued'));
+    await assert.rejects(startExport(project('Overflow')), error => error.status === 429 && /Up to 50 exports/.test(error.message));
+    for (const job of filled.reverse()) await cancelExport(job.id);
+    assert.ok(filled.every(job => job.state === 'cancelled'));
+  } finally {
+    if (previous === undefined) delete process.env.FLOC_DATA_DIR; else process.env.FLOC_DATA_DIR = previous;
+    // The cancelled render may still be removing its intermediates.
+    await rm(data, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  }
 });
 
 test('cancelling a local export frees the queue and a later failure never overwrites it', async () => {

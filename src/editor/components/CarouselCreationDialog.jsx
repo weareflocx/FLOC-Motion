@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Trash, UploadSimple, X } from '@phosphor-icons/react';
-import { blankProject, demoProject, patchLayer, validateProject } from '../../project.js';
+import { PROJECT_LIMITS, blankProject, demoProject, patchLayer, validateProject } from '../../project.js';
 import { IconButton, Modal } from '../controls.jsx';
 import { uploadAssets } from '../upload-assets.js';
 import { MotionPreview } from './MotionPreview.jsx';
@@ -51,7 +51,7 @@ export function CarouselCreationDialog({ project, onCreate, onClose }) {
     const chosen = Array.from(event.target.files);
     event.target.value = '';
     if (!chosen.length || pending.current) return;
-    if (filesRef.current.length + chosen.length > 24) { setError('Use up to 24 carousel files.'); return; }
+    if (filesRef.current.length + chosen.length > PROJECT_LIMITS.maxImages) { setError(`Use up to ${PROJECT_LIMITS.maxImages} carousel files.`); return; }
     const unsupported = chosen.find(file => !acceptedFiles.split(',').includes(`.${file.name.split('.').at(-1).toLowerCase()}`));
     if (unsupported) { setError(`Unsupported file: ${unsupported.name}. Choose an image, SVG or video.`); return; }
     const oversized = chosen.find(file => file.size > 75e6);
@@ -77,7 +77,7 @@ export function CarouselCreationDialog({ project, onCreate, onClose }) {
         images.push({ id, src, name });
       }
       const next = patchLayer(draft, draft.layers[0].id, { images });
-      if (await onCreate(next.layers[0]) === false) throw new Error('Unable to create carousel. Use up to 20 layers.');
+      if (await onCreate(next.layers[0]) === false) throw new Error(`Unable to create carousel. Use up to ${PROJECT_LIMITS.maxLayers} layers.`);
       onClose();
     } catch (failure) { setError(failure.message); }
     finally { pending.current = false; setBusy(false); }
@@ -93,8 +93,8 @@ export function CarouselCreationDialog({ project, onCreate, onClose }) {
         <button type="button" className="outline-button" disabled={busy} onClick={() => { if (!pending.current) { setBrowsing(true); setError(''); } }}><ArrowLeft size={16}/>Change carousel</button>
       </aside>
       <section className="template-content-fields carousel-photos" aria-label="Carousel photos">
-        <div className="section-heading"><h3>Photos</h3><span>{files.length} / 24</span></div>
-        <button type="button" className="outline-button" disabled={busy || files.length >= 24} onClick={() => fileInput.current.click()}><UploadSimple size={16}/>Add photos</button>
+        <div className="section-heading"><h3>Photos</h3><span>{files.length} / {PROJECT_LIMITS.maxImages}</span></div>
+        <button type="button" className="outline-button" disabled={busy || files.length >= PROJECT_LIMITS.maxImages} onClick={() => fileInput.current.click()}><UploadSimple size={16}/>Add photos</button>
         <input ref={fileInput} hidden type="file" accept={acceptedFiles} multiple disabled={busy} onChange={chooseFiles}/>
         <div className="template-content-cards">{files.map((file, index) => <div className="template-content-card" key={index}>
           <FilePreview file={file}/>

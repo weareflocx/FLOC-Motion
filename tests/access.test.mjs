@@ -26,9 +26,10 @@ test('invited accounts, hashes, sessions and logout survive restarts without pub
   await assert.rejects(auth.accept({ token: invitation.token, email: invitation.email, password: 'short' }, 'test'), /12–128/);
   const accepted = await auth.accept({ token: invitation.token, email: invitation.email, password }, 'test');
   assert.equal(accepted.user.email, 'first@example.com');
-  assert.deepEqual(Object.keys(accepted.user).sort(), ['email', 'id']);
+  assert.deepEqual(Object.keys(accepted.user).sort(), ['email', 'id', 'role']);
+  assert.equal(accepted.user.role, 'admin', 'the bootstrap account administers the workspace');
   await assert.rejects(auth.accept({ token: invitation.token, email: invitation.email, password }, 'test'), /invalid or expired/);
-  const db = database(data), persisted = JSON.stringify(['users', 'sessions', 'invitations'].map(table => db.prepare(`SELECT * FROM ${table}`).all()));
+  const db = database(data), persisted = JSON.stringify(['users', 'sessions', 'invitations', 'audit_log'].map(table => db.prepare(`SELECT * FROM ${table}`).all()));
   assert(!persisted.includes(password)); assert(!persisted.includes(accepted.token)); assert(!persisted.includes(invitation.token));
   closeDatabase(data);
   const restarted = createAuthStore(data), cookie = sessionCookie(accepted.token, true);

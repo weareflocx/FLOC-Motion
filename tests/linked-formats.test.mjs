@@ -289,12 +289,13 @@ test('add, duplicate, remove, reorder and duration edits maintain the shared str
 });
 
 test('declared template content updates from a locked format remain shared', () => {
-  let p = patchLayer(demoProject(), 'headline', { contentField: 'Headline', locked: true });
+  const contentField = { id: 'headline', label: 'Headline', required: true, maxLength: 80 };
+  let p = patchLayer(demoProject(), 'headline', { contentField, locked: true });
   p = switchFormat(linkFormats(p), 'portrait');
   p = patchTemplateContent(p, 'headline', 'A shared replacement');
   const master = switchFormat(p, 'square');
   assert.equal(layer(master, 'headline').text, 'A shared replacement');
-  assert.equal(layer(master, 'headline').contentField, 'Headline');
+  assert.deepEqual(layer(master, 'headline').contentField, contentField);
   assert.equal(layer(master, 'headline').locked, true);
 });
 

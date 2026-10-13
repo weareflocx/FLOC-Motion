@@ -1,36 +1,17 @@
-export const MOTION_CURVES = [
-  ['native', 'Original'], ['linear', 'Linear'], ['smooth', 'Smooth'],
-  ['natural', 'Natural'], ['glide', 'Glide'], ['slow', 'Slow'],
-  ['vive', 'Vive'], ['bounce', 'Bounce'], ['elastic', 'Elastic']
-];
+import { EASINGS, easeProgress } from './easing.js';
+
+// Original keeps each family's own progress; every other curve comes from the shared library.
+export const MOTION_CURVES = [['native', 'Original'], ...EASINGS.map(({ id, name }) => [id, name])];
 export const DEFAULT_MOTION = Object.freeze({ mode: 'continuous', action: 1, pause: 0, curve: 'native', intensity: 0.5 });
 const clamp = value => Math.max(0, Math.min(1, value));
 const mod = (value, period) => ((value % period) + period) % period;
-export const smoothProgress = t => t * t * (3 - 2 * t);
-
-function bounce(t) {
-  if (t < 1 / 2.75) return 7.5625 * t * t;
-  if (t < 2 / 2.75) return 7.5625 * (t - 1.5 / 2.75) ** 2 + 0.75;
-  if (t < 2.5 / 2.75) return 7.5625 * (t - 2.25 / 2.75) ** 2 + 0.9375;
-  return 7.5625 * (t - 2.625 / 2.75) ** 2 + 0.984375;
-}
 
 // Progress, not wall-clock animation: preview, scrubbing and export use the same curve.
 export function motionEase(value, motion = DEFAULT_MOTION, original = clamp(value)) {
   const t = clamp(value);
   if (t === 0 || t === 1) return t;
   if (motion.curve === 'native' || motion.intensity === 0) return original;
-  const curves = {
-    linear: () => t,
-    smooth: () => smoothProgress(t),
-    natural: () => (1 - Math.cos(Math.PI * t)) / 2,
-    glide: () => 1 - (1 - t) ** 3,
-    slow: () => t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2,
-    vive: () => 1 - (1 - t) ** 5,
-    bounce: () => bounce(t),
-    elastic: () => 1 + 2 ** (-10 * t) * Math.sin((t * 10 - 0.75) * 2 * Math.PI / 3)
-  };
-  return original + (curves[motion.curve]() - original) * motion.intensity;
+  return original + (easeProgress(motion.curve, t) - original) * motion.intensity;
 }
 
 // This wipe's Glide is symmetric: the reveal edge accelerates, then settles.

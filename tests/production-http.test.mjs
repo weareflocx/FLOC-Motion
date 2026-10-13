@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, copyFile, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, copyFile, writeFile, symlink, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -17,7 +17,8 @@ test('production serves frontend bundles and uploaded media without mixing names
   let child;
   try {
     await mkdir(path.join(folder, 'server'));
-    for (const name of ['index.mjs', 'auth-store.mjs', 'draft-store.mjs', 'database.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'json-store.mjs', 'http-boundary.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'asset-upload.mjs', 'asset-storage.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
+    // Copy every server module so new imports never silently break this production start.
+    for (const name of (await readdir(path.join(root, 'server'))).filter(name => name.endsWith('.mjs'))) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
     await copyFile(path.join(root, 'package-lock.json'), path.join(folder, 'package-lock.json'));
     for (const name of ['node_modules', 'src', 'scripts']) await symlink(path.join(root, name), path.join(folder, name));
     await mkdir(path.join(folder, 'dist/assets'), { recursive: true });
@@ -142,6 +143,13 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.equal(restored.status, 200);
     assert.equal((await restored.json()).project.duration, composition.project.duration);
     assert.deepEqual((await (await request(versionsUrl)).json()).versions.map(item => [item.version, item.restoredFrom]), [[3, 1], [2, null], [1, null]]);
+    // Renderer outcomes are attributed to the account that queued the export.
+    const activity = (await (await request(`${base}/api/audit?limit=200`)).json()).entries;
+    for (const action of ['invitation.created', 'invitation.accepted', 'composition.created', 'composition.renamed', 'composition.deleted', 'composition.restored', 'renderer.paired', 'export.queued', 'export.finished']) assert(activity.some(entry => entry.action === action), `${action} is recorded`);
+    const finishedEntry = activity.find(entry => entry.action === 'export.finished');
+    assert.equal(finishedEntry.target.id, personalJob.id);
+    assert.equal(finishedEntry.actor.email, 'production-test@example.com');
+    assert.deepEqual(activity.find(entry => entry.action === 'renderer.paired').details, { name: 'Test computer' });
     child.kill('SIGTERM'); await once(child, 'exit');
     await start();
     assert.equal((await (await request(`${base}/api/auth/session`)).json()).user.email, 'production-test@example.com', 'sessions survive a restart');

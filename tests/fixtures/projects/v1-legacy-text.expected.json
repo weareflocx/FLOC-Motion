@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "name": "Legacy text entrances",
   "format": "portrait",
   "duration": 10,
@@ -143,7 +143,11 @@
       "fadeIn": 0,
       "fadeOut": 0,
       "rise": false,
-      "contentField": "Headline",
+      "contentField": {
+        "id": "headline",
+        "label": "Headline",
+        "required": false
+      },
       "choreography": [
         {
           "id": "a",

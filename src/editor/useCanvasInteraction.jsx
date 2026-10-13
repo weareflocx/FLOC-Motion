@@ -6,9 +6,15 @@ import { alignmentPlacement, DEFAULT_LAYOUT } from '../layout.js';
 import { dragOrientation, wrapDegrees } from '../orientation.js';
 import { evaluateChoreography } from '../choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from './canvas-resize.js';
+import { layerPosition, measureLayerBounds } from './layer-bounds.js';
+import { transformableLayers } from './selection.js';
+import { groupPositions, selectionBounds } from './arrange.js';
 
 // Drag previews commit on release; wheel previews commit after scrolling or before history/selection changes.
-export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, selected, time, clock, onSelect, onPatch, onPreview, onPendingEdit, enabled = true }) {
+// With several layers selected, dragging or nudging any member moves every transformable member as one edit.
+export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, selected, selection: selectionIds, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, enabled = true }) {
+  const selectedIds = selectionIds ?? (selected == null ? [] : [selected]);
+  const multi = selectedIds.length > 1;
   const gesture = useRef(null);
   const wheelDraft = useRef(null);
   // Gestures read the live clock: while playing, `time` stays at the playback origin.
@@ -31,7 +37,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   }, [onPendingEdit, onPreview, onPatch]);
   function cancel() { gesture.current = null; cancelWheel(); setDraft(null); onPreview(null); }
   useEffect(() => {
-    if (gesture.current && (!enabled || gesture.current.layer.id !== selected || gesture.current.project !== project)) cancel();
+    if (gesture.current && (!enabled || !gesture.current.group && !gesture.current.toggle && gesture.current.layer.id !== selected || gesture.current.project !== project)) cancel();
     const edit = wheelDraft.current;
     if (edit && (!enabled || edit.project !== project)) cancelWheel();
     else if (edit && edit.layer.id !== selected) commitWheel();
@@ -40,7 +46,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   useEffect(() => {
     const node = root.current?.parentElement ?? root.current;
     function wheel(event) {
-      if (!enabled || event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
+      if (!enabled || multi || event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
       event.preventDefault();
       onSelect(layer.id);
       const size = canvasWheelSize(layer, event.deltaY, wheelDraft.current?.size ?? layer.size);
@@ -53,11 +59,11 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     }
     node?.addEventListener('wheel', wheel, { passive: false });
     return () => node?.removeEventListener('wheel', wheel);
-  }, [project, selected, time, layer?.size, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
+  }, [project, selected, multi, time, layer?.size, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
   useEffect(() => {
     for (const l of project.layers) {
       const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model', 'background'].includes(l.type)) continue;
-      node.classList.toggle('canvas-selected', l.id === selected && l.type !== 'carousel');
+      node.classList.toggle('canvas-selected', selectedIds.includes(l.id) && l.type !== 'carousel');
       const visible = l.visible && time >= l.start && time < l.end;
       node.tabIndex = visible && enabled ? 0 : -1; node.setAttribute('role', 'button');
       node.setAttribute('aria-disabled', String(!enabled));
@@ -66,7 +72,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       node.style.pointerEvents = enabled ? 'auto' : 'none';
       node.draggable = false;
     }
-  }, [project, selected, time, sceneKey, enabled]);
+  }, [project, selected, selectionIds, time, sceneKey, enabled]);
   function pick(x, y) {
     const box = root.current.getBoundingClientRect();
     for (const source of [...project.layers].reverse()) {
@@ -85,13 +91,18 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     if (!enabled || event.button !== 0 || gesture.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
     const resize = event.target.closest('[data-canvas-resize]');
-    const selection = event.target.closest('[data-canvas-move]');
-    const ringLayer = (ring || resize || selection) && project.layers.find(l => l.id === selected && l.type !== 'music');
+    const transformBox = event.target.closest('[data-canvas-move]');
+    const ringLayer = (ring || resize || transformBox) && project.layers.find(l => l.id === selected && l.type !== 'music');
     const l = ringLayer ? evaluateChoreography(ringLayer, playhead()) : pick(event.clientX, event.clientY);
-    if (!l) { commitWheel(); onSelect(null); onPreview(null); return; }
+    // Shift/⌘/Ctrl-click toggles a layer; the same modifiers keep their drag meanings.
+    const toggle = !ringLayer && !event.altKey && (event.shiftKey || event.metaKey || event.ctrlKey);
+    if (!l) { if (!toggle) { commitWheel(); onSelect(null); onPreview(null); } return; }
     if (wheelDraft.current) return;
-    event.preventDefault(); onSelect(l.id);
+    event.preventDefault();
     nodeFor(l.id)?.focus({ preventScroll: true });
+    if (multi && !ringLayer && selectedIds.includes(l.id)) { beginGroup(event, l, toggle); return; }
+    if (toggle && l.locked) { onToggle?.(l.id); return; }
+    if (!toggle) onSelect(l.id);
     if (l.locked) return;
     const box = root.current.getBoundingClientRect();
     const b = nodeFor(l.id).getBoundingClientRect();
@@ -111,14 +122,23 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const bounds = resizing && measured;
     const initial = orient ? spatial ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { roll: l.roll ?? 0 } : ['carousel', 'background'].includes(l.type) ? { x: l.x ?? 0, y: l.y ?? 0 } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top), ...(resizing ? { size: l.size } : {}) };
     const visualOffset = !orient && ['text', 'logo', 'media'].includes(l.type) ? { x: (b.left - box.left) / box.width * 100 - initial.x, y: (b.top - box.top) / box.height * 100 - initial.y } : { x: 0, y: 0 };
-    const at = playhead(), targets = project.layers.filter(other => other.id !== l.id && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at)).flatMap(other => {
-      if (other.type === 'carousel') return [{ x: other.x, y: other.y, width: 0, height: 0 }];
-      const node = nodeFor(other.id); if (!node || !['text', 'logo', 'media', 'model'].includes(other.type)) return [];
-      const rect = node.getBoundingClientRect();
-      return [{ x: (rect.left - box.left) / box.width * 100, y: (rect.top - box.top) / box.height * 100, width: rect.width / box.width * 100, height: rect.height / box.height * 100 }];
-    });
+    const at = playhead(), targets = measureLayerBounds(root.current, project.layers.filter(other => other.id !== l.id && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at)));
     const visualBounds = { x: (b.left - box.left) / box.width * 100, y: (b.top - box.top) / box.height * 100, width: b.width / box.width * 100, height: b.height / box.height * 100 };
-    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false };
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false, toggle };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function members(at) {
+    const layers = transformableLayers(project, selectedIds, at);
+    return { layers, members: layers.map(item => ({ id: item.id, type: item.type, start: layerPosition(root.current, item) })) };
+  }
+  const changedPositions = (positions, list) => positions.filter(position => {
+    const member = list.find(item => item.id === position.id);
+    return position.x !== member.start.x || position.y !== member.start.y;
+  });
+  function beginGroup(event, l, toggle) {
+    const at = playhead(), box = root.current.getBoundingClientRect(), group = members(at);
+    const others = project.layers.filter(other => !selectedIds.includes(other.id) && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at));
+    gesture.current = { id: event.pointerId, group: true, toggle, layer: l, project, box, members: group.members, bounds: selectionBounds(measureLayerBounds(root.current, group.layers)), targets: measureLayerBounds(root.current, others), latest: null, x: event.clientX, y: event.clientY, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event) {
@@ -126,6 +146,18 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const dx = event.clientX - g.x, dy = event.clientY - g.y;
     if (!g.moved && Math.hypot(dx, dy) < 3) return;
     g.moved = true;
+    if (g.group) {
+      if (!g.members.length) return;
+      let shiftX = dx / g.box.width * 100, shiftY = dy / g.box.height * 100, guides;
+      if (!event.shiftKey && layout.guides && g.bounds) {
+        const snapped = alignmentPlacement({ x: g.bounds.x + shiftX, y: g.bounds.y + shiftY }, g.bounds, g.targets, layout, { x: 600 / g.box.width, y: 600 / g.box.height }, { constrain: false });
+        shiftX = snapped.x - g.bounds.x; shiftY = snapped.y - g.bounds.y; guides = snapped.guides;
+      }
+      g.latest = groupPositions(g.members, shiftX, shiftY);
+      setDraft({ group: true });
+      onPreview({ layers: Object.fromEntries(g.latest.map(({ id, x, y }) => [id, { x, y }])), guides });
+      return;
+    }
     if (g.resize && g.bounds) {
       const v = g.vector;
       const ratio = ((event.clientX - g.center.x) * v.x + (event.clientY - g.center.y) * v.y) / (v.x * v.x + v.y * v.y);
@@ -160,10 +192,18 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const g = gesture.current; if (!g || g.id !== event.pointerId) return;
     cancel();
     if (event.currentTarget.hasPointerCapture(g.id)) event.currentTarget.releasePointerCapture(g.id);
+    if (g.group) {
+      if (aborted) return;
+      const positions = g.moved && g.latest ? changedPositions(g.latest, g.members) : [];
+      if (positions.length) onMoveGroup(positions);
+      else if (!g.moved) { if (g.toggle) onToggle?.(g.layer.id); else onSelect(g.layer.id); }
+      return;
+    }
     if (!aborted && g.moved) {
       const { gridIndex, guides, ...patch } = g.latest;
+      if (g.toggle) onSelect(g.layer.id);
       if (Object.keys(patch).some(key => patch[key] !== g.initial[key])) onPatch(g.layer.id, patch);
-    }
+    } else if (!aborted && g.toggle) onToggle?.(g.layer.id);
   }
   function keys(event) {
     if (!enabled) return;
@@ -171,7 +211,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       event.preventDefault();
       const editing = gesture.current || wheelDraft.current;
       cancel();
-      if (!editing) onSelect(null);
+      if (!editing) onSelect(multi ? selected : null);
       return;
     }
     const target = event.target.closest('[data-floc-layer]');
@@ -179,7 +219,19 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const at = playhead(), l = source && evaluateChoreography(source, at);
     if (!l || !l.visible || at < l.start || at >= l.end) return;
     if (event.key === 'Enter') { event.preventDefault(); onSelect(l.id); return; }
-    if (l.locked || gesture.current || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const arrow = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key);
+    if (arrow && multi && !gesture.current && selectedIds.includes(l.id) && !event.altKey && !event.target.closest('[data-canvas-ring], [data-canvas-resize]')) {
+      event.preventDefault();
+      commitWheel();
+      const [w, h] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
+      const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+      const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+      const group = members(at).members;
+      const positions = changedPositions(groupPositions(group, dx * step / w * 100, dy * step / h * 100), group);
+      if (positions.length) onMoveGroup(positions);
+      return;
+    }
+    if (l.locked || gesture.current || !arrow) return;
     event.preventDefault(); onSelect(l.id);
     commitWheel();
     const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
@@ -211,7 +263,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       onPatch(l.id, { x: Math.max(0, Math.min(95, position.x + next.x - visual.x)), y: Math.max(0, Math.min(95, position.y + next.y - visual.y)) });
     }
   }
-  const editable = enabled && layer && !['music', 'effect'].includes(layer.type) && layer.visible && time >= layer.start && time < layer.end && !layer.locked ? layer : null;
+  const editable = enabled && !multi && layer && !['music', 'effect'].includes(layer.type) && layer.visible && time >= layer.start && time < layer.end && !layer.locked ? layer : null;
   const node = editable && nodeFor(editable.id);
   const frame = root.current?.getBoundingClientRect();
   const box = node?.getBoundingClientRect();
@@ -229,5 +281,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     <button type="button" className="canvas-rotate-handle" data-canvas-ring="true" aria-label={`Rotate ${editable.name}: drag or use arrow keys; Escape cancels`}/>
     {fitLabel && <span className="canvas-fit-label" role="status">{fitLabel}</span>}
   </div> : null;
-  return { ring: selection ?? ring, handlers: { onPointerDown: begin, onPointerMove: move, onPointerUp: finish, onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: keys, onDragStart: e => e.preventDefault() } };
+  // The group outline is measured at render time like the transform box; members keep their own outlines while dragging.
+  const groupRect = enabled && multi && !draft?.group && root.current ? selectionBounds(measureLayerBounds(root.current, project.layers.filter(l => selectedIds.includes(l.id) && l.visible && time >= l.start && time < l.end).map(l => evaluateChoreography(l, time)))) : null;
+  const groupBox = groupRect ? <div className="canvas-group-box" aria-hidden="true" style={{ left: `${groupRect.x}%`, top: `${groupRect.y}%`, width: `${groupRect.width}%`, height: `${groupRect.height}%`, '--selection-line': `${1 / scale}px` }}/> : null;
+  return { ring: selection ?? ring ?? groupBox, handlers: { onPointerDown: begin, onPointerMove: move, onPointerUp: finish, onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: keys, onDragStart: e => e.preventDefault() } };
 }

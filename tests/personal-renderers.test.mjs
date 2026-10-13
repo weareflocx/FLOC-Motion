@@ -30,7 +30,6 @@ test('personal renderers isolate parallel jobs, credentials, progress and downlo
     const project = demoProject(); project.duration = 1; for (const layer of project.layers) { layer.end = 1; layer.fadeIn = 0; layer.fadeOut = 0; }
     const [ja, jb] = await Promise.all([service.enqueue(a.browser, project, {}), service.enqueue(b.browser, project, {})]);
     assert.notEqual(ja.rendererId, jb.rendererId);
-    await assert.rejects(service.enqueue(a.browser, project, {}), /already exporting/);
     await assert.rejects(service.startPairing(a.cookie), /finish/);
     assert.equal((await service.claim(a.engine, { version })).id, ja.id);
     assert.equal(await service.claim(a.engine, { version }), null);
@@ -76,6 +75,50 @@ test('personal renderers isolate parallel jobs, credentials, progress and downlo
     await service.finishPairing({ code: reconnect.code, name: 'New Mac', version });
     assert.equal(await service.engine(`Bearer ${a.credentials.token}`), null, 'old engine credential is revoked');
     assert.equal((await service.job(a.browser, ja.id)).state, 'done');
+  } finally { await rm(data, { recursive: true, force: true }); }
+});
+
+test('a renderer takes queued exports in order, one at a time; queued ones cancel and expire', async () => {
+  const data = await mkdtemp(path.join(os.tmpdir(), 'floc-personal-queue-'));
+  let clock = 100000;
+  const version = 'current', service = createPersonalRenderers({ data, jobs: new Map(), version, now: () => clock });
+  try {
+    const pairing = await service.startPairing();
+    const credentials = await service.finishPairing({ code: pairing.code, name: 'Mac', version });
+    const browser = await service.browser(rendererCookie(pairing.key, false)), engine = await service.engine(`Bearer ${credentials.token}`);
+    await service.claim(engine, { version });
+    const project = demoProject(); project.duration = 1; for (const layer of project.layers) { layer.end = 1; layer.fadeIn = 0; layer.fadeOut = 0; }
+    const queued = [];
+    for (const name of ['A', 'B', 'C', 'D']) queued.push(await service.enqueue(browser, { ...project, name }, {}));
+    assert.deepEqual(queued.map(job => job.state), ['queued', 'queued', 'queued', 'queued']);
+    assert.deepEqual(await service.status(browser).then(status => [status.busy, status.queued]), [true, 4]);
+    const stored = id => readFile(path.join(data, 'renders', id, 'job.json'), 'utf8').then(JSON.parse);
+    assert.equal((await stored(queued[3].id)).state, 'queued', 'waiting exports are on disk for restart recovery');
+
+    const first = await service.claim(engine, { version });
+    assert.equal(first.id, queued[0].id); assert.equal(first.project.name, 'A');
+    assert.equal(await service.claim(engine, { version }), null, 'one export at a time');
+    const cancelled = await service.cancel(browser, queued[1].id);
+    assert.equal(cancelled.state, 'cancelled');
+    assert.equal((await stored(queued[1].id)).state, 'cancelled');
+    await service.complete(engine, first.id, { file: 'Movies/FLOC Motion/A.mp4', duration: 1 });
+    assert.equal((await service.claim(engine, { version })).id, queued[2].id, 'the cancelled export is skipped');
+    await service.update(engine, queued[2].id, { state: 'failed', message: 'GPU lost' });
+    assert.equal((await service.claim(engine, { version })).id, queued[3].id, 'a failure moves on to the next export');
+    await service.complete(engine, queued[3].id, { file: 'Movies/FLOC Motion/D.mp4', duration: 1 });
+    assert.equal(await service.claim(engine, { version }), null);
+    assert.equal((await service.status(browser)).busy, false);
+
+    // The queue holds 50 waiting exports; a disconnected renderer fails its current and waiting exports.
+    const waiting = [];
+    for (let i = 0; i < 50; i++) waiting.push(await service.enqueue(browser, project, {}));
+    await assert.rejects(service.enqueue(browser, project, {}), error => error.status === 429 && /Up to 50 exports/.test(error.message));
+    await service.claim(engine, { version });
+    await service.enqueue(browser, project, {});
+    clock += 91000;
+    assert.deepEqual(await service.status(browser).then(status => [status.busy, status.queued]), [false, 0]);
+    assert.ok(waiting.every(job => job.state === 'failed' && /disconnected/.test(job.message)));
+    assert.equal((await stored(waiting[49].id)).state, 'failed');
   } finally { await rm(data, { recursive: true, force: true }); }
 });
 

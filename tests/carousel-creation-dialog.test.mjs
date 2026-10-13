@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { blankProject, demoProject, patchLayer, validateProject, TEMPLATES } from '../src/project.js';
+import { PROJECT_LIMITS, blankProject, demoProject, patchLayer, validateProject, TEMPLATES } from '../src/project.js';
 import { CATALOG } from '../src/catalog.js';
 import { DEFAULT_MOTION, motionBaseline } from '../src/motion-timing.js';
 
@@ -24,7 +24,7 @@ function harness({ upload = async files => files.map(file => ({ id: file.name, n
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     ArrowLeft() {}, ArrowRight() {}, Trash() {}, UploadSimple() {}, X() {}, Modal() {}, IconButton() {}, MotionPreview() {}, PresetBrowser() {},
-    blankProject, demoProject, patchLayer, validateProject,
+    PROJECT_LIMITS, blankProject, demoProject, patchLayer, validateProject,
     useId: () => 'carousel-creation', useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value: typeof value === 'function' ? value() : value }; return [slots[i].value, next => { slots[i].value = typeof next === 'function' ? next(slots[i].value) : next; }]; },
@@ -101,7 +101,7 @@ test('cancelling either step creates no layer and uploads no files', () => {
 
 test('invalid, oversized and excessive files preserve the valid photo selection', () => {
   const h = harness(); h.select(); h.choose([file('good.png')]);
-  for (const invalid of [[file('audio.mp3')], [file('large.mp4', 75e6 + 1)], Array(24).fill(file('extra.png'))]) {
+  for (const invalid of [[file('audio.mp3')], [file('large.mp4', 75e6 + 1)], Array(PROJECT_LIMITS.maxImages).fill(file('extra.png'))]) {
     h.choose(invalid);
     assert(h.find(node => node.props.role === 'alert'));
     assert.deepEqual(h.fileNames(), ['good.png']);
@@ -190,7 +190,7 @@ test('Add layer enters carousel selection without calling the creation action', 
   const slots = []; let cursor = 0, adds = 0, closes = 0;
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    DotsNine() {}, ImageSquare() {}, Images() {}, Plus() {}, Sparkle() {}, TextT() {}, UploadSimple() {}, X() {}, Modal() {}, IconButton() {}, CarouselCreationDialog() {},
+    DotsNine() {}, ImageSquare() {}, Images() {}, Plus() {}, Sparkle() {}, TextT() {}, UploadSimple() {}, X() {}, Modal() {}, IconButton() {}, CarouselCreationDialog() {}, PROJECT_LIMITS,
     useState(initial) { const i = cursor++; slots[i] ??= initial; return [slots[i], next => { slots[i] = next; }]; }
   };
   vm.createContext(context); vm.runInContext(addCompiled + '\nthis.component = AddLayerDialog;', context);
@@ -205,7 +205,7 @@ test('confirmed carousel is appended with its preset and photos as one edit usin
   const projectRef = { current: validateProject(demoProject()) };
   const original = structuredClone(projectRef.current);
   let selected, tab, edits = 0;
-  const context = { useCallback: fn => fn, crypto: { randomUUID: () => 'new-carousel' }, demoProject };
+  const context = { useCallback: fn => fn, crypto: { randomUUID: () => 'new-carousel' }, demoProject, PROJECT_LIMITS };
   vm.createContext(context); vm.runInContext(actionsCompiled + '\nthis.actions = useCompositionActions;', context);
   const actions = context.actions({ project: original, projectRef, change(next) { projectRef.current = validateProject(next); edits++; return projectRef.current; }, setSelected(id) { selected = id; }, setLeftTab(value) { tab = value; } });
   const chosen = { ...original.layers.find(layer => layer.type === 'carousel'), template: 'depth', images: [original.images[1], original.images[0]], id: 'carousel-draft' };
@@ -216,7 +216,7 @@ test('confirmed carousel is appended with its preset and photos as one edit usin
   assert.equal(added.template, 'depth');
   assert.deepEqual(added.images, chosen.images);
   assert.deepEqual(projectRef.current.layers.slice(0, -1), original.layers);
-  projectRef.current.layers = Array(20).fill(original.layers[0]);
+  projectRef.current.layers = Array(PROJECT_LIMITS.maxLayers).fill(original.layers[0]);
   assert.equal(actions.addLayer('carousel', chosen), false);
   assert.equal(edits, 1);
 });

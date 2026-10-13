@@ -4,6 +4,7 @@ import { FORMATS } from '../../project.js';
 import { IconButton } from '../controls.jsx';
 import { Stage } from '../Stage.jsx';
 import { usePlaybackTime } from '../usePlayback.js';
+import { ArrangeControls } from './ArrangeControls.jsx';
 
 const timeLabel = (seconds, fps) => {
   const totalFrames = Math.floor(seconds * fps + 0.00001);
@@ -22,8 +23,8 @@ function Timecode({ clock, fps, duration }) {
   </span>;
 }
 
-export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, clock, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, onSelect, onPatch, onPreview, onPendingEdit }) {
-  const [zoom, setZoom] = useState('fit');
+// `zoom` is owned by the app so commands can fit or reset the view.
+export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, clock, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, selection = selected == null ? [] : [selected], onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, zoom, onZoom, arrange, onArrange }) {
   const [panning, setPanning] = useState(false);
   const [viewport, setViewport] = useState({ scale: 1, canPan: false });
   const pendingEdit = useRef();
@@ -32,16 +33,19 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
     if (!next.canPan) setPanning(false);
     setViewport(current => current.scale === next.scale && current.canPan === next.canPan ? current : next);
   }, []);
-  function changeZoom(value) { pendingEdit.current?.(); setPanning(false); setZoom(value); }
-  const selectedLayer = project.layers.find(layer => layer.id === selected && layer.visible && !layer.locked && time >= layer.start && time < layer.end && !['music', 'effect'].includes(layer.type));
+  function changeZoom(value) { pendingEdit.current?.(); setPanning(false); onZoom(value); }
+  const multi = selection.length > 1;
+  const selectedLayer = !multi && project.layers.find(layer => layer.id === selected && layer.visible && !layer.locked && time >= layer.start && time < layer.end && !['music', 'effect'].includes(layer.type));
   return <section className="center-panel">
     <div className="preview-wrap">
-      <Stage nudge={nudge} selected={selected} onSelect={onSelect} onPatch={onPatch} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
+      <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
       {ready && !panning && selectedLayer && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · Esc cancels</div>}
+      {ready && !panning && multi && <div className="canvas-gesture-hint">{selection.length} layers · Drag any to move together · Shift-click toggles · Esc clears</div>}
       <div className="canvas-toolbar">
         <div className="canvas-meta" role="group" aria-label="Edit history"><IconButton label="Undo last edit (⌘/Ctrl+Z)" disabled={!history.length && !canvasEditing} onClick={onUndo}><ArrowCounterClockwise size={17}/></IconButton><IconButton label="Redo last edit (⌘/Ctrl+Shift+Z)" disabled={!future.length || canvasEditing} onClick={onRedo}><ArrowClockwise size={17}/></IconButton></div>
         <IconButton label="Nudge amount" onClick={onOpenNudge}><SlidersHorizontal size={17}/></IconButton>
+        {arrange?.canAlign && <ArrangeControls className="canvas-arrange" target={arrange.target} canAlign={arrange.canAlign} canDistribute={arrange.canDistribute} onArrange={value => { pendingEdit.current?.(); onArrange(value); }}/>}
         <div className="canvas-zoom" role="group" aria-label="Canvas view">
           <button type="button" title={`Fit ${FORMATS[project.format].join(' × ')} canvas to view`} aria-pressed={zoom === 'fit'} onClick={() => changeZoom('fit')}>Fit</button>
           <IconButton label="Zoom out" disabled={viewport.scale <= 0.05} onClick={() => changeZoom(Math.max(0.05, viewport.scale / 1.25))}><Minus size={14}/></IconButton>

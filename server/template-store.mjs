@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateProject } from '../src/project.js';
 import { database, transaction, UUID } from './database.mjs';
+import { createAuditLog } from './audit-log.mjs';
 
 export const VERSION_LIMIT = 100;
 // Autosaves from one author within this window refine their newest save version instead of adding one.
@@ -17,7 +18,8 @@ const versionNumber = value => { const number = Number(value); if (!Number.isSaf
 const versionMetadata = row => ({ version: row.version, name: row.name, createdAt: row.created_at, author: row.author_id ? { id: row.author_id, email: row.author_email } : null, restoredFrom: row.restored_from ?? null });
 
 export function createTemplateStore(data, { now = Date.now } = {}) {
-  const db = database(data);
+  const db = database(data), audit = createAuditLog(data, { now });
+  const logComposition = (userId, action, id, details) => audit.record({ actorId: userId ?? null, action, target: { type: 'composition', id }, details });
   function row(id) {
     if (!UUID.test(id)) throw new Error('Invalid template ID.');
     const saved = db.prepare('SELECT id, name, tags, project, created_at, updated_at FROM templates WHERE id = ?').get(id);
@@ -89,6 +91,7 @@ export function createTemplateStore(data, { now = Date.now } = {}) {
       const stamp = new Date().toISOString();
       const value = write({ id: randomUUID(), ...fields, project, createdAt: stamp, updatedAt: stamp });
       recordVersion(value.id, value, { kind: 'create', userId });
+      logComposition(userId, 'composition.created', value.id, { name: value.name });
       return value;
     }),
     update: async (id, input, { userId } = {}) => transaction(db, () => {
@@ -98,6 +101,7 @@ export function createTemplateStore(data, { now = Date.now } = {}) {
       const project = input.project ? validateProject(input.project) : current.project;
       const value = write({ ...current, ...fields, project, updatedAt: nextUpdatedAt(current) });
       if (value.name !== current.name || JSON.stringify(project) !== JSON.stringify(current.project)) recordVersion(id, value, { kind: 'save', userId });
+      if (value.name !== current.name) logComposition(userId, 'composition.renamed', id, { from: current.name, to: value.name });
       return value;
     }),
     versions: async id => {
@@ -113,8 +117,13 @@ export function createTemplateStore(data, { now = Date.now } = {}) {
       const saved = version(id, number);
       const value = write({ ...current, name: metadata({ ...current, name: saved.name }).name, project: saved.project, updatedAt: nextUpdatedAt(current) });
       recordVersion(id, value, { kind: 'restore', userId, restoredFrom: saved.version });
+      logComposition(userId, 'composition.restored', id, { name: value.name, version: saved.version });
       return value;
     }),
-    remove: async id => { row(id); db.prepare('DELETE FROM templates WHERE id = ?').run(id); }
+    remove: async (id, { userId } = {}) => transaction(db, () => {
+      const { name } = row(id);
+      db.prepare('DELETE FROM templates WHERE id = ?').run(id);
+      logComposition(userId, 'composition.deleted', id, { name });
+    })
   };
 }

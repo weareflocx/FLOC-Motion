@@ -1,10 +1,18 @@
 import React from 'react';
 import { Diamond, Trash } from '@phosphor-icons/react';
-import { CHOREOGRAPHY_EASINGS, captureState, moveState, stateAtTime } from '../../choreography.js';
+import { capturedProperties, captureState, moveState, stateAtTime } from '../../choreography.js';
+import { EASINGS, EASING_GROUPS, easeProgress, isCubicBezier } from '../../easing.js';
 import { IconButton, NumberField } from '../controls.jsx';
 
 export const supportsChoreography = layer => ['text', 'logo', 'carousel', 'media', 'model', 'effect'].includes(layer?.type);
 const formatTime = time => `${Number(time).toFixed(2)} s`;
+const CUSTOM_EASING = [0.25, 0.1, 0.25, 1];
+const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
+// Progress 0 and 1 sit inside the box, leaving room for overshoot.
+const easingPath = easing => Array.from({ length: 49 }, (_, i) => {
+  const t = i / 48;
+  return `${i ? 'L' : 'M'}${(6 + t * 60).toFixed(1)} ${(34 - easeProgress(easing, t) * 22).toFixed(1)}`;
+}).join('');
 
 export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek }) {
   if (!supportsChoreography(layer)) return null;
@@ -13,10 +21,12 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
   const selected = stateAtTime(layer, time, fps);
   const insideClip = time >= layer.start && time <= layer.end;
   const outsideCount = states.filter(state => state.time > layer.end - layer.start).length;
+  const custom = Array.isArray(selected?.easing);
 
+  // Saving captures every property this layer can animate, including effect amounts.
   function saveState() {
     const at = selected ? layer.start + selected.time : time;
-    onPatch(layer.id, { choreography: captureState(layer, at, fps) });
+    onPatch(layer.id, { choreography: captureState(layer, at, fps, {}, undefined, { all: true }) });
   }
 
   function changeTime(absoluteTime) {
@@ -24,6 +34,16 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
     const moved = choreography.find(state => state.id === selected.id);
     onPatch(layer.id, { choreography });
     if (moved) onSeek(layer.start + moved.time);
+  }
+
+  const setEasing = easing => onPatch(layer.id, { choreography: states.map(state => state.id === selected.id ? { ...state, easing } : state) });
+
+  function commitBezier(event) {
+    const input = event.currentTarget, parts = input.value.split(',').map(part => part.trim());
+    const values = parts.map(Number);
+    if (parts.length !== 4 || !parts.every(part => DECIMAL.test(part)) || !isCubicBezier(values)) { input.setAttribute('aria-invalid', 'true'); return; }
+    input.removeAttribute('aria-invalid');
+    if (values.some((value, i) => value !== selected.easing[i])) setEasing(values);
   }
 
   return <div className="timeline-choreography-controls" role="group" aria-label="Choreography">
@@ -40,9 +60,17 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
     </select></label>
     {selected && <fieldset className="timeline-edit-fields" disabled={layer.locked}>
       <NumberField scale={1000} suffix="ms" label="State time" value={layer.start + selected.time} min={layer.start} max={layer.end} step={1 / fps} onChange={changeTime}/>
-      <label className="timeline-state-picker"><span>Easing</span><select aria-label="Transition into state" value={selected.easing} onChange={event => onPatch(layer.id, { choreography: states.map(state => state.id === selected.id ? { ...state, easing: event.target.value } : state) })}>{CHOREOGRAPHY_EASINGS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+      <label className="timeline-state-picker"><span>Easing</span><select aria-label="Transition into state" value={custom ? 'custom' : selected.easing} onChange={event => setEasing(event.target.value === 'custom' ? CUSTOM_EASING : event.target.value)}>
+        {EASING_GROUPS.map(group => <optgroup key={group} label={group}>{EASINGS.filter(easing => easing.group === group).map(easing => <option key={easing.id} value={easing.id}>{easing.name}</option>)}</optgroup>)}
+        <optgroup label="Custom"><option value="custom">Cubic bézier</option></optgroup>
+      </select></label>
       <IconButton label={`Remove state at ${formatTime(layer.start + selected.time)}`} onClick={() => onPatch(layer.id, { choreography: states.filter(state => state.id !== selected.id) })}><Trash size={15} aria-hidden="true"/></IconButton>
+      <div className="timeline-easing">
+        <svg className="timeline-easing-curve" viewBox="0 0 72 44" role="img" aria-label="Transition curve into this state"><path className="timeline-easing-axis" d="M6 34H66M6 12H66"/><path className="timeline-easing-path" d={easingPath(selected.easing)}/></svg>
+        {custom && <label className="timeline-state-picker"><span>Bézier</span><input key={`${selected.id}:${selected.easing.join()}`} aria-label="Custom cubic bézier" title="x1, y1, x2, y2. Both x values between 0 and 1." defaultValue={selected.easing.join(', ')} spellCheck={false} onBlur={commitBezier} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitBezier(event); } }}/></label>}
+      </div>
     </fieldset>}
+    {selected && <p className="timeline-controls-note">Holds {capturedProperties(selected).join(', ')}.</p>}
     {outsideCount > 0 && <p className="timeline-controls-note">{outsideCount} {outsideCount === 1 ? 'state is' : 'states are'} beyond this layer’s duration. Extend the duration to include {outsideCount === 1 ? 'it' : 'them'}.</p>}
   </div>;
 }

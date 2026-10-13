@@ -1,9 +1,12 @@
 import { choreographyFields, evaluateChoreography } from './choreography.js';
-import { fontDefinition } from './fonts.js';
+import { fontDefinition, textFontValid, workspaceFontId } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
+import { PROJECT_LIMITS } from './project-limits.js';
 
 // These are the only per-format properties. Content, timing and motion stay
 // on the effective project; choreography caches only the local pose by state ID.
+// Opacity and every optional state value (color, typography, shader and effect
+// amounts) are shared by all formats.
 export const FORMAT_LOCAL_FIELDS = Object.freeze({
   text: ['x', 'y', 'roll', 'size', 'width', 'font', 'weight', 'lineHeight', 'letterSpacing', 'textAlign', 'choreography'],
   logo: ['x', 'y', 'roll', 'size', 'choreography'],
@@ -69,7 +72,7 @@ function validateLocalFields(local, layer, pose = false) {
         validateLocalFields(values, layer, true);
       }
     } else if (key === 'font') {
-      if (typeof value !== 'string' || !fontDefinition(value)) fail('Unknown linked text font.');
+      if (typeof value !== 'string' || !(fontDefinition(value) || workspaceFontId(value))) fail('Unknown linked text font.');
     } else if (key === 'weight') {
       if (!Number.isInteger(value) || value < 100 || value > 900 || value % 100) fail('Invalid linked text weight.');
     } else if (key === 'fit') {
@@ -78,7 +81,7 @@ function validateLocalFields(local, layer, pose = false) {
       if (!['left', 'center', 'right'].includes(value)) fail('Unknown linked text alignment.');
     } else if (!bounds[key] || !numeric(value, bounds[key])) fail(`Invalid linked ${key}.`);
   }
-  if (local.font !== undefined && local.weight !== undefined && !fontDefinition(local.font).weights.includes(local.weight)) fail('Unknown linked text style.');
+  if (local.font !== undefined && local.weight !== undefined && !textFontValid(local.font, local.weight)) fail('Unknown linked text style.');
 }
 
 function validateSnapshot(snapshot, layers) {
@@ -88,7 +91,7 @@ function validateSnapshot(snapshot, layers) {
   if (Object.keys(layout).some(key => !Object.hasOwn(DEFAULT_LAYOUT, key))
     || typeof layout.enabled !== 'boolean' || typeof layout.guides !== 'boolean'
     || !numeric(layout.marginX, [0, 25]) || !numeric(layout.marginY, [0, 25])) fail('Invalid linked safe layout.');
-  if (Object.keys(snapshot.layers).length > 20) fail('Use up to 20 linked layer layouts.');
+  if (Object.keys(snapshot.layers).length > PROJECT_LIMITS.maxLayers) fail(`Use up to ${PROJECT_LIMITS.maxLayers} linked layer layouts.`);
   for (const [id, local] of Object.entries(snapshot.layers)) {
     if (!validID(id)) fail('Invalid linked layer ID.');
     // A removed layer is checked before pruning so malformed data cannot hide.
@@ -108,7 +111,7 @@ export function captureFormatSnapshot(project) {
         local.choreography = {};
         for (const state of layer.choreography ?? []) {
           if (!validID(state.id)) fail('Invalid linked state ID.');
-          local.choreography[state.id] = Object.fromEntries(Object.entries(state.values).filter(([key]) => key !== 'opacity'));
+          local.choreography[state.id] = Object.fromEntries(Object.entries(state.values).filter(([key]) => key !== 'opacity' && Object.hasOwn(choreographyFields(layer), key)));
         }
       } else if (Object.hasOwn(layer, field)) local[field] = layer[field];
     }

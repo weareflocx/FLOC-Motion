@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoProject, validateProject, patchLayer, reorderLayer, duplicateLayer } from '../src/project.js';
+import { PROJECT_LIMITS, demoProject, validateProject, patchLayer, reorderLayer, duplicateLayer } from '../src/project.js';
 import { stageMarkup } from '../src/scene.js';
 import { createTools } from '../src/webmcp.js';
 
@@ -42,8 +42,9 @@ test('duplication preserves media and timing, inserts above the source, supports
   assert.deepEqual(carouselCopy.layers.find(l => l.id === 'carousel-copy').images, p.images);
   for (const id of ['background', 'music']) assert.equal(duplicateLayer(p, id, `${id}-copy`).layers.filter(l => l.type === id).length, 2);
   assert.throws(() => duplicateLayer(p, 'headline', 'logo'), /unique/);
-  let full = p; for (let i = 0; i < 14; i++) full = duplicateLayer(full, 'headline', `copy-${i}`);
-  assert.throws(() => duplicateLayer(full, 'headline', 'over-limit'), /20 layers/);
+  let full = p; for (let i = p.layers.length; i < PROJECT_LIMITS.maxLayers; i++) full = duplicateLayer(full, 'headline', `copy-${i}`);
+  assert.equal(full.layers.length, PROJECT_LIMITS.maxLayers);
+  assert.throws(() => duplicateLayer(full, 'headline', 'over-limit'), new RegExp(`${PROJECT_LIMITS.maxLayers} layers`));
 });
 test('agent updates obey the same layer lock', async () => {
   const p = patchLayer(demoProject(), 'carousel', { locked: true });

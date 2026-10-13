@@ -20,6 +20,23 @@ export function fitsSafeArea(bounds, layout) {
   return bounds.width <= area.width + 1e-6 && bounds.height <= area.height + 1e-6;
 }
 
+// Bounds of a text box (CSS pixels on a stage of stageWidth × stageHeight) once rotated
+// about its center, as stage percentages; x/y shift from the unrotated box's corner.
+export function rotatedTextBounds(boxWidth, boxHeight, roll, stageWidth, stageHeight) {
+  const angle = (roll ?? 0) * Math.PI / 180;
+  const width = Math.abs(boxWidth * Math.cos(angle)) + Math.abs(boxHeight * Math.sin(angle));
+  const height = Math.abs(boxWidth * Math.sin(angle)) + Math.abs(boxHeight * Math.cos(angle));
+  return { width: width / stageWidth * 100, height: height / stageHeight * 100, x: (boxWidth - width) / 2 / stageWidth * 100, y: (boxHeight - height) / 2 / stageHeight * 100 };
+}
+
+// Text placed at `position` overflows when it cannot fit the safe area (placement then
+// clamps it inside) or, without a safe area, when it runs past the frame.
+export function textOverflows(position, bounds, layout = DEFAULT_LAYOUT) {
+  if (layout.enabled) return !fitsSafeArea(bounds, layout);
+  const left = position.x + bounds.x, top = position.y + bounds.y;
+  return left < -1e-6 || top < -1e-6 || left + bounds.width > 100 + 1e-6 || top + bounds.height > 100 + 1e-6;
+}
+
 // Guides are editor-only. Their tolerance is supplied in surface pixels,
 // converted to percentages so small maps and large previews feel consistent.
 export function alignmentPlacement(position, bounds, targets, layout, tolerance, { constrain = true } = {}) {

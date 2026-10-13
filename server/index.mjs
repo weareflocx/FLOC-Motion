@@ -5,7 +5,7 @@ import path from 'node:path';
 import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
 import { TEMPLATES, SHADERS, CAROUSEL_EFFECTS } from '../src/project.js';
 import { catalogSummary } from '../src/catalog.js';
-import { startExport, cancelExport, recoverInterruptedJobs, listJobs, jobs, run } from './export.mjs';
+import { startExport, cancelExport, recoverInterruptedJobs, listJobs, jobs, run, onExportEnded } from './export.mjs';
 import { isTerminalJobState } from '../src/export-jobs.js';
 import { EXPORT_FORMATS } from '../src/export-settings.js';
 import { ensureGifVideo } from './card-media.mjs';
@@ -14,10 +14,13 @@ import { createRenderWorker } from './render-worker.mjs';
 import { createPersonalRenderers, rendererCookie } from './personal-renderers.mjs';
 import { rendererVersion } from './renderer-version.mjs';
 import { createAuthStore, sessionCookie } from './auth-store.mjs';
+import { createAuditLog } from './audit-log.mjs';
 import { createDraftStore } from './draft-store.mjs';
 import { removeStaleJsonTemps } from './json-store.mjs';
 import { clientAddress, configureHttpServer, requestBody } from './http-boundary.mjs';
 import { createAssetStorage } from './asset-storage.mjs';
+import { createFontLibrary } from './font-library.mjs';
+import { FONT_FILE_TYPES } from '../src/fonts.js';
 const config = runtimeConfig();
 const { port, data } = config;
 const assets = path.join(data, 'assets');
@@ -25,7 +28,10 @@ const storage = createAssetStorage({ data });
 const templates = createTemplateStore(data);
 await templates.preserveLegacyProject();
 const auth = createAuthStore(data);
+const audit = createAuditLog(data);
+onExportEnded(job => audit.exportEnded(job));
 const drafts = createDraftStore(data);
+const fonts = createFontLibrary({ data });
 const renderWorker = createRenderWorker({ data, jobs, token: process.env.FLOC_RENDER_WORKER_TOKEN });
 const personalRenderers = createPersonalRenderers({ data, jobs, version: await rendererVersion() });
 await mkdir(assets, { recursive: true });
@@ -81,17 +87,26 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     }
     const user = await auth.user(req.headers.cookie);
     const privateAsset = /^\/assets\/[a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb)$/.test(route);
-    const workerRead = req.method === 'GET' && (privateAsset || /^\/api\/exports\/[a-f0-9-]{36}$/.test(route));
+    const workspaceFont = route.match(/^\/fonts\/workspace\/([a-f0-9-]{36})\.(woff2|woff|otf|ttf)$/);
+    const workerRead = req.method === 'GET' && (privateAsset || workspaceFont || /^\/api\/exports\/[a-f0-9-]{36}$/.test(route));
     const renderer = !user && workerRead && (await personalRenderers.engine(req.headers.authorization) || renderWorker.authorize(req.headers.authorization));
-    if ((route.startsWith('/api/') || privateAsset || route.startsWith('/exports/')) && !user && !renderer) return json(res, { error: 'Sign in to continue.' }, 401);
+    if ((route.startsWith('/api/') || privateAsset || route.startsWith('/fonts/workspace/') || route.startsWith('/exports/')) && !user && !renderer) return json(res, { error: 'Sign in to continue.' }, 401);
     if (user && !['GET', 'HEAD'].includes(req.method) && req.headers.origin !== origin) return json(res, { error: 'A same-origin request is required.' }, 403);
+    // Team, invitations, storage cleanup, activity and the font library's changes are admin-only; the UI hides them, the server decides.
+    const adminRoute = ['/api/auth/invitations', '/api/users', '/api/audit', '/api/storage/cleanup'].includes(route) || route.startsWith('/api/users/') || (route === '/api/fonts' && req.method !== 'GET') || route.startsWith('/api/fonts/');
+    if (adminRoute && user?.role !== 'admin') return json(res, { error: 'Only admins can do this.' }, 403);
     if (route === '/api/auth/invitations' && req.method === 'POST') {
-      const invitation = await auth.invite(JSON.parse(await body(req, 4096)).email);
-      return json(res, { email: invitation.email, expiresAt: invitation.expiresAt, url: `${origin}/#invite=${invitation.token}` }, 201);
+      const invitation = await auth.invite(JSON.parse(await body(req, 4096)), user.id);
+      return json(res, { email: invitation.email, role: invitation.role, expiresAt: invitation.expiresAt, url: `${origin}/#invite=${invitation.token}` }, 201);
     }
+    if (route === '/api/users' && req.method === 'GET') return json(res, { users: await auth.users() });
+    const userMatch = route.match(/^\/api\/users\/([a-f0-9-]{36})$/);
+    if (userMatch && req.method === 'PATCH') return json(res, { user: await auth.setRole(userMatch[1], JSON.parse(await body(req, 4096)).role, user.id) });
+    if (userMatch && req.method === 'DELETE') { await auth.remove(userMatch[1], user.id); return json(res, { deleted: true }); }
+    if (route === '/api/audit' && req.method === 'GET') return json(res, audit.page({ before: url.searchParams.get('before') ?? undefined, limit: url.searchParams.get('limit') ?? undefined }));
     if (route === '/api/renderers/status' && req.method === 'GET') return json(res, { required: Boolean(config.publicOrigin), ...await personalRenderers.status(await personalRenderers.browser(req.headers.cookie)) });
     if (route === '/api/renderers/pair' && req.method === 'POST') {
-      const pairing = await personalRenderers.startPairing(req.headers.cookie);
+      const pairing = await personalRenderers.startPairing(req.headers.cookie, user.id);
       res.setHeader('Set-Cookie', rendererCookie(pairing.key, origin.startsWith('https:')));
       return json(res, { code: pairing.code, expiresAt: pairing.expiresAt }, 201);
     }
@@ -103,13 +118,17 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     const templateMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})$/);
     if (templateMatch && req.method === 'GET') return json(res, await templates.read(templateMatch[1]));
     if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], JSON.parse(await body(req)), { userId: user?.id }));
-    if (templateMatch && req.method === 'DELETE') { await templates.remove(templateMatch[1]); return json(res, { deleted: true }); }
+    if (templateMatch && req.method === 'DELETE') { await templates.remove(templateMatch[1], { userId: user?.id }); return json(res, { deleted: true }); }
     const versionMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})\/versions(?:\/(\d{1,9})(\/restore)?)?$/);
     if (versionMatch && !versionMatch[2] && req.method === 'GET') return json(res, { versions: await templates.versions(versionMatch[1]) });
     if (versionMatch?.[2] && !versionMatch[3] && req.method === 'GET') return json(res, await templates.version(versionMatch[1], versionMatch[2]));
     if (versionMatch?.[3] && req.method === 'POST') return json(res, await templates.restore(versionMatch[1], versionMatch[2], JSON.parse(await body(req, 4096)), { userId: user?.id }));
     if (route === '/api/storage' && req.method === 'GET') return json(res, await storage.usage());
-    if (route === '/api/storage/cleanup' && req.method === 'POST') { const input = JSON.parse(await body(req, 4096)); return json(res, await storage.cleanup({ dryRun: input.confirm !== true })); }
+    if (route === '/api/storage/cleanup' && req.method === 'POST') {
+      const input = JSON.parse(await body(req, 4096)), result = await storage.cleanup({ dryRun: input.confirm !== true });
+      if (!result.dryRun) audit.record({ actorId: user.id, action: 'storage.cleanup', details: { removedFiles: result.removedFiles, removedBytes: result.removedBytes } });
+      return json(res, result);
+    }
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, carouselEffects: CAROUSEL_EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
@@ -117,13 +136,34 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       const asset = await storage.upload(req, { ext, run, convertGif: ensureGifVideo });
       return json(res, { id: asset.id, src: `/assets/${asset.id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
     }
+    if (route === '/api/fonts' && req.method === 'GET') return json(res, { fonts: fonts.list() });
+    if (route === '/api/fonts' && req.method === 'POST') {
+      const font = await fonts.upload(req, { name: url.searchParams.get('name') || '', family: url.searchParams.get('family'), weight: url.searchParams.get('weight'), style: url.searchParams.get('style'), userId: user.id });
+      audit.record({ actorId: user.id, action: 'font.uploaded', target: { type: 'font', id: font.id }, details: { family: font.family, weight: font.weight, style: font.style, fileName: font.fileName } });
+      return json(res, { font }, 201);
+    }
+    const fontMatch = route.match(/^\/api\/fonts\/([a-f0-9-]{36})$/);
+    if (fontMatch && req.method === 'PATCH') {
+      const { previous, font } = fonts.update(fontMatch[1], JSON.parse(await body(req, 4096)));
+      const face = item => ({ family: item.family, weight: item.weight, style: item.style });
+      audit.record({ actorId: user.id, action: 'font.renamed', target: { type: 'font', id: font.id }, details: { from: face(previous), to: face(font) } });
+      return json(res, { font });
+    }
+    if (fontMatch && req.method === 'DELETE') {
+      const removed = await fonts.remove(fontMatch[1]);
+      audit.record({ actorId: user.id, action: 'font.deleted', target: { type: 'font', id: removed.id }, details: { family: removed.family, weight: removed.weight, style: removed.style } });
+      return json(res, { deleted: true });
+    }
     if (route === '/api/exports' && req.method === 'GET') return json(res, { jobs: await listJobs(data, jobs, (await personalRenderers.browser(req.headers.cookie))?.id) });
     if (route === '/api/exports' && req.method === 'POST') {
       const input = JSON.parse(await body(req));
       const device = await personalRenderers.browser(req.headers.cookie);
-      if (device) return json(res, await personalRenderers.enqueue(device, input.project, input.settings), 202);
+      const queued = job => { audit.exportQueued(user.id, job); return json(res, job, 202); };
+      // Workspace font faces travel with the job so renderers can fetch them without the library.
+      const faces = fonts.facesFor(input.project);
+      if (device) return queued(await personalRenderers.enqueue(device, input.project, input.settings, faces));
       if (config.publicOrigin) return json(res, { error: 'Connect this computer’s renderer in Export before rendering.' }, 503);
-      return json(res, await (renderWorker.enabled ? renderWorker.enqueue(input.project, input.settings) : startExport(input.project, input.settings)), 202);
+      return queued(await (renderWorker.enabled ? renderWorker.enqueue(input.project, input.settings, faces) : startExport(input.project, input.settings, faces)));
     }
     const cancelMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})\/cancel$/);
     if (cancelMatch && req.method === 'POST') {
@@ -131,7 +171,9 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       const job = await personalRenderers.job(device, cancelMatch[1]);
       if (!job) return json(res, { error: 'Export not found.' }, 404);
       if (isTerminalJobState(job.state)) return json(res, { error: 'This export already ended and cannot be cancelled.' }, 409);
-      return json(res, job.rendererId ? await personalRenderers.cancel(device, job.id) : await renderWorker.cancel(job.id) || await cancelExport(job.id));
+      const cancelled = job.rendererId ? await personalRenderers.cancel(device, job.id) : await renderWorker.cancel(job.id) || await cancelExport(job.id);
+      audit.exportCancelled(user.id, cancelled);
+      return json(res, cancelled);
     }
     const jobMatch = route.match(/^\/api\/exports\/([a-f0-9-]{36})$/);
     if (jobMatch) {
@@ -152,6 +194,11 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       }
       return await file(req, res, filename);
     }
+    if (workspaceFont) {
+      const face = fonts.find(workspaceFont[1]);
+      if (!face || face.ext !== workspaceFont[2]) return json(res, { error: 'Font not found.' }, 404);
+      return await file(req, res, fonts.path(face), FONT_FILE_TYPES[face.ext].mime);
+    }
     const exportMatch = route.match(/^\/exports\/([a-f0-9-]{36})\/(video\.mp4|video\.mov|frames\.zip)$/);
     if (exportMatch) {
       const device = await personalRenderers.browser(req.headers.cookie);
@@ -165,7 +212,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       if (!filename.startsWith(directory + path.sep)) return json(res, { error: 'Not found.' }, 404);
       return await file(req, res, filename);
     }
-    if (route.startsWith('/api/') || route.startsWith('/assets/') || route.startsWith('/exports/')) return json(res, { error: 'Not found.' }, 404);
+    if (route.startsWith('/api/') || route.startsWith('/assets/') || route.startsWith('/exports/') || route.startsWith('/fonts/workspace/')) return json(res, { error: 'Not found.' }, 404);
     if (vite) return vite.middlewares(req, res);
     const safe = decodeURIComponent(route).replace(/^\/+/, '');
     const filename = path.resolve(root, 'dist', safe || 'index.html');
