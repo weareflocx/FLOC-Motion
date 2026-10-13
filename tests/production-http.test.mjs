@@ -17,7 +17,7 @@ test('production serves frontend bundles and uploaded media without mixing names
   let child;
   try {
     await mkdir(path.join(folder, 'server'));
-    for (const name of ['index.mjs', 'auth-store.mjs', 'draft-store.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'json-store.mjs', 'http-boundary.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'asset-upload.mjs', 'asset-storage.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
+    for (const name of ['index.mjs', 'auth-store.mjs', 'draft-store.mjs', 'database.mjs', 'runtime-config.mjs', 'export.mjs', 'process.mjs', 'json-store.mjs', 'http-boundary.mjs', 'build-scene.mjs', 'card-media.mjs', 'card-frames.mjs', 'render-worker.mjs', 'template-store.mjs', 'asset-validation.mjs', 'asset-upload.mjs', 'asset-storage.mjs', 'personal-renderers.mjs', 'renderer-version.mjs']) await copyFile(path.join(root, 'server', name), path.join(folder, 'server', name));
     await copyFile(path.join(root, 'package-lock.json'), path.join(folder, 'package-lock.json'));
     for (const name of ['node_modules', 'src', 'scripts']) await symlink(path.join(root, name), path.join(folder, name));
     await mkdir(path.join(folder, 'dist/assets'), { recursive: true });
@@ -36,13 +36,16 @@ test('production serves frontend bundles and uploaded media without mixing names
     const socket = createServer();
     socket.listen(0, '127.0.0.1'); await once(socket, 'listening');
     const port = socket.address().port; await new Promise(resolve => socket.close(resolve));
-    child = spawn(process.execPath, [path.join(folder, 'server/index.mjs')], { env: { ...process.env, NODE_ENV: 'production', PORT: String(port), FLOC_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, FLOC_DATA_DIR: path.join(folder, '.data') }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let ready = false;
-    for (let i = 0; i < 100; i++) {
-      try { if ((await request(`http://127.0.0.1:${port}/api/health`)).ok) { ready = true; break; } } catch {}
-      await new Promise(resolve => setTimeout(resolve, 50));
+    async function start() {
+      child = spawn(process.execPath, [path.join(folder, 'server/index.mjs')], { env: { ...process.env, NODE_ENV: 'production', PORT: String(port), FLOC_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, FLOC_DATA_DIR: path.join(folder, '.data') }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let ready = false;
+      for (let i = 0; i < 100; i++) {
+        try { if ((await request(`http://127.0.0.1:${port}/api/health`)).ok) { ready = true; break; } } catch {}
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.equal(ready, true, 'production server starts');
     }
-    assert.equal(ready, true, 'production server starts');
+    await start();
     for (const [url, type, body] of [['/assets/index-test.js', 'text/javascript', 'window.testBundle = true;'], ['/assets/index-test.css', 'text/css', 'body{color:white}'], [`/assets/${media}`, 'image/png', 'uploaded-media']]) {
       const res = await request(`http://127.0.0.1:${port}${url}`);
       assert.equal(res.status, 200); assert.equal(res.headers.get('content-type'), type); assert.equal(await res.text(), body);
@@ -129,7 +132,21 @@ test('production serves frontend bundles and uploaded media without mixing names
     assert.equal(savedWindow.windowZoom, .5);
     assert.equal(savedWindow.windowSpacing, 0);
     assert.equal((await (await request(`${base}/api/templates`)).json()).templates[0].project.duration, 15);
-
+    const versionsUrl = `${base}/api/templates/${composition.id}/versions`;
+    const versions = (await (await request(versionsUrl)).json()).versions;
+    assert.deepEqual(versions.map(item => [item.version, item.author.email]), [[2, 'production-test@example.com'], [1, 'production-test@example.com']]);
+    assert.equal((await (await request(`${versionsUrl}/1`)).json()).project.duration, composition.project.duration);
+    assert.equal((await request(`${versionsUrl}/1/restore`, { method: 'POST', body: JSON.stringify({ updatedAt: composition.updatedAt }) })).status, 409);
+    assert.equal((await request(`${versionsUrl}/1/restore`, { method: 'POST', headers: { Origin: 'https://untrusted.example' }, body: JSON.stringify({ updatedAt: current.updatedAt }) })).status, 403);
+    const restored = await request(`${versionsUrl}/1/restore`, { method: 'POST', body: JSON.stringify({ updatedAt: (await (await request(`${base}/api/templates/${composition.id}`)).json()).updatedAt }) });
+    assert.equal(restored.status, 200);
+    assert.equal((await restored.json()).project.duration, composition.project.duration);
+    assert.deepEqual((await (await request(versionsUrl)).json()).versions.map(item => [item.version, item.restoredFrom]), [[3, 1], [2, null], [1, null]]);
+    child.kill('SIGTERM'); await once(child, 'exit');
+    await start();
+    assert.equal((await (await request(`${base}/api/auth/session`)).json()).user.email, 'production-test@example.com', 'sessions survive a restart');
+    assert.equal((await (await request(`${base}/api/templates/${composition.id}`)).json()).project.duration, composition.project.duration);
+    assert.equal((await (await request(versionsUrl)).json()).versions.length, 3);
   } finally {
     if (child && child.exitCode === null) { child.kill('SIGTERM'); await once(child, 'exit'); }
     await rm(folder, { recursive: true, force: true });

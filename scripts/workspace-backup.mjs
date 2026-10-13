@@ -20,7 +20,7 @@ async function main([command, ...args]) {
     const source = path.resolve(args[1] || process.env.FLOC_DATA_DIR || '.data');
     const destination = path.resolve(args[0]);
     const manifest = await createWorkspaceBackup(source, destination);
-    console.log(JSON.stringify({ operation: 'backup', source, destination, files: manifest.files.length, bytes: manifest.files.reduce((sum, file) => sum + file.size, 0) }));
+    console.log(JSON.stringify({ operation: 'backup', source, destination, files: manifest.files.length, bytes: manifest.files.reduce((sum, file) => sum + file.size, 0), database: manifest.database }));
     return;
   }
   if (command === 'verify' && args.length === 1) {

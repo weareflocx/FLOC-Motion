@@ -4,15 +4,19 @@ import { lstat, mkdir, open, readFile, readdir, rename, rm, rmdir } from 'node:f
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { DATABASE_FILE, snapshotDatabase, verifyDatabaseFile } from '../server/database.mjs';
 
 const FORMAT = 'floc-motion-workspace-backup';
-const VERSION = 1;
+// Version 2 adds a consistent SQLite snapshot; version 1 backups (JSON only) still restore.
+const VERSION = 2;
+const SUPPORTED_VERSIONS = new Set([1, 2]);
 const MANIFEST = 'manifest.json';
 const CONTENT = 'files';
 const MAX_MANIFEST_BYTES = 10 * 1024 * 1024;
 const MAX_FILES = 100_000;
+// access, drafts, renderers and templates hold the pre-SQLite JSON, kept as a legacy backup.
 const FULL_DIRECTORIES = new Set(['access', 'assets', 'drafts', 'renderers', 'templates']);
-const ROOT_FILES = new Set(['project.json', 'project-migration.json']);
+const ROOT_FILES = new Set([DATABASE_FILE, 'project.json', 'project-migration.json']);
 const RENDER_FILES = new Set(['job.json', 'render-input.json', 'render.log']);
 const TEMPORARY_NAME = /\.(?:tmp|upload)(?:-|$)/;
 
@@ -122,7 +126,8 @@ async function readManifest(backupDirectory) {
   let manifest;
   try { manifest = JSON.parse(await readFile(filename, 'utf8')); }
   catch { throw fail('Backup manifest is not valid JSON.'); }
-  if (manifest?.format !== FORMAT || manifest?.version !== VERSION || !Array.isArray(manifest.files)) throw fail('Backup manifest format is unsupported.');
+  if (manifest?.format !== FORMAT || !SUPPORTED_VERSIONS.has(manifest?.version) || !Array.isArray(manifest.files)) throw fail('Backup manifest format is unsupported.');
+  if (manifest.version === 1 && manifest.files.some(file => file?.path === DATABASE_FILE)) throw fail('Backup manifest format is unsupported.');
   if (manifest.files.length > MAX_FILES) throw fail('Backup manifest contains too many files.');
   const seen = new Set();
   let previous = '';
@@ -155,11 +160,15 @@ export async function createWorkspaceBackup(sourceDirectory, backupDirectory, op
     const candidates = await collectSourcePaths(source);
     if (candidates.length > MAX_FILES) throw fail('Workspace contains too many backup files.');
     const files = [];
+    let database = null;
     for (const relative of candidates) {
-      const metadata = await copyWithHash(path.join(source, relative), path.join(staging, CONTENT, relative));
+      const destination = path.join(staging, CONTENT, relative);
+      // The live database is copied through SQLite so the snapshot is transactionally consistent.
+      if (relative === DATABASE_FILE) database = { path: relative, ...await snapshotDatabase(path.join(source, relative), destination) };
+      const metadata = relative === DATABASE_FILE ? await hashFile(destination) : await copyWithHash(path.join(source, relative), destination);
       files.push({ path: relative, ...metadata });
     }
-    const manifest = { format: FORMAT, version: VERSION, createdAt: new Date(options.now?.() ?? Date.now()).toISOString(), files };
+    const manifest = { format: FORMAT, version: VERSION, createdAt: new Date(options.now?.() ?? Date.now()).toISOString(), database, files };
     await open(path.join(staging, MANIFEST), 'wx', 0o600).then(async handle => {
       try { await handle.writeFile(`${JSON.stringify(manifest, null, 2)}\n`); }
       finally { await handle.close(); }
@@ -187,6 +196,7 @@ export async function verifyWorkspaceBackup(backupDirectory) {
     if (digest.size !== file.size || digest.sha256 !== file.sha256) throw fail(`Backup file failed integrity verification: ${file.path}`);
     bytes += digest.size;
   }
+  if (expectedPaths.includes(DATABASE_FILE)) verifyDatabaseFile(path.join(backup, CONTENT, DATABASE_FILE));
   return { manifest, files: manifest.files.length, bytes };
 }
 
@@ -216,6 +226,7 @@ export async function restoreWorkspaceBackup(backupDirectory, targetDirectory) {
       const metadata = await copyWithHash(path.join(backup, CONTENT, ...file.path.split('/')), path.join(staging, ...file.path.split('/')));
       if (metadata.size !== file.size || metadata.sha256 !== file.sha256) throw fail(`Backup changed during restore: ${file.path}`);
     }
+    if (manifest.files.some(file => file.path === DATABASE_FILE)) verifyDatabaseFile(path.join(staging, DATABASE_FILE));
     if (state === 'empty') await rmdir(target);
     await rename(staging, target);
     return manifest;

@@ -4,10 +4,6 @@ import { chmod, mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/p
 import os from 'node:os';
 import path from 'node:path';
 import { readJson, removeStaleJsonTemps, writeJsonAtomic } from '../server/json-store.mjs';
-import { createAuthStore } from '../server/auth-store.mjs';
-import { createDraftStore } from '../server/draft-store.mjs';
-import { createTemplateStore } from '../server/template-store.mjs';
-import { demoProject } from '../src/project.js';
 
 const folder = async t => { const value = await mkdtemp(path.join(os.tmpdir(), 'floc-json-')); t.after(() => rm(value, { recursive: true, force: true })); return value; };
 
@@ -42,19 +38,4 @@ test('stale JSON temporaries are removed recursively without touching current or
   await utimes(old, new Date(0), new Date(0));
   assert.equal(await removeStaleJsonTemps(directory, { ageMs: 1000, now: 2000, recursive: true }), 1);
   assert.deepEqual((await readdir(nested)).sort(), ['job.json', 'job.json.tmp-recent']);
-});
-
-test('auth, drafts and templates reject corrupt persisted state instead of resetting it', async t => {
-  const data = await folder(t), id = '12345678-1234-4234-8234-123456789012';
-  await writeFile(path.join(data, 'project.json'), JSON.stringify({ project: demoProject(), revision: 0 }));
-  const auth = createAuthStore(data); const invite = await auth.bootstrap('owner@example.com');
-  await writeFile(path.join(data, 'access/auth.json'), '{');
-  await assert.rejects(auth.user('floc_session=' + invite.token), error => error.code === 'EINVALIDJSON');
-  await rm(path.join(data, 'access'), { recursive: true, force: true });
-  await writeJsonAtomic(path.join(data, 'drafts', `${id}.json`), { project: demoProject(), revision: 1 });
-  await writeFile(path.join(data, 'drafts', `${id}.json`), '{');
-  await assert.rejects(createDraftStore(data).read(id), error => error.code === 'EINVALIDJSON');
-  const templates = createTemplateStore(data); const entry = await templates.create({ name: 'Saved', tags: [], project: demoProject() });
-  await writeFile(path.join(data, 'templates', `${entry.id}.json`), '{');
-  await assert.rejects(templates.read(entry.id), error => error.code === 'EINVALIDJSON');
 });

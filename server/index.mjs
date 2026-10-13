@@ -7,6 +7,7 @@ import { TEMPLATES, SHADERS, CAROUSEL_EFFECTS } from '../src/project.js';
 import { catalogSummary } from '../src/catalog.js';
 import { startExport, cancelExport, recoverInterruptedJobs, listJobs, jobs, run } from './export.mjs';
 import { isTerminalJobState } from '../src/export-jobs.js';
+import { EXPORT_FORMATS } from '../src/export-settings.js';
 import { ensureGifVideo } from './card-media.mjs';
 import { createTemplateStore } from './template-store.mjs';
 import { createRenderWorker } from './render-worker.mjs';
@@ -29,14 +30,14 @@ const renderWorker = createRenderWorker({ data, jobs, token: process.env.FLOC_RE
 const personalRenderers = createPersonalRenderers({ data, jobs, version: await rendererVersion() });
 await mkdir(assets, { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
-await Promise.all(['access', 'drafts', 'templates', 'renderers'].map(name => removeStaleJsonTemps(path.join(data, name))).concat(removeStaleJsonTemps(path.join(data, 'renders'), { recursive: true })));
+await removeStaleJsonTemps(path.join(data, 'renders'), { recursive: true });
 await recoverInterruptedJobs(data);
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] }, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.data/**', `${data}/**`] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = requestBody;
 const json = (res, value, code = 200) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
-async function file(req, res, filename) {
-  const info = await stat(filename); const mime = types[path.extname(filename).slice(1)] || 'application/octet-stream';
+async function file(req, res, filename, type) {
+  const info = await stat(filename); const mime = type || types[path.extname(filename).slice(1)] || 'application/octet-stream';
   const headers = { ...(mime === 'image/svg+xml' ? { 'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" } : {}), 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'X-Content-Type-Options': 'nosniff' };
   if (filename.startsWith(data + path.sep)) Object.assign(headers, { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' });
   const range = req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
@@ -98,11 +99,15 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     if (draftMatch && req.method === 'GET') return json(res, await drafts.read(draftMatch[1]));
     if (draftMatch && req.method === 'PUT') return json(res, await drafts.update(draftMatch[1], JSON.parse(await body(req))));
     if (route === '/api/templates' && req.method === 'GET') return json(res, { templates: await templates.list() });
-    if (route === '/api/templates' && req.method === 'POST') return json(res, await templates.create(JSON.parse(await body(req))), 201);
+    if (route === '/api/templates' && req.method === 'POST') return json(res, await templates.create(JSON.parse(await body(req)), { userId: user?.id }), 201);
     const templateMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})$/);
     if (templateMatch && req.method === 'GET') return json(res, await templates.read(templateMatch[1]));
-    if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], JSON.parse(await body(req))));
+    if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], JSON.parse(await body(req)), { userId: user?.id }));
     if (templateMatch && req.method === 'DELETE') { await templates.remove(templateMatch[1]); return json(res, { deleted: true }); }
+    const versionMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})\/versions(?:\/(\d{1,9})(\/restore)?)?$/);
+    if (versionMatch && !versionMatch[2] && req.method === 'GET') return json(res, { versions: await templates.versions(versionMatch[1]) });
+    if (versionMatch?.[2] && !versionMatch[3] && req.method === 'GET') return json(res, await templates.version(versionMatch[1], versionMatch[2]));
+    if (versionMatch?.[3] && req.method === 'POST') return json(res, await templates.restore(versionMatch[1], versionMatch[2], JSON.parse(await body(req, 4096)), { userId: user?.id }));
     if (route === '/api/storage' && req.method === 'GET') return json(res, await storage.usage());
     if (route === '/api/storage/cleanup' && req.method === 'POST') { const input = JSON.parse(await body(req, 4096)); return json(res, await storage.cleanup({ dryRun: input.confirm !== true })); }
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, carouselEffects: CAROUSEL_EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
@@ -147,11 +152,11 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       }
       return await file(req, res, filename);
     }
-    const exportMatch = route.match(/^\/exports\/([a-f0-9-]{36})\/video\.mp4$/);
+    const exportMatch = route.match(/^\/exports\/([a-f0-9-]{36})\/(video\.mp4|video\.mov|frames\.zip)$/);
     if (exportMatch) {
       const device = await personalRenderers.browser(req.headers.cookie);
       await personalRenderers.job(device, exportMatch[1]);
-      return await file(req, res, path.join(data, 'renders', exportMatch[1], 'video.mp4'));
+      return await file(req, res, path.join(data, 'renders', exportMatch[1], exportMatch[2]), EXPORT_FORMATS.find(item => item.file === exportMatch[2]).mime);
     }
     // Vite's production bundles share /assets/ with uploaded media.
     if (!vite && route.startsWith('/assets/')) {

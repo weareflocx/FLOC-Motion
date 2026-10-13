@@ -2,7 +2,7 @@
 setlocal DisableDelayedExpansion
 set "SOURCE_DIR=%~dp0"
 set "RENDERER_DIR=%LOCALAPPDATA%\FLOC Motion\Renderer"
-set "NODE_VERSION=v22.23.3"
+set "NODE_VERSION=v24.21.0"
 set "INSTALL_STEP=Checking extracted installer files"
 for %%F in (package.json package-lock.json src\project.js server\renderer-version.mjs scripts\renderer-setup.mjs) do (
   if not exist "%SOURCE_DIR%%%F" (

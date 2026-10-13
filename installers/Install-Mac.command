@@ -2,7 +2,7 @@
 set -euo pipefail
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 RENDERER_DIR="$HOME/Library/Application Support/FLOC Motion/Renderer"
-NODE_VERSION="v22.23.3"
+NODE_VERSION="v24.21.0"
 case "$(uname -m)" in arm64) NODE_ARCH="arm64" ;; x86_64) NODE_ARCH="x64" ;; *) echo "This Mac architecture is not supported."; exit 1 ;; esac
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
