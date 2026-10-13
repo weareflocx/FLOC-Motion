@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "name": "Junk keys and duplicate image IDs",
   "format": "landscape",
   "duration": 6,
@@ -56,6 +56,8 @@
       "patternIntensity": 0.35,
       "patternSpeed": 0.2,
       "patternSeed": 1,
+      "patternVignette": 0,
+      "patternGrain": 0,
       "opacity": 1
     },
     {

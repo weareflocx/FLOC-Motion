@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 6;
+export const CURRENT_PROJECT_VERSION = 7;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -130,8 +130,18 @@ function v5ToV6(project) {
   return project;
 }
 
+// v6 Pattern scale was a density: larger values drew smaller, denser patterns.
+// From v7 larger values draw larger patterns. The 0.25–4 range maps onto
+// itself under 1/x, so every saved background keeps its exact feature size.
+function v6ToV7(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (record(layer) && layer.type === 'background' && typeof layer.patternScale === 'number' && layer.patternScale > 0) layer.patternScale = 1 / layer.patternScale;
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

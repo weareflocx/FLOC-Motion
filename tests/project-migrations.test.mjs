@@ -19,8 +19,8 @@ const fixture = async name => JSON.parse(await readFile(new URL(`./fixtures/proj
 // carousel into a rocking Wheel, v4→v5 retires Twist and v5→v6 converts progress curves.
 const LEGACY = ['v1-legacy-text', 'v1-legacy-defaults', 'v1-linked-formats', 'v1-junk-duplicate-ids'];
 
-test('current version is 6 and new projects are written at it', () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 6);
+test('current version is 7 and new projects are written at it', () => {
+  assert.equal(CURRENT_PROJECT_VERSION, 7);
   assert.equal(blankProject().version, CURRENT_PROJECT_VERSION);
   assert.equal(validateProject(demoProject()).version, CURRENT_PROJECT_VERSION);
 });
@@ -141,6 +141,20 @@ test('v5 progress curves and choreography easings become their closest v6 curve 
   // A current file cannot name a retired curve.
   assert.throws(() => validateProject({ ...input, version: CURRENT_PROJECT_VERSION }), /Unknown rhythm or curve/);
   assert.throws(() => validateProject({ ...demo, layers: [demo.layers[0], text] }), /Unknown choreography easing/);
+});
+
+test('v6 pattern density becomes v7 pattern size with the same feature size', () => {
+  const demo = demoProject(), background = demo.layers.find(l => l.type === 'background');
+  const scales = [0.25, 0.5, 0.72, 1, 1.65, 2.5, 4];
+  const layers = scales.map((patternScale, i) => ({ ...background, id: `pattern-${i}`, mode: 'procedural', pattern: 'grid', patternColor: '#ffffff', patternScale, patternIntensity: 0.35, patternSpeed: 0.2, patternSeed: 1 }));
+  // Media backgrounds without pattern fields keep the default size.
+  const input = { ...demo, version: 6, layers: [background, ...layers] };
+  const before = structuredClone(input);
+  const project = validateProject(input);
+  scales.forEach((scale, i) => assert.ok(Math.abs(project.layers.find(l => l.id === `pattern-${i}`).patternScale - 1 / scale) < 1e-12, String(scale)));
+  assert.equal(project.layers[0].patternScale, 1);
+  assert.deepEqual(input, before, 'stored data is not rewritten');
+  assert.deepEqual(migrateProject(project), project, 'migration is idempotent');
 });
 
 test('legacy v1 fixtures migrate to the output the pre-migration validator produced', async () => {
