@@ -11,7 +11,7 @@
   },
   "fixtures": {
     "carousels-circular": {
-      "hash": "d2095a6883989561",
+      "hash": "f688b0125aad33b6",
       "format": "landscape",
       "frames": [
         "carousels-circular-0.50s.png",
@@ -19,7 +19,7 @@
       ]
     },
     "carousels-horizontal-flip-showcase": {
-      "hash": "5086180f9f649561",
+      "hash": "944f280b9112090d",
       "format": "landscape",
       "frames": [
         "carousels-horizontal-flip-showcase-0.50s.png",
@@ -27,7 +27,7 @@
       ]
     },
     "carousels-zoom-through-sweep-reveal": {
-      "hash": "28891e1a4ca0e6c7",
+      "hash": "a3f1461b79618f2a",
       "format": "landscape",
       "frames": [
         "carousels-zoom-through-sweep-reveal-0.50s.png",
@@ -35,7 +35,7 @@
       ]
     },
     "carousels-stack-shuffle-sphere-spinner": {
-      "hash": "51099b82d27b908c",
+      "hash": "ed7b108b4aeaff1d",
       "format": "landscape",
       "frames": [
         "carousels-stack-shuffle-sphere-spinner-0.50s.png",
@@ -43,7 +43,7 @@
       ]
     },
     "carousels-stack-stickers-circular": {
-      "hash": "dfbd843df3b5a95f",
+      "hash": "3c1582b14c87ae79",
       "format": "landscape",
       "frames": [
         "carousels-stack-stickers-circular-0.50s.png",
@@ -51,7 +51,7 @@
       ]
     },
     "carousels-window-push-wheel": {
-      "hash": "7976cbab0893face",
+      "hash": "f3282a9cc49db4e8",
       "format": "landscape",
       "frames": [
         "carousels-window-push-wheel-0.50s.png",
@@ -67,7 +67,7 @@
       ]
     },
     "effects": {
-      "hash": "730a7e3535659d18",
+      "hash": "31d0e37f8205edfd",
       "format": "square",
       "frames": [
         "effects-0.50s.png",
@@ -76,7 +76,7 @@
       ]
     },
     "card-fit-height": {
-      "hash": "a5417a4e01bb13b9",
+      "hash": "1ef15feee6eb0544",
       "format": "landscape",
       "frames": [
         "card-fit-height-0.50s.png",
@@ -84,7 +84,7 @@
       ]
     },
     "card-fit-width": {
-      "hash": "c52aa93ccf285609",
+      "hash": "bf7ce5e446c0d622",
       "format": "landscape",
       "frames": [
         "card-fit-width-0.50s.png",

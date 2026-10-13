@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "name": "Junk keys and duplicate image IDs",
   "format": "landscape",
   "duration": 6,
@@ -104,9 +104,6 @@
       "curve": 0.8,
       "x": 50,
       "y": 54,
-      "shader": "none",
-      "intensity": 0.35,
-      "tint": "#0000ff",
       "images": [
         {
           "id": "a",
@@ -129,14 +126,9 @@
           "name": "Empty"
         }
       ],
+      "effects": [],
       "locked": false,
-      "layerEffect": "none",
-      "layerEffectIntensity": 1,
-      "halftoneSize": 0.35,
-      "ditheringSize": 0.35,
-      "ditheringSteps": 4,
-      "glassSize": 0.35,
-      "glassDistortion": 0.5,
+      "stretch": 0,
       "perspective": 38,
       "yaw": 0,
       "transitionTurn": 360,

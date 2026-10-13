@@ -19,7 +19,7 @@ try {
     await mkdir(path.join(target, 'scripts'), { recursive: true });
     await cp(path.join(root, 'scripts', name), path.join(target, 'scripts', name));
   }
-  for (const name of ['fonts', 'brand', 'demo', 'licenses']) await cp(path.join(root, 'public', name), path.join(target, 'public', name), { recursive: true });
+  for (const name of ['fonts', 'brand', 'demo']) await cp(path.join(root, 'public', name), path.join(target, 'public', name), { recursive: true });
   for (const name of await readdir(path.join(root, 'installers'))) {
     await cp(path.join(root, 'installers', name), path.join(target, name));
     if (name.endsWith('.cmd')) await writeFile(path.join(target, name), (await readFile(path.join(target, name), 'utf8')).replace(/\r?\n/g, '\r\n'));

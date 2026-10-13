@@ -20,17 +20,24 @@ export const EFFECT_FIELDS = Object.freeze({
   blurAmount: { type: 'blur', key: 'amount', bounds: [0, 48] },
   noiseOpacity: { type: 'noise', key: 'opacity', bounds: [0, 1] },
   monochromeAmount: { type: 'monochrome', key: 'amount', bounds: [0, 1] },
-  warpAmount: { type: 'optical-warp', key: 'amount', bounds: [0, 1] }
+  warpAmount: { type: 'optical-warp', key: 'amount', bounds: [0, 1] },
+  duotoneAmount: { type: 'duotone', key: 'amount', bounds: [0, 1] },
+  chromaticAmount: { type: 'chromatic', key: 'amount', bounds: [0, 1] },
+  waveAmount: { type: 'wave', key: 'amount', bounds: [0, 1] },
+  halftoneAmount: { type: 'halftone', key: 'amount', bounds: [0, 1] },
+  ditheringAmount: { type: 'dithering', key: 'amount', bounds: [0, 1] },
+  glassAmount: { type: 'fluted-glass', key: 'amount', bounds: [0, 1] }
 });
 const EFFECT_BOUNDS = Object.fromEntries(Object.entries(EFFECT_FIELDS).map(([field, { bounds }]) => [field, bounds]));
 const OPTIONAL_FIELDS = {
   text: { color: 'color', letterSpacing: [-0.15, 0.5], lineHeight: [0.5, 3], ...EFFECT_BOUNDS },
-  carousel: { intensity: [0, 1], layerEffectIntensity: [0, 1], ...EFFECT_BOUNDS },
+  carousel: { stretch: [0, 1], ...EFFECT_BOUNDS },
   logo: EFFECT_BOUNDS, media: EFFECT_BOUNDS, model: EFFECT_BOUNDS, effect: EFFECT_BOUNDS
 };
 const LABELS = { x: 'Position', y: 'Position', size: 'Size', opacity: 'Opacity', roll: 'Rotation', tilt: 'Tilt', yaw: 'Yaw',
-  intensity: 'Shader intensity', layerEffectIntensity: 'Post effect', color: 'Color', letterSpacing: 'Letter spacing', lineHeight: 'Line height',
-  blurAmount: 'Blur', noiseOpacity: 'Noise', monochromeAmount: 'Monochrome', warpAmount: 'Optical warp' };
+  stretch: 'Edge stretch', color: 'Color', letterSpacing: 'Letter spacing', lineHeight: 'Line height',
+  blurAmount: 'Blur', noiseOpacity: 'Noise', monochromeAmount: 'Monochrome', warpAmount: 'Optical warp',
+  duotoneAmount: 'Duotone', chromaticAmount: 'Chromatic split', waveAmount: 'Liquid wave', halftoneAmount: 'Halftone', ditheringAmount: 'Dithering', glassAmount: 'Fluted glass' };
 
 export const choreographyFields = layer => FIELDS[layer?.type] ?? {};
 export const optionalChoreographyFields = layer => OPTIONAL_FIELDS[layer?.type] ?? {};

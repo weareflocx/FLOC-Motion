@@ -44,7 +44,7 @@ test('whole-project edits cannot restyle, retime, move or delete a locked layer'
   const preset = getCatalogEntry(listCatalog({ limit: 1 })[0].id).carouselPatch;
   const unlockedPreset = patchLayer(patchLayer(p, 'carousel', { locked: false }), 'carousel', preset);
   for (const [next, message] of [
-    [replace(p, 'carousel', { shader: 'mono', intensity: 0.2 }), /Unlock “Carousel” before editing it/],
+    [replace(p, 'carousel', { stretch: 0.2 }), /Unlock “Carousel” before editing it/],
     [replace(p, 'carousel', { ...layer(unlockedPreset, 'carousel'), locked: true }), /Unlock “Carousel” before editing it/],
     [replace(p, 'carousel', { effects: [{ type: 'monochrome', enabled: true, amount: 1 }] }), /Unlock “Carousel” before editing it/],
     [replace(p, 'carousel', { start: 2 }), /Unlock “Carousel” before editing it/],
@@ -106,13 +106,13 @@ test('editor changes, alternatives and layer drops respect locks; undo and impor
   assert.equal(api.projectRef.current, before);
   assert.equal(api.history.length, 2);
 
-  const candidate = replace(before, 'carousel', { shader: 'duotone' });
+  const candidate = replace(before, 'carousel', { stretch: 0.5 });
   api.alternatives.propose({ base: before, alternatives: [{ name: 'Locked', project: candidate }, { name: 'Other', project: patchLayer(before, 'headline', { size: 60 }) }] });
   assert.throws(() => render().alternatives.apply(0), /could not be applied/);
   assert.equal(render().projectRef.current, before);
   render().alternatives.apply(1);
   assert.equal(layer(render().projectRef.current, 'headline').size, 60);
-  assert.equal(layer(render().projectRef.current, 'carousel').shader, 'none');
+  assert.equal(layer(render().projectRef.current, 'carousel').stretch, 0);
 
   render().actions.dropLayer('carousel', 'logo', 'above');
   assert.deepEqual(render().projectRef.current.layers.map(item => item.id), before.layers.map(item => item.id));
@@ -136,7 +136,7 @@ test('agent mutations keep locks and forward explicit output exceptions to the e
   const forwarded = [];
   const tools = createTools({ get: () => p, set: (next, locks) => { forwarded.push(locks); p = assertLocksRespected(p, next, locks); }, save: async () => saves++, audit() {} });
   const call = (name, args) => tools.find(tool => tool.name === name).execute(args);
-  for (const [name, args] of [['floc_update_layer', { id: 'headline', patch: { text: 'Agent' } }], ['floc_set_shader', { shader: 'wave' }], ['floc_apply_preset', { id: listCatalog({ limit: 1 })[0].id }]]) {
+  for (const [name, args] of [['floc_update_layer', { id: 'headline', patch: { text: 'Agent' } }], ['floc_set_carousel', { speed: 30 }], ['floc_apply_preset', { id: listCatalog({ limit: 1 })[0].id }]]) {
     await assert.rejects(() => call(name, args), /Unlock/);
   }
   assert.equal(saves, 0);

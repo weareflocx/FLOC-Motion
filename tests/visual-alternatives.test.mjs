@@ -51,8 +51,8 @@ test('carousel appearance proposals preserve its authored motion and variant', (
   });
   const before = current.layers.find(layer => layer.id === 'carousel');
   const result = buildVisualAlternatives(current, request(current, [
-    option('Monochrome', 'carousel', { shader: 'mono', intensity: 0.25 }),
-    option('Glass', 'carousel', { layerEffect: 'fluted-glass', layerEffectIntensity: 0.6 })
+    option('Monochrome', 'carousel', { effects: [{ type: 'monochrome', enabled: true, amount: 0.25 }] }),
+    option('Glass', 'carousel', { effects: [{ type: 'fluted-glass', enabled: true, amount: 0.6, size: 0.35, distortion: 0.5 }] })
   ]));
   for (const { project } of result.alternatives) {
     const carousel = project.layers.find(layer => layer.id === 'carousel');

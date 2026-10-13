@@ -19,22 +19,11 @@ export const TEMPLATES = [
   { id: 'circular', name: 'Circular', description: 'Curved cards around a rotating ring', kind: 'ring' },
   { id: 'horizontal', name: 'Horizontal', description: 'A continuous perspective gallery', kind: 'strip' },
   { id: 'flip', name: 'Flip slider', description: 'A stepped gallery with an independent center transition turn', kind: 'strip' },
-  { id: 'zoom-through', name: 'Zoom Through', description: 'A continuous zoom through centered, nested images', kind: 'stack', defaults: { cardCount: 8, cardAspect: 4 / 3, loopDuration: 4.8, speed: 75, motionVariant: 'default', motion: { ...DEFAULT_MOTION }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, zoomRotation: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
-  { id: 'stack-shuffle', name: 'Stack Shuffle', description: 'The front card drops away as the next card advances through the deck', kind: 'stack', defaults: { cardCount: 6, cardAspect: 1, loopDuration: 9.6, speed: 37.5, motionVariant: 'down', motion: { ...DEFAULT_MOTION }, size: 0.58, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, shuffleGap: 36, shuffleRotation: 28, shuffleCorner: 15, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
-  { id: 'sweep-reveal', name: 'Sweep Reveal', description: 'A clean directional wipe reveals each stationary photograph', kind: 'stack', defaults: { cardCount: 6, cardAspect: 4 / 3, loopDuration: 10.2, speed: 360 / 10.2, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.7 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
-  { id: 'window-push', name: 'Window Push', description: 'Synchronized sliding images fill the canvas and a fixed central window', kind: 'stack', defaults: { cardCount: 6, cardAspect: 3 / 5, loopDuration: 7.2, speed: 50, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.2 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, windowZoom: 0.5, windowSpacing: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', shader: 'none', layerEffect: 'none' } },
+  { id: 'zoom-through', name: 'Zoom Through', description: 'A continuous zoom through centered, nested images', kind: 'stack', defaults: { cardCount: 8, cardAspect: 4 / 3, loopDuration: 4.8, speed: 75, motionVariant: 'default', motion: { ...DEFAULT_MOTION }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, zoomRotation: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
+  { id: 'stack-shuffle', name: 'Stack Shuffle', description: 'The front card drops away as the next card advances through the deck', kind: 'stack', defaults: { cardCount: 6, cardAspect: 1, loopDuration: 9.6, speed: 37.5, motionVariant: 'down', motion: { ...DEFAULT_MOTION }, size: 0.58, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, shuffleGap: 36, shuffleRotation: 28, shuffleCorner: 15, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
+  { id: 'sweep-reveal', name: 'Sweep Reveal', description: 'A clean directional wipe reveals each stationary photograph', kind: 'stack', defaults: { cardCount: 6, cardAspect: 4 / 3, loopDuration: 10.2, speed: 360 / 10.2, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.7 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
+  { id: 'window-push', name: 'Window Push', description: 'Synchronized sliding images fill the canvas and a fixed central window', kind: 'stack', defaults: { cardCount: 6, cardAspect: 3 / 5, loopDuration: 7.2, speed: 50, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.2 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, windowZoom: 0.5, windowSpacing: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
   ...['showcase', 'sphere', 'spinner', 'stack', 'stickers', 'wheel'].map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), description: MOTION_VARIANTS[id].map(v => v[1]).join(' / '), kind: id }))
-];
-export const SHADERS = [
-  { id: 'none', name: 'Original', mode: 0 }, { id: 'wave', name: 'Liquid wave', mode: 1 },
-  { id: 'mono', name: 'Monochrome', mode: 2 }, { id: 'duotone', name: 'Duotone', mode: 3 },
-  { id: 'chromatic', name: 'Chromatic split', mode: 4 }, { id: 'elastic', name: 'Elastic stretch', mode: 5 }
-];
-export const CAROUSEL_EFFECTS = [
-  { id: 'none', name: 'None' },
-  { id: 'halftone', name: 'Halftone', source: 'Paper Shaders' },
-  { id: 'dithering', name: 'Image dithering', source: 'Paper Shaders' },
-  { id: 'fluted-glass', name: 'Fluted glass', source: 'Paper Shaders' }
 ];
 export function blankProject(name = 'Untitled') {
   return { version: CURRENT_PROJECT_VERSION, name, format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT }, images: [], layers: [] };
@@ -44,7 +33,7 @@ export function demoProject() {
     images: Array.from({ length: 6 }, (_, i) => ({ id: `demo-${i}`, src: `/demo/poster-${i + 1}.svg`, name: `Studio study ${String(i + 1).padStart(2, '0')}` })),
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
-      { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, cardCount: 0, cardAspect: 1 / 1.14, radius: 0, loopDuration: 0, motion: { ...DEFAULT_MOTION }, motionVariant: 'default', fade: 0, transitionTurn: 360, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', tilt: -12, yaw: 0, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, shader: 'none', intensity: 0.35, tint: BRAND.colors.blue, layerEffect: 'none', layerEffectIntensity: 1, halftoneSize: 0.35, fadeIn: 0, fadeOut: 0 },
+      { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, cardCount: 0, cardAspect: 1 / 1.14, radius: 0, loopDuration: 0, motion: { ...DEFAULT_MOTION }, motionVariant: 'default', fade: 0, transitionTurn: 360, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', tilt: -12, yaw: 0, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, stretch: 0, fadeIn: 0, fadeOut: 0 },
       { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 48, color: BRAND.colors.white, font: 'druk-wide', weight: 900, width: 80, fadeIn: 0.45, fadeOut: 0.25, rise: false },
       { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, font: 'geist-mono', weight: 500, width: 22, fadeIn: 0, fadeOut: 0, rise: false },
       { id: 'logo', type: 'logo', name: 'Studio mark', visible: true, start: 0, end: 12, src: BRAND.assets.symbolWhite, x: 87, y: 6, size: 7, fadeIn: 0, fadeOut: 0 },
@@ -101,9 +90,8 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   logo: ['src', 'x', 'y', 'size', 'roll'],
   media: ['src', 'x', 'y', 'size', 'roll', 'offset', 'loop'],
   model: ['src', 'x', 'y', 'size', 'yaw', 'tilt', 'roll', 'offset', 'loop'],
-  carousel: ['images', 'template', 'shader', 'speed', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
-    'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'intensity', 'tint',
-    'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion',
+  carousel: ['images', 'template', 'speed', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
+    'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'stretch',
     'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing'],
   background: ['color', 'mode', 'src', 'fit', 'offset', 'loop', 'x', 'y', 'roll', ...Object.keys(DEFAULT_PROCEDURAL_BACKGROUND)],
   music: ['src', 'volume', 'offset', 'fade', 'loop'],
@@ -176,14 +164,9 @@ export function validateProject(input) {
       l.rise ??= false; if (typeof l.rise !== 'boolean') fail('Text rise must be true or false.');
     } else if (l.type === 'carousel') {
       if (l.images !== undefined) validateImages(l.images);
-      if (!TEMPLATES.some(t => t.id === l.template) || !SHADERS.some(s => s.id === l.shader)) fail('Unknown carousel or shader.');
-      l.layerEffect ??= 'none'; l.layerEffectIntensity ??= 1; l.halftoneSize ??= 0.35;
-      l.ditheringSize ??= 0.35; l.ditheringSteps ??= 4; l.glassSize ??= 0.35; l.glassDistortion ??= 0.5;
-      if (!CAROUSEL_EFFECTS.some(effect => effect.id === l.layerEffect)) fail('Unknown carousel layer effect.');
-      finite(l.layerEffectIntensity, 0, 1, 'Carousel effect mix'); finite(l.halftoneSize, 0, 1, 'Halftone dot size');
-      finite(l.ditheringSize, 0, 1, 'Dithering pixel size'); finite(l.ditheringSteps, 1, 7, 'Dithering color steps');
-      if (!Number.isInteger(l.ditheringSteps)) fail('Dithering color steps must be an integer.');
-      finite(l.glassSize, 0, 1, 'Glass rib width'); finite(l.glassDistortion, 0, 1, 'Glass distortion');
+      if (!TEMPLATES.some(t => t.id === l.template)) fail('Unknown carousel.');
+      l.stretch ??= 0;
+      finite(l.stretch, 0, 1, 'Edge stretch');
       l.perspective ??= 38;
       finite(l.perspective, 15, 75, 'Perspective');
       l.yaw ??= 0; l.transitionTurn ??= 360;
@@ -207,7 +190,7 @@ export function validateProject(input) {
       // Optional: absent means fixed, so older projects keep their exact shape.
       if (l.cardFit !== undefined && !CARD_FITS.includes(l.cardFit)) fail('Unknown card fit.');
       if (l.motionVariant !== 'default' && !MOTION_VARIANTS[l.template].some(v => v[0] === l.motionVariant)) fail('Unknown motion variant for this family.');
-      finite(l.yaw, -180, 180, 'Orientation Y'); finite(l.speed, -90, 90, 'Speed'); finite(l.tilt, -65, 65, 'Tilt'); finite(l.roll, -180, 180, 'Rotation'); finite(l.size, 0.5, 2.5, 'Card size'); finite(l.gap, 0, 1, 'Gap'); finite(l.curve, 0, 1, 'Curve'); finite(l.x, 10, 90, 'X'); finite(l.y, 10, 90, 'Y'); finite(l.intensity, 0, 1, 'Shader intensity'); color(l.tint);
+      finite(l.yaw, -180, 180, 'Orientation Y'); finite(l.speed, -90, 90, 'Speed'); finite(l.tilt, -65, 65, 'Tilt'); finite(l.roll, -180, 180, 'Rotation'); finite(l.size, 0.5, 2.5, 'Card size'); finite(l.gap, 0, 1, 'Gap'); finite(l.curve, 0, 1, 'Curve'); finite(l.x, 10, 90, 'X'); finite(l.y, 10, 90, 'Y');
       if (l.motion === undefined) l.motion = { ...DEFAULT_MOTION };
       validateMotion(l.motion);
       if (l.motionBaseline === undefined) l.motionBaseline = motionBaseline(l);
@@ -332,7 +315,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'cardFit', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'cardFit', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'stretch'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {

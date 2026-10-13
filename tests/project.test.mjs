@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoProject, validateProject, patchLayer, resizeDuration, audioTime, escapeHtml, layerAlpha, fitFades, TEMPLATES, SHADERS } from '../src/project.js';
+import { demoProject, validateProject, patchLayer, resizeDuration, audioTime, escapeHtml, layerAlpha, fitFades, TEMPLATES } from '../src/project.js';
 import { createTools, registerWebMCP } from '../src/webmcp.js';
 import { stageMarkup } from '../src/scene.js';
 import { BRAND } from '../src/brand.js';
@@ -22,7 +22,7 @@ test('FLOC defaults use verified monochrome identifiers and reject unknown brand
 
 test('demo project validates and all presets are selectable without losing assets', () => {
   const p = demoProject(); assert.equal(validateProject(p).images.length, 6);
-  for (const t of TEMPLATES) for (const s of SHADERS) { const next = patchLayer(p, 'carousel', { template: t.id, shader: s.id }); assert.deepEqual(next.images, p.images); assert.equal(next.layers.find(l => l.id === 'headline').text, p.layers[2].text); }
+  for (const t of TEMPLATES) for (const stretch of [0, 0.5, 1]) { const next = patchLayer(p, 'carousel', { template: t.id, stretch }); assert.deepEqual(next.images, p.images); assert.equal(next.layers.find(l => l.id === 'headline').text, p.layers[2].text); }
 });
 test('switching a media background to color preserves its source without rendering it', () => {
   for (const [mode, extension] of [['image', 'svg'], ['video', 'mp4']]) {
@@ -40,7 +40,7 @@ test('local catalog normalizes all source recipes into safe FLOC patches', () =>
   assert.equal(new Set(CATALOG.map(entry => entry.id)).size, CATALOG.length);
   const orbit = getCatalogEntry('orbit-pure-01');
   assert.equal(orbit.carouselPatch.template, 'circular');
-  assert.equal(orbit.carouselPatch.shader, 'none');
+  assert.equal(orbit.carouselPatch.stretch, 0);
   assert.equal(orbit.support.kind, 'reconstructed_recipe');
   assert(orbit.thumbnail.startsWith('/catalog/visuals/'));
   assert.equal(listCatalog({ family: 'Orbit', limit: 200 }).length, 4);
@@ -50,7 +50,7 @@ test('reject external, traversal and executable asset sources', () => {
   for (const src of ['https://example.com/a.png', '/assets/../../secret', 'javascript:alert(1)', '/demo/unknown.svg']) { const p = demoProject(); p.images[0].src = src; assert.throws(() => validateProject(p)); }
 });
 test('reject invalid IDs, timing, dimensions and effect values', () => {
-  assert.throws(() => patchLayer(demoProject(), 'carousel', { shader: 'eval' }));
+  assert.throws(() => patchLayer(demoProject(), 'carousel', { shader: 'eval' }), /Unknown layer property/);
   assert.throws(() => patchLayer(demoProject(), 'carousel', { speed: NaN }));
   assert.throws(() => patchLayer(demoProject(), 'headline', { end: 40 }));
   assert.throws(() => patchLayer(demoProject(), 'headline', { type: 'logo' }));
@@ -119,8 +119,8 @@ test('WebMCP uses shared validation, persists mutations and gates rendering', as
   let p = demoProject(); let saves = 0; let requested = 0;
   const tools = createTools({ get: () => p, set: n => { p = n; }, save: async () => saves++, seek: () => {}, audit: () => {}, requestExport: () => requested++, exportStatus: () => ({ state: 'idle' }) });
   const call = (name, args = {}) => tools.find(t => t.name === name).execute(args);
-  await call('floc_set_shader', { shader: 'wave', intensity: 0.7 }); assert.equal(p.layers[1].shader, 'wave'); assert.equal(saves, 1);
-  await assert.rejects(call('floc_set_shader', { shader: 'unknown' })); assert.equal(saves, 1);
+  await call('floc_update_layer', { id: 'carousel', patch: { effects: [{ type: 'wave', amount: 0.7 }] } }); assert.equal(p.layers[1].effects[0].type, 'wave'); assert.equal(saves, 1);
+  await assert.rejects(call('floc_update_layer', { id: 'carousel', patch: { effects: [{ type: 'unknown' }] } })); assert.equal(saves, 1);
   await call('floc_add_text', { text: 'One more layer.' }); assert.equal(p.layers.length, 7); assert.deepEqual([p.layers[6].fadeIn, p.layers[6].fadeOut, p.layers[6].rise], [0.45, 0.25, false]);
   await call('floc_update_layer', { id: 'logo', patch: { fadeIn: 1, fadeOut: 2 } }); assert.deepEqual([p.layers[4].fadeIn, p.layers[4].fadeOut], [1, 2]);
   const result = JSON.parse(await call('floc_request_export')); assert.equal(result.state, 'awaiting_user_confirmation'); assert.equal(requested, 1);
@@ -141,6 +141,6 @@ test('WebMCP exposes and applies local catalog recipes through project validatio
 });
 test('native WebMCP registers with AbortSignal and cleans up; unsupported is explicit', async () => {
   const calls = []; const context = { registerTool: async (tool, options) => calls.push({ tool, options }) };
-  const r = registerWebMCP({}, context); await r.ready; assert.equal(calls.length, 14); assert(!calls[0].options.signal.aborted); r.dispose(); assert(calls[0].options.signal.aborted);
+  const r = registerWebMCP({}, context); await r.ready; assert.equal(calls.length, 13); assert(!calls[0].options.signal.aborted); r.dispose(); assert(calls[0].options.signal.aborted);
   assert.equal(registerWebMCP({}, {}).supported, false);
 });

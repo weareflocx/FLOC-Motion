@@ -1,7 +1,6 @@
 import React from 'react';
 import { ArrowDown, ArrowUp, LinkSimple, LinkSimpleBreak, Trash } from '@phosphor-icons/react';
-import { EFFECTS, EFFECT_LAYER_TYPES, newEffect } from '../../effects.js';
-import { CAROUSEL_EFFECTS, SHADERS } from '../../project.js';
+import { EFFECTS, EFFECT_LAYER_TYPES, MAX_EFFECTS, newEffect } from '../../effects.js';
 import { Color, Field, IconButton, NumberField, Range, Section } from '../controls.jsx';
 import './effects.css';
 
@@ -26,29 +25,14 @@ export function EffectControls({ layer, onPatch }) {
     onPatch(layer.id, { effects: next });
   };
   const scope = layer.type === 'effect' ? layer.effectScope === 'below' ? 'Below layers' : 'Overlay' : 'Layer';
-  function add(value) {
-    const [target, type] = value.split(':');
-    if (target === 'cards') onPatch(layer.id, { shader: type });
-    else if (target === 'carousel') onPatch(layer.id, { layerEffect: type });
-    else onPatch(layer.id, { effects: [...effects, newEffect(type, effects.length)] });
-  }
+  const add = type => onPatch(layer.id, { effects: [...effects, newEffect(type, effects.length)] });
+  const percent = (label, effect, index) => <Range label="Amount" ariaLabel={`${label} amount ${index + 1}`} value={effect.amount * 100} min={0} max={100} suffix="%" onChange={amount => update(index, { amount: amount / 100 })}/>;
+  const fraction = (label, ariaLabel, effect, key, index) => <Range label={label} ariaLabel={`${ariaLabel} ${index + 1}`} value={effect[key] * 100} min={0} max={100} suffix="%" onChange={value => update(index, { [key]: value / 100 })}/>;
   return <Section title="Effects">
     {layer.type === 'effect' && <Field label="Scope"><select aria-label="Effect scope" value={layer.effectScope ?? 'overlay'} onChange={event => onPatch(layer.id, { effectScope: event.target.value })}>
       <option value="below">Below layers</option>
       <option value="overlay" disabled={effects.some(effect => effect.type !== 'noise')}>Texture overlay</option>
     </select></Field>}
-    {layer.type === 'carousel' && layer.shader !== 'none' && <EffectRow name={SHADERS.find(effect => effect.id === layer.shader)?.name} scope="Cards" onRemove={() => onPatch(layer.id, { shader: 'none' })}>
-      <Field label="Effect"><select aria-label="Card effect" value={layer.shader} onChange={event => onPatch(layer.id, { shader: event.target.value })}>{SHADERS.filter(effect => effect.id !== 'none').map(effect => <option key={effect.id} value={effect.id}>{effect.name}</option>)}</select></Field>
-      <Range label="Intensity" ariaLabel="Card effect intensity" value={layer.intensity} min={0} max={1} step={0.05} onChange={intensity => onPatch(layer.id, { intensity })}/>
-      {layer.shader === 'duotone' && <Color label="Shader tint" value={layer.tint} onChange={tint => onPatch(layer.id, { tint })}/>}
-    </EffectRow>}
-    {layer.type === 'carousel' && layer.layerEffect && layer.layerEffect !== 'none' && <EffectRow name={CAROUSEL_EFFECTS.find(effect => effect.id === layer.layerEffect)?.name} scope="Layer" onRemove={() => onPatch(layer.id, { layerEffect: 'none' })}>
-      <Field label="Effect"><select aria-label="Carousel finish" value={layer.layerEffect} onChange={event => onPatch(layer.id, { layerEffect: event.target.value })}>{CAROUSEL_EFFECTS.filter(effect => effect.id !== 'none').map(effect => <option key={effect.id} value={effect.id}>{effect.name}</option>)}</select></Field>
-      <Range label="Intensity" ariaLabel="Carousel effect intensity" value={layer.layerEffectIntensity} min={0} max={1} step={0.05} onChange={layerEffectIntensity => onPatch(layer.id, { layerEffectIntensity })}/>
-      {layer.layerEffect === 'halftone' && <Range label="Dot size" value={layer.halftoneSize} min={0} max={1} step={0.01} onChange={halftoneSize => onPatch(layer.id, { halftoneSize })}/>}
-      {layer.layerEffect === 'dithering' && <><Range label="Pixel size" value={layer.ditheringSize} min={0} max={1} step={0.01} onChange={ditheringSize => onPatch(layer.id, { ditheringSize })}/><Range label="Color steps" value={layer.ditheringSteps} min={1} max={7} onChange={ditheringSteps => onPatch(layer.id, { ditheringSteps })}/></>}
-      {layer.layerEffect === 'fluted-glass' && <><Range label="Rib width" value={layer.glassSize} min={0} max={1} step={0.01} onChange={glassSize => onPatch(layer.id, { glassSize })}/><Range label="Distortion" value={layer.glassDistortion} min={0} max={1} step={0.01} onChange={glassDistortion => onPatch(layer.id, { glassDistortion })}/></>}
-    </EffectRow>}
     {effects.map((effect, index) => <EffectRow key={`${index}:${effect.type}`} name={EFFECTS.find(item => item.id === effect.type)?.name} scope={scope} label={`${effect.type} ${index + 1}`} enabled={effect.enabled} onToggle={enabled => update(index, { enabled })}
       onRemove={() => onPatch(layer.id, { effects: effects.filter((_, i) => i !== index) })} removeDisabled={layer.type === 'effect' && effects.length === 1}
       moveControls={effects.length > 1 && <><IconButton label={`Move ${effect.type} ${index + 1} earlier`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={13}/></IconButton><IconButton label={`Move ${effect.type} ${index + 1} later`} disabled={index === effects.length - 1} onClick={() => move(index, 1)}><ArrowDown size={13}/></IconButton></>}>
@@ -58,6 +42,34 @@ export function EffectControls({ layer, onPatch }) {
         {effect.mode === 'progressive' && <Field label="Blur towards"><select aria-label={`Blur direction ${index + 1}`} value={effect.direction} onChange={event => update(index, { direction: event.target.value })}>{['bottom', 'top', 'right', 'left'].map(direction => <option key={direction} value={direction}>{direction[0].toUpperCase() + direction.slice(1)}</option>)}</select></Field>}
       </>}
       {effect.type === 'monochrome' && <Range label="Intensity" ariaLabel={`Monochrome intensity ${index + 1}`} value={effect.amount * 100} min={0} max={100} suffix="%" onChange={amount => update(index, { amount: amount / 100 })}/>}
+      {effect.type === 'duotone' && <>
+        {percent('Duotone', effect, index)}
+        <Color label="Shadow color" value={effect.shadow} onChange={shadow => update(index, { shadow })}/>
+        <Color label="Highlight color" value={effect.highlight} onChange={highlight => update(index, { highlight })}/>
+      </>}
+      {effect.type === 'chromatic' && <>
+        {percent('Chromatic split', effect, index)}
+        <label className="check-field"><input type="checkbox" checked={effect.animated} onChange={event => update(index, { animated: event.target.checked })}/>Animate</label>
+      </>}
+      {effect.type === 'wave' && <>
+        {percent('Liquid wave', effect, index)}
+        {fraction('Size', 'Liquid wave size', effect, 'size', index)}
+        <Range label="Speed" ariaLabel={`Liquid wave speed ${index + 1}`} value={effect.speed} min={0} max={2} step={0.05} onChange={speed => update(index, { speed })}/>
+      </>}
+      {effect.type === 'halftone' && <>
+        {percent('Halftone', effect, index)}
+        {fraction('Dot size', 'Halftone dot size', effect, 'size', index)}
+      </>}
+      {effect.type === 'dithering' && <>
+        {percent('Dithering', effect, index)}
+        {fraction('Pixel size', 'Dithering pixel size', effect, 'size', index)}
+        <Range label="Color steps" ariaLabel={`Dithering color steps ${index + 1}`} value={effect.steps} min={1} max={7} step={1} onChange={steps => update(index, { steps: Math.round(steps) })}/>
+      </>}
+      {effect.type === 'fluted-glass' && <>
+        {percent('Fluted glass', effect, index)}
+        {fraction('Rib width', 'Fluted glass rib width', effect, 'size', index)}
+        {fraction('Distortion', 'Fluted glass distortion', effect, 'distortion', index)}
+      </>}
       {effect.type === 'optical-warp' && <>
         <Range label="Intensity" ariaLabel={`Optical warp intensity ${index + 1}`} value={effect.amount * 100} min={0} max={100} suffix="%" onChange={amount => update(index, { amount: amount / 100 })}/>
         <Field label="Axis"><select aria-label={`Optical warp axis ${index + 1}`} value={effect.axis} onChange={event => update(index, { axis: event.target.value })}><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></Field>
@@ -79,11 +91,7 @@ export function EffectControls({ layer, onPatch }) {
     </EffectRow>)}
     <select className="add-effect" aria-label="Add effect" value="" onChange={event => add(event.target.value)}>
       <option value="" disabled>＋ Add effect</option>
-      <optgroup label={scope}>{EFFECTS.filter(effect => layer.type !== 'effect' || layer.effectScope === 'below' || effect.id === 'noise').map(effect => <option key={effect.id} value={`layer:${effect.id}`} disabled={effects.length >= 8}>{effect.name}</option>)}</optgroup>
-      {layer.type === 'carousel' && <>
-        <optgroup label="Carousel finish">{CAROUSEL_EFFECTS.filter(effect => effect.id !== 'none').map(effect => <option key={effect.id} value={`carousel:${effect.id}`} disabled={layer.layerEffect !== 'none'}>{effect.name}</option>)}</optgroup>
-        <optgroup label="Cards">{SHADERS.filter(effect => effect.id !== 'none').map(effect => <option key={effect.id} value={`cards:${effect.id}`} disabled={layer.shader !== 'none'}>{effect.name}</option>)}</optgroup>
-      </>}
+      {EFFECTS.filter(effect => layer.type !== 'effect' || layer.effectScope === 'below' || effect.id === 'noise').map(effect => <option key={effect.id} value={effect.id} disabled={effects.length >= MAX_EFFECTS}>{effect.name}</option>)}
     </select>
   </Section>;
 }

@@ -9,10 +9,10 @@ import { build } from 'esbuild';
 import { prepareComposition } from '../server/export.mjs';
 import { root } from '../server/runtime-config.mjs';
 import { browserCandidates } from './renderer-runtime.mjs';
-import { CAROUSEL_EFFECTS, FORMATS, SHADERS, TEMPLATES, demoProject, validateProject } from '../src/project.js';
+import { FORMATS, TEMPLATES, demoProject, validateProject } from '../src/project.js';
 import { PROCEDURAL_BACKGROUNDS } from '../src/backgrounds.js';
 import { FONTS, fontFaceCss } from '../src/fonts.js';
-import { DEFAULT_FILTERS, DEFAULT_NOISE } from '../src/effects.js';
+import { DEFAULT_FILTERS, DEFAULT_NOISE, EFFECTS, newEffect } from '../src/effects.js';
 import { captureState } from '../src/choreography.js';
 import { DEFAULT_LAYOUT } from '../src/layout.js';
 
@@ -39,27 +39,26 @@ const span = { visible: true, start: 0, end: DURATION };
 const colorBackground = color => ({ id: 'background', type: 'background', name: 'Background', ...span, color, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true });
 const text = (id, values) => ({ id, type: 'text', name: id, ...span, x: 6, y: 6, size: 48, color: '#ffffff', font: 'geist', weight: 700, width: 80, fadeIn: 0, fadeOut: 0, rise: false, ...values });
 const PLANAR = ['zoom-through', 'sweep-reveal', 'window-push'];
-// The carousel in slot N (group × 3 + column) gets SHADERS[N % 6] and
-// CAROUSEL_EFFECTS[N % 4], so every shader and post effect renders on at least
-// one template and a smaller group never reshuffles the groups after it.
-function carousel(templateId, index, x) {
+// Slot N (group × 3 + column) sets the corner style; the Nth carousel in group
+// order gets EFFECTS[N % 10], so every effect renders on a carousel.
+function carousel(templateId, index, x, effect = index) {
   const template = TEMPLATES.find(item => item.id === templateId);
   const layer = { ...demoProject().layers.find(l => l.type === 'carousel'), id: `carousel-${templateId}`, name: template.name, template: templateId, ...template.defaults };
   return { ...layer, ...span, x, y: 50, cardCount: template.defaults?.cardCount ?? 6, speed: template.defaults?.speed ?? 30, loopDuration: template.defaults?.loopDuration ?? 0,
     size: PLANAR.includes(templateId) ? 0.5 : templateId === 'stack-shuffle' ? 0.58 : 1, tilt: templateId === 'flip' ? 0 : -12, roll: 0,
-    shader: SHADERS[index % SHADERS.length].id, intensity: 0.6, layerEffect: CAROUSEL_EFFECTS[index % CAROUSEL_EFFECTS.length].id,
+    effects: [{ ...newEffect(EFFECTS[effect % EFFECTS.length].id, effect), ...(effect % EFFECTS.length > 1 && effect % EFFECTS.length !== 6 && { amount: 0.6 }) }],
     cornerRadius: index % 3 ? 12 : 0, cardShape: index % 2 ? 'squircle' : 'rounded' };
 }
-// Slot 14 (Monochrome) belonged to the retired Twist; a second Circular keeps that shader covered.
+// Slot 14 belonged to the retired Twist; a second Circular keeps the slot order.
 const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'circular'], ['window-push', 'wheel']];
 
-// The Horizontal carousel (slot 1, Halftone) also covers Optical Warp after a Paper effect.
+// The Horizontal carousel (slot 1, Blur) also covers Optical Warp before a CSS effect.
 function carouselFixtures() {
   return CAROUSEL_GROUPS.map((group, g) => {
     const project = base(`Carousels ${group.join(' ')}`, 'landscape');
     // Window Push fills the canvas, so its partner sits beside the window.
     const columns = group.length === 3 ? [22, 50, 78] : group.length === 1 ? [50] : group.includes('window-push') ? [50, 72] : [28, 72];
-    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => ({ ...carousel(id, g * 3 + i, columns[i]), ...(id === 'horizontal' && { effects: [{ ...DEFAULT_FILTERS['optical-warp'], amount: 0.6 }] }) }))];
+    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => ({ ...carousel(id, g * 3 + i, columns[i], CAROUSEL_GROUPS.slice(0, g).flat().length + i), ...(id === 'horizontal' && { effects: [{ ...DEFAULT_FILTERS['optical-warp'], amount: 0.6 }, { ...DEFAULT_FILTERS.blur, amount: 4 }] }) }))];
     return { id: `carousels-${group.join('-')}`, times: [0.5, 1.7], project };
   });
 }
@@ -73,7 +72,7 @@ function cardFitFixtures() {
   return ['height', 'width'].map(cardFit => {
     const project = { ...base(`Card fit ${cardFit}`, 'landscape'), images: mixedImages };
     const rows = [['horizontal', 22, 0.5], ['flip', 52, 0.5], ['circular', 80, 0.5]];
-    project.layers = [colorBackground('#16181d'), ...rows.map(([id, y, size], i) => ({ ...carousel(id, i, 50), y, size, cardCount: 6, cardFit, shader: 'none', layerEffect: 'none', cornerRadius: 8, tilt: id === 'circular' ? -12 : 0 }))];
+    project.layers = [colorBackground('#16181d'), ...rows.map(([id, y, size], i) => ({ ...carousel(id, i, 50), y, size, cardCount: 6, cardFit, effects: [], cornerRadius: 8, tilt: id === 'circular' ? -12 : 0 }))];
     return { id: `card-fit-${cardFit}`, times: [0.5, 1.7], project };
   });
 }
@@ -92,11 +91,12 @@ function backgroundFixture() {
   project.layers = [...backgrounds, ...texts, { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 82, y: 88, size: 12, fadeIn: 1, fadeOut: 0 }];
   return { id: 'backgrounds-fonts', times: [0.5, 1.7], project };
 }
-// The stack carousel warps in WebGL with a choreographed amount, before the
-// CSS blur on its canvas.
+// The stack carousel proves an animated warp before a CSS blur. Halftone,
+// duotone and chromatic split also run on text: every visual layer shares the
+// same ordered effect implementation.
 function effectFixture() {
   const project = base('Effect layers', 'square');
-  const stack = { ...carousel('stack', 1, 70), y: 36, size: 0.6, shader: 'none', layerEffect: 'none', effects: [{ ...DEFAULT_FILTERS['optical-warp'], axis: 'vertical', center: 0.4, amount: 0.15 }, { ...DEFAULT_FILTERS.blur, mode: 'progressive', direction: 'bottom', amount: 18 }] };
+  const stack = { ...carousel('stack', 1, 70), y: 36, size: 0.6, effects: [{ ...DEFAULT_FILTERS['optical-warp'], axis: 'vertical', center: 0.4, amount: 0.15 }, { ...DEFAULT_FILTERS.blur, mode: 'progressive', direction: 'bottom', amount: 18 }] };
   stack.choreography = captureState(stack, 0, project.fps, { warpAmount: 0.15 }, 'warp-from');
   stack.choreography = captureState(stack, 3, project.fps, { warpAmount: 0.9 }, 'warp-to');
   project.layers = [
@@ -106,6 +106,7 @@ function effectFixture() {
     stack,
     { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 8, y: 62, size: 22, fadeIn: 1, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS.blur, amount: 6 }, { ...DEFAULT_NOISE, animated: true, color1: '#ff0040', opacity: 0.7, sizeX: 3, sizeY: 3, seed: 11 }] },
     text('grain-title', { text: 'NOISE\nTEXT', x: 44, y: 66, size: 96, font: 'druk-wide', weight: 900, width: 54, effects: [{ ...DEFAULT_NOISE, mode: 'duo', color1: '#ff0040', color2: '#00e0ff', opacity: 0.8, sizeX: 3, sizeY: 3 }] }),
+    text('finish-title', { text: 'FINISH', x: 44, y: 4, size: 72, font: 'druk-wide', weight: 900, width: 54, effects: [{ ...DEFAULT_FILTERS.halftone, size: 0.5 }, { ...DEFAULT_FILTERS.duotone, shadow: '#101010', highlight: '#ff0040' }, { ...DEFAULT_FILTERS.chromatic, amount: 0.8 }] }),
     { id: 'grain', type: 'effect', name: 'Grain', ...span, effectScope: 'overlay', effects: [{ ...DEFAULT_NOISE, mode: 'multi', animated: true, opacity: 0.25, sizeX: 6, sizeY: 6, seed: 7 }], opacity: 0.8, fadeIn: 0, fadeOut: 0 }
   ];
   return { id: 'effects', times: [0.5, 1.7, 2.9], project };

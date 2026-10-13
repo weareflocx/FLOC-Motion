@@ -20,7 +20,7 @@ Server-local and legacy shared-worker exports store renderer output in `render.l
 Source video frame format is automatic: the engine keeps PNG for transparency and uses JPEG for opaque footage, independently of the final MP4 quality setting.
 Carousel video frames are prepared once with FFmpeg at the project frame rate. Export textures read the prepared images, including alpha-preserving PNGs, instead of seeking browser video decoders. Preview playback still uses the original media.
 Export offers **MP4 · H.264** (default, AAC 320 kbps soundtrack), **MOV · ProRes 4444** (alpha plane, 16-bit PCM soundtrack) and **PNG sequence (.zip)** (8-bit `frames/frame_000001.png`… frames, plus `audio.wav` when the project has music; an uncompressed ZIP with ZIP64 offsets past 4 GB). For MOV and PNG, **Transparent background** leaves out background layers and keeps the page transparent; otherwise empty areas are white, as in MP4. Every result is verified before delivery: H.264/yuv420p or ProRes 4444 with an alpha pixel format, dimensions, frame rate, frame count and soundtrack codec; for PNG archives, every frame's name, size and PNG header are read from the ZIP. The legacy Mac render worker accepts MP4 only and rejects other formats before queuing.
-Frame capture uses several HyperFrames Chrome workers (about 256 MB each): min(4, CPU cores − 1), or one on machines with 8 GB of RAM or less. Set `FLOC_RENDER_WORKERS` (1–16) to override. Each frame depends only on its supplied time, so worker count does not change the pixels: a 12-second 1920×1080 composition with a shader, a Paper post effect and a video card produced identical decoded MP4 frames and byte-identical PNG frames with 1 and 4 workers.
+Frame capture uses several HyperFrames Chrome workers (about 256 MB each): min(4, CPU cores − 1), or one on machines with 8 GB of RAM or less. Set `FLOC_RENDER_WORKERS` (1–16) to override. Each frame depends only on its supplied time, so worker count does not change the pixels.
 
 Prepared export folders include `render-input.json`, local assets and the compiled scene. A separate host with the same application version, Chromium and FFmpeg can render a trusted folder with `node scripts/render-prepared.mjs <composition-folder>`. The command verifies the result in the requested format and writes `render-result.json`. The Mac render worker below connects the shared editor's export button to a trusted Mac.
 
@@ -95,12 +95,12 @@ Regenerate the committed 480×270 MP4 clips and JPEG posters with `npm run previ
 ## Implemented
 
 - Circular, horizontal, flip, zoom-through, stack-shuffle, sweep-reveal and window-push carousel templates, plus the six original families below.
-- Original, liquid-wave, monochrome, duotone and chromatic-split shader presets.
+- One ordered catalog of ten effects for every visual layer: Noise, Blur, Monochrome, Duotone, Chromatic split, Liquid wave, Optical Warp, Halftone, Dithering and Fluted glass. A carousel’s Edge stretch is a motion property, not a separate effect.
 - Shared ordered image collection (up to 48 images); upload, reorder and remove. Each carousel can also hold up to 48 cards of its own.
 - Independently editable text layers; local image logo; layer visibility, stacking and timing; undo/redo (up to 200 edits or ~8 MB of compact diffs per composition). Each composition or draft keeps its own undo stack while you switch between them in a session, as long as it reopens unchanged; importing a project starts a new stack.
 - Solid-color, image or silent video background, with cover/contain and video offset/loop controls.
 - Music upload, source offset, volume, looping and fade in/out.
-- Canvas formats: 1:1 (1080×1080), 9:16 (1080×1920), 16:9 (1920×1080), 3:4 (1080×1440) and 4:3 (1440×1080); 1–300 seconds, 24/30/60 fps; up to 50 layers. Limits live in `src/project-limits.js`; they were chosen so a 50-layer composition with three 48-card shader carousels, video layers and effect stacks still previews at 30 fps on an M2 Pro (80 layers drop to ~20 fps).
+- Canvas formats: 1:1 (1080×1080), 9:16 (1080×1920), 16:9 (1920×1080), 3:4 (1080×1440) and 4:3 (1440×1080); 1–300 seconds, 24/30/60 fps; up to 50 layers. Limits live in `src/project-limits.js`; effect-heavy compositions cost more than plain layers.
 - Play, pause and seek; the same deterministic Three.js renderer drives preview and HyperFrames capture.
 - Local MP4 export using HyperFrames, followed by an FFmpeg music mix and FFprobe verification.
 - Autosave, project JSON import/download, optimistic revision checks.
@@ -133,7 +133,7 @@ This implements the current **`document.modelContext.registerTool`** API, using 
 
 WebMCP is experimental and requires a compatible browser **and** agent. The Agent tools dialog reports actual availability; an unsupported browser is not presented as connected and no browser flags are changed. Registration is feature-detected, with no fake polyfill.
 
-Tools: `floc_get_project`, `floc_list_effects`, `floc_list_catalog`, `floc_get_preset`, `floc_apply_preset`, `floc_set_carousel`, `floc_set_shader`, `floc_update_layer`, `floc_add_text`, `floc_set_output`, `floc_seek_preview`, `floc_request_export`, `floc_get_export_status`.
+Tools: `floc_get_project`, `floc_list_effects`, `floc_list_catalog`, `floc_get_preset`, `floc_apply_preset`, `floc_set_carousel`, `floc_update_layer`, `floc_add_text`, `floc_set_output`, `floc_seek_preview`, `floc_request_export`, `floc_get_export_status`.
 
 The bundled catalog is a local reconstructed recipe dataset. `floc_apply_preset` maps only supported fields into the canonical project schema and reports the fields that still need native FLOC implementations. The raw catalog is available at `/catalog/presets.json`; the editor shows its visual contact sheets in the carousel inspector.
 
@@ -143,12 +143,12 @@ Example request: “Switch to the arc template, use monochrome at 70%, add a tit
 
 A local HTTP API is also available: `GET /api/catalog` (templates, catalog metadata and the raw catalog URL), `GET /api/templates`, `GET /api/templates/:id`, `PUT /api/templates/:id` with `{name, project, updatedAt}`, `GET /api/templates/:id/versions` (version metadata, newest first), `GET /api/templates/:id/versions/:n` (one version with its project), `POST /api/templates/:id/versions/:n/restore` with `{updatedAt}`, `GET/PUT /api/drafts/:id` with `{project, revision}` for draft writes, `POST /api/assets?name=...` (raw file body), `POST /api/exports` with `{project, settings}` (optional `settings`: `quality` draft/standard/high, `resolution` 1080p/2160p, `format` mp4/mov/png, `transparent` for mov/png), `GET /api/exports` (unfinished exports visible to this browser in the order they will run, waiting ones with their queue `position`, then the 20 most recent finished ones), `GET /api/exports/:id`, and `POST /api/exports/:id/cancel`. Exports end as `done`, `failed` or `cancelled`; exports still running or waiting when the editor restarts are marked `failed` at startup. REST edits take effect in an already-open editor after reload; WebMCP actions update the live editor directly. Browser mutations require a same-origin request and a valid session cookie; authentication is enforced by the server.
 
-## Add a carousel or shader
+## Add a carousel or effect
 
-1. Add its stable ID/name to `TEMPLATES` or `SHADERS` in `src/project.js`.
-2. Implement the layout or GLSL branch in `src/scene.js`. Derive all visual state solely from the supplied time; never accumulate animation deltas. Carousel-wide parameters belong in `applySettings` and per-card values in `cardUniforms`, so in-place preview edits draw exactly what a rebuild draws. A parameter that needs new decoders, meshes or DOM nodes must be listed in `STRUCTURAL` in `src/scene-update.js`.
-3. Add any relevant controls to the inspector components in `src/editor/components/`, and validate new parameters in `src/project.js`.
-4. Run tests and build; verify seeked frames and an MP4. Catalog selectors and WebMCP enum schemas derive from the registry automatically.
+1. Add a carousel to `TEMPLATES` in `src/project.js`, or an effect and its defaults to `EFFECTS` / `DEFAULT_FILTERS` in `src/effects.js`.
+2. Derive every visual value solely from supplied time. Shared layer effects are built in `createEffects`; carousel-only geometry belongs in `src/scene.js`. A parameter that needs new decoders, meshes or DOM nodes must be listed in `STRUCTURAL` in `src/scene-update.js`.
+3. Add controls to `src/editor/components/EffectControls.jsx` and validate settings through `validateEffects`.
+4. Run tests and build; verify seeked frames and a real export. WebMCP and catalog responses derive from the installed registries.
 
 Adding implementations is a source-code change, not runtime execution of pasted code.
 
@@ -169,7 +169,7 @@ No simultaneous collaborative editing, cloud rendering, arbitrary plugins, 4K/GI
 
 The engine has eight original families and 20 motion variants; the 17 catalog presets are recipes over them, not separately implemented animations. Orbit and Sliders use Circular and Horizontal; Showcase, Sphere, Spinner, Stack, Stickers and Wheel have their own evaluated transforms. Retired templates migrate on load: Depth becomes Showcase, Arc becomes Wheel with the rocking variant and Nested Rise becomes Zoom Through (schema v4); Twist becomes Flip, or a Horizontal strip for its torsion ribbon (schema v5). Stored projects are not rewritten until saved.
 
-`src/carousel-motion.js` evaluates each card from absolute time and is consumed by the shared preview/export scene. Controls include motion variant, card count (0 uses the media count; maximum 48), aspect ratio, radius for radial families, orbit rear fade, XYZ orientation and explicit loop duration. Media repeat in their original order when more cards than images are requested. With a positive loop duration, speed selects direction or pauses at zero; with zero duration, legacy speed-based motion is preserved. Shader effects have their own time cycles and are not guaranteed to close with the motion loop.
+`src/carousel-motion.js` evaluates each card from absolute time and is consumed by the shared preview/export scene. Controls include motion variant, card count (0 uses the media count; maximum 48), aspect ratio, radius for radial families, orbit rear fade, XYZ orientation, Edge stretch and explicit loop duration. Media repeat in their original order when more cards than images are requested.
 
 **Character** shapes each step with a progress curve: Original (the family's own motion), Linear, Ease in-out, Ease in, Ease out, Back, Bounce or Spring. Every curve starts at 0 and lands exactly on the next card; all but Linear and Ease in arrive at rest, so step mode never ends with a jolt. Its percentage sets the curve's own character rather than blending with linear: **Strength** raises the eases from linear (0 %) through cubic (50 %) to quintic (100 %); **Overshoot** sets how far Back passes the target (0–25 % of the move); **Bounciness** sets Bounce's first rebound (5–30 %), which never passes the target; **Springiness** sets Spring's first swing (5–25 %), which first reaches the target at 45–35 % of the step and then settles. The preview above the buttons draws the curve at the current percentage; Original and Linear have no percentage. Schema v6 converts the previous twelve curves on load: Smooth, Natural and Slow become Ease in-out; Glide and Vive become Ease out; Elastic becomes Spring, each with the closest strength; a curve at 0 % intensity, which showed the Original motion, becomes Original.
 
@@ -181,7 +181,7 @@ Card silhouettes support a corner radius of 0–100% of half the shorter edge, w
 
 ## Flip slider and elastic optics
 
-Flip slider is an additional original carousel: each step holds for 60% of its interval and eases through the next card for 40%. Transition turn (0–360°) controls the Y-axis turn independently; at a full turn the settled center and side cards face forward. Elastic stretch is a separate shader, selectable on other families too: its lateral wing geometry and texture stretching follow distance from the carousel's local center, vanish at center and remain neutral at zero intensity. Both derive from absolute time/position, not accumulated mouse velocity; mouse dragging is not implemented by this feature.
+Flip slider is an additional original carousel: each step holds for 60% of its interval and eases through the next card for 40%. Transition turn (0–360°) controls the Y-axis turn independently; at a full turn the settled center and side cards face forward. **Edge stretch** is a carousel motion property: its lateral wing geometry and texture stretching follow distance from the local center, vanish at center and remain neutral at zero. Projects saved before the unified catalog migrate Elastic shader intensity to Edge stretch (schema v8).
 
 ## Grid positioning
 
@@ -191,7 +191,7 @@ The composition displays a matching non-interactive guide during map dragging on
 
 ### Preview continuity
 
-The editor retains the active animation while preparing a replacement scene. Parameter edits (shader and post-effect settings, carousel motion, size and appearance, colors, timing, text, procedural background settings and effect stacks) update the live scene in place. Only structural edits rebuild it: adding, removing, reordering or retyping layers, changing the format, a carousel template, card count or card sources, a media, model or background source/mode, or an adjustment scope; changing a font face rebuilds when the face is not loaded yet. Rebuilds reuse decoded card images, card video decoders and parsed GLB models from the same preview session; the last scene to release them disposes them. Rapid edits are coalesced to the latest project, with one replacement loading at a time; failed loads preserve the previous preview and report an error. The displayed scene resumes at the current playhead rather than restarting. Preview rendering follows the visible frame size (up to 2× display pixel density); exports retain the full composition resolution. Replaced scenes release their media, GPU resources and WebGL context. If the browser drops a WebGL context, the preview redraws once it is restored and reports an error if it is not restored within five seconds; an export fails instead of capturing blank frames. Whole-carousel effects use half-float buffers where available and fall back to sRGB 8-bit buffers otherwise.
+The editor retains the active animation while preparing a replacement scene. Parameter edits (effects, carousel motion, size and appearance, colors, timing, text and procedural backgrounds) update the live scene in place. Only structural edits rebuild it: adding, removing, reordering or retyping layers, changing the format, a carousel template, card count or card sources, a media, model or background source/mode, or an adjustment scope; changing a font face rebuilds when the face is not loaded yet.
 
 ### Direct canvas editing
 
@@ -201,7 +201,7 @@ Wheel over the selected element to resize: font size for text, logo size, or car
 
 ### Choreography states
 
-Text, logos, media, carousels, 3D models and effect layers support up to 32 choreography states per layer. Every state holds the pose: opacity, plus position, size and rotation on all but effect layers; carousels and models also hold tilt and yaw. Select a layer and use **Choreography → Save state** at the playhead. Saving also captures what the layer can animate beyond its pose: text color, letter spacing and line height; carousel shader intensity and post-effect mix; and the primary amount of the layer's first blur (radius), noise (opacity), monochrome and optical-warp effect. The state's controls list what it holds. Once states exist, changing pose properties in the inspector or canvas updates the current state or records a new state at that frame. Other properties edit the state only once a state holds them, so static values stay static. A state that omits a property leaves it to the neighboring states that hold it, or to the layer's own value; text colors blend in linear RGB. The carousel's preset motion continues inside its animated placement.
+Text, logos, media, carousels, 3D models and effect layers support up to 32 choreography states per layer. Every state holds the pose; carousels and models also hold tilt and yaw. Saving a state also captures text typography, carousel Edge stretch, and the primary amount of the layer’s first effect of each type. Projects saved before schema v8 migrate carousel shader and finish animation fields into those effect amounts.
 
 Click a state to seek to it; drag its timeline diamond or edit **Time (s)** to move it. Arrow keys move a diamond by one frame (Shift: ten), Home/End move within its neighbors, and Delete removes it. Each destination state picks the curve of its incoming transition from the shared easing library, also used by carousel progress curves: Linear, Ease in-out, Ease in, Ease out, Back, Bounce, Spring (each at 50 % strength), or a custom cubic bézier (`x1, y1, x2, y2`; both x values between 0 and 1) with a curve preview. Transitions saved with Smooth, Natural or Slow load as Ease in-out, Glide or Vive as Ease out, and Elastic as Spring (schema v6). Overshooting curves stay within each property's limits. States move with their layer; trimming preserves states outside the visible clip. Undo and layer locks apply to state edits. Preview and export evaluate the same values from the supplied time and apply them to the live scene without rebuilding it.
 
@@ -215,7 +215,7 @@ The header's **Content** form edits only declared fields, including content in l
 
 ### Linked format versions
 
-Enable **Linked formats** under Canvas to make the current ratio the master and generate assisted 1:1, 9:16 and 16:9 adaptations. The ratio buttons switch between versions; the existing 3:4 and 4:3 ratios are adapted when first selected. Each version retains its placement, size, orientation, framing, safe margins and text font, weight, width, line height, letter spacing and alignment. Content, assets, layer order, visibility, duration, media settings and carousel motion remain shared. Choreography state IDs, times, easing, opacity and animated color, typography, shader and effect values are shared; each format keeps its own pose coordinates and sizes.
+Enable **Linked formats** under Canvas to make the current ratio the master and generate assisted adaptations. Content, assets, layer order, visibility, duration, media settings, carousel motion, choreography timing and animated effect values remain shared; each format keeps its own pose, framing and typography layout.
 
 Correct a version with the ordinary inspector and canvas controls. **Reset from master** regenerates the active adaptation from the master's current layout. Disabling Linked formats retains the active composition and removes the other layouts. These actions are undoable. Saved compositions and project JSON retain all versions; preview, agent output switching and manual MP4 export use the active version through the same scene engine.
 
@@ -225,7 +225,7 @@ The layer list shows frontmost layers first. Drag a row to reorder it; the inser
 
 Locks persist in project JSON and prevent property, timing, order and removal edits. Locked layers can still be selected, hidden/shown and unlocked. Every editor, visual-alternative and agent change is checked against the previous project, so a locked layer cannot be altered indirectly; moving unlocked layers around it remains possible. Locks are editing safeguards, not permissions: opening or importing a project, Undo/Redo, composition-wide duration changes, linked-format switching/reset (layout fields only) and the Content form (declared fields only) retain their normal behavior. Locking does not change rendering or export.
 
-Optical Warp stretches a layer's sides around a center line. On a carousel it runs in the carousel's WebGL pass, after any Paper post effect and before the CSS effects on its canvas (blur, monochrome, noise), in float precision with the exact choreographed amount of every frame. Text, logos, media, models, backgrounds and adjustment groups use an SVG displacement map instead; its 8-bit steps are sized to the amount's largest displacement, about 0.8 % of the layer at full intensity, so very large layers can still show slight steps along curved edges.
+Optical Warp stretches any visual layer’s sides around a center line. It uses the same deterministic SVG displacement map on text, logos, media, models, backgrounds, carousels and adjustment groups, in its authored position inside the ordered effect stack. The map’s 8-bit steps are sized to the amount’s largest displacement; very large layers can still show slight steps along curved edges.
 
 ### Multi-selection, alignment and command palette
 

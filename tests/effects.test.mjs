@@ -1,18 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_NOISE, EFFECTS, NOISE_TILE, effectLayer, noiseOffset, noisePixels, newEffect, opticalWarpMapScale, opticalWarpOffset } from '../src/effects.js';
+import { DEFAULT_NOISE, EFFECTS, MAX_EFFECTS, NOISE_TILE, effectLayer, noiseOffset, noisePixels, newEffect, opticalWarpMapScale, opticalWarpOffset } from '../src/effects.js';
 import { demoProject, validateProject, patchLayer, duplicateLayer, reorderLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
 import { fileLayer } from '../src/project.js';
 import { createTools } from '../src/webmcp.js';
 
-test('noise works on all visual types and round trips alongside existing shaders', () => {
+test('noise works on all visual types and round trips alongside carousel settings', () => {
   const source = demoProject();
   source.layers.push(fileLayer({ name: 'Image', src: '/demo/poster-1.svg' }, 12, 'image'), fileLayer({ name: 'Model', src: '/assets/00000000-0000-0000-0000-000000000000.glb' }, 12, 'model'), effectLayer('noise', 12));
   let project = validateProject(source);
   const original = structuredClone(project);
   for (const layer of project.layers.filter(layer => layer.type !== 'music')) project = patchLayer(project, layer.id, { effects: [{ type: 'noise' }, { ...DEFAULT_NOISE, mode: 'multi' }] });
   assert.deepEqual(source.layers[0].effects, undefined);
-  assert.equal(project.layers[1].shader, original.layers[1].shader);
+  assert.equal(project.layers[1].stretch, original.layers[1].stretch);
   assert.deepEqual(validateProject(JSON.parse(JSON.stringify(project))), project);
   const copy = duplicateLayer(project, 'noise', 'noise-copy');
   assert.deepEqual(copy.layers.find(layer => layer.id === 'noise-copy').effects, project.layers.at(-1).effects);
@@ -28,7 +28,7 @@ test('effect layers follow their timing, opacity and fades', () => {
 test('noise rejects unsafe settings, unsupported targets and edits to locked layers', () => {
   for (const patch of [{ type: 'shader' }, { mode: 'unknown' }, { opacity: 1.1 }, { density: -1 }, { sizeX: Infinity }, { sizeY: 2 }, { enabled: 'true' }, { animated: 1 }, { seed: 0.5 }, { color1: 'url(https://example.com)' }, { code: 'eval' }]) assert.throws(() => patchLayer(demoProject(), 'headline', { effects: [{ ...DEFAULT_NOISE, ...patch }] }), /Invalid noise/);
   assert.throws(() => patchLayer(demoProject(), 'music', { effects: [{ ...DEFAULT_NOISE }] }), /Unknown layer property/);
-  assert.throws(() => patchLayer(demoProject(), 'headline', { effects: Array.from({ length: 9 }, () => ({ ...DEFAULT_NOISE })) }), /Invalid noise/);
+  assert.throws(() => patchLayer(demoProject(), 'headline', { effects: Array.from({ length: MAX_EFFECTS + 1 }, () => ({ ...DEFAULT_NOISE })) }), /at most/);
   assert.throws(() => patchLayer(patchLayer(demoProject(), 'headline', { locked: true }), 'headline', { effects: [{ ...DEFAULT_NOISE }] }), /Unlock/);
   assert.throws(() => validateProject({ ...demoProject(), layers: [{ ...effectLayer('noise', 12), effects: [] }] }), /at least one/);
 });
@@ -110,7 +110,7 @@ test('optical warp validates on every visual layer and remains independent of ca
   source.layers.push(fileLayer({ name: 'Image', src: '/demo/poster-1.svg' }, 12, 'image'), fileLayer({ name: 'Model', src: '/assets/00000000-0000-0000-0000-000000000000.glb' }, 12, 'model'), effectLayer('adjustment', 12));
   let project = validateProject(source);
   for (const layer of project.layers.filter(layer => layer.type !== 'music')) project = patchLayer(project, layer.id, { effects: [{ type: 'optical-warp' }, { type: 'monochrome', amount: .5 }] });
-  assert.deepEqual(project.layers[1].shader, source.layers[1].shader);
+  assert.equal(project.layers[1].stretch, 0);
   assert.deepEqual(validateProject(JSON.parse(JSON.stringify(project))), project);
   assert.deepEqual(duplicateLayer(project, 'headline', 'copy').layers.find(layer => layer.id === 'copy').effects, project.layers.find(layer => layer.id === 'headline').effects);
   assert.deepEqual(switchFormat(linkFormats(project), 'portrait').layers.find(layer => layer.id === 'headline').effects, project.layers.find(layer => layer.id === 'headline').effects);

@@ -1,12 +1,26 @@
 import { animatedFields, evaluateChoreography } from './choreography.js';
-export const EFFECTS = [{ id: 'noise', name: 'Noise' }, { id: 'blur', name: 'Blur' }, { id: 'monochrome', name: 'Monochrome' }, { id: 'optical-warp', name: 'Optical Warp' }];
+// One catalog for every visual layer. Each effect is an SVG filter applied in
+// stack order to the layer's element, so text, images, models, backgrounds,
+// carousels and adjustment layers share the same implementation.
+export const EFFECTS = [
+  { id: 'noise', name: 'Noise' }, { id: 'blur', name: 'Blur' }, { id: 'monochrome', name: 'Monochrome' }, { id: 'duotone', name: 'Duotone' },
+  { id: 'chromatic', name: 'Chromatic split' }, { id: 'wave', name: 'Liquid wave' }, { id: 'optical-warp', name: 'Optical Warp' },
+  { id: 'halftone', name: 'Halftone' }, { id: 'dithering', name: 'Dithering' }, { id: 'fluted-glass', name: 'Fluted glass' }
+];
+export const MAX_EFFECTS = 10;
 export const EFFECT_LAYER_TYPES = ['background', 'text', 'logo', 'media', 'model', 'carousel', 'effect'];
 export const DEFAULT_NOISE = Object.freeze({ type: 'noise', enabled: true, mode: 'mono', sizeX: 1, sizeY: 1, linked: true, density: 1, opacity: 0.15, color1: '#000000', color2: '#ffffff', animated: false, seed: 42 });
 
 export const DEFAULT_FILTERS = Object.freeze({
   blur: Object.freeze({ type: 'blur', enabled: true, amount: 8, mode: 'uniform', direction: 'bottom' }),
   monochrome: Object.freeze({ type: 'monochrome', enabled: true, amount: 1 }),
+  duotone: Object.freeze({ type: 'duotone', enabled: true, amount: 1, shadow: '#111111', highlight: '#0000ff' }),
+  chromatic: Object.freeze({ type: 'chromatic', enabled: true, amount: 0.5, animated: false }),
+  wave: Object.freeze({ type: 'wave', enabled: true, amount: 0.5, size: 0.5, speed: 1 }),
   'optical-warp': Object.freeze({ type: 'optical-warp', enabled: true, amount: 0.5, axis: 'horizontal', center: 0.5 }),
+  halftone: Object.freeze({ type: 'halftone', enabled: true, amount: 1, size: 0.35 }),
+  dithering: Object.freeze({ type: 'dithering', enabled: true, amount: 1, size: 0.35, steps: 4 }),
+  'fluted-glass': Object.freeze({ type: 'fluted-glass', enabled: true, amount: 1, size: 0.35, distortion: 0.5 }),
 });
 
 export function newEffect(type, index = 0) {
@@ -15,9 +29,11 @@ export function newEffect(type, index = 0) {
   throw new Error('Unknown effect.');
 }
 
+const fraction = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+const hex = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
 export function validateEffects(effects) {
   const fail = () => { throw new Error('Invalid noise effect settings.'); };
-  if (!Array.isArray(effects) || effects.length > 8) fail();
+  if (!Array.isArray(effects) || effects.length > MAX_EFFECTS) throw new Error(`A layer holds at most ${MAX_EFFECTS} effects.`);
   for (const effect of effects) {
     if (!effect || typeof effect !== 'object' || Array.isArray(effect)) fail();
     if (Object.hasOwn(DEFAULT_FILTERS, effect.type)) {
@@ -27,6 +43,12 @@ export function validateEffects(effects) {
       if (typeof effect.enabled !== 'boolean' || typeof effect.amount !== 'number' || !Number.isFinite(effect.amount) || effect.amount < 0 || effect.amount > (effect.type === 'blur' ? 48 : 1)) throw new Error('Invalid effect settings.');
       if (effect.type === 'blur' && (!['uniform', 'progressive'].includes(effect.mode) || !['top', 'bottom', 'left', 'right'].includes(effect.direction))) throw new Error('Invalid blur settings.');
       if (effect.type === 'optical-warp' && (!['horizontal', 'vertical'].includes(effect.axis) || typeof effect.center !== 'number' || !Number.isFinite(effect.center) || effect.center < 0.1 || effect.center > 0.9)) throw new Error('Invalid optical warp settings.');
+      if (effect.type === 'duotone' && !(hex(effect.shadow) && hex(effect.highlight))) throw new Error('Invalid duotone colors.');
+      if (effect.type === 'chromatic' && typeof effect.animated !== 'boolean') throw new Error('Invalid chromatic split settings.');
+      if (effect.type === 'wave' && !(fraction(effect.size) && typeof effect.speed === 'number' && effect.speed >= 0 && effect.speed <= 2)) throw new Error('Invalid liquid wave settings.');
+      if (['halftone', 'dithering', 'fluted-glass'].includes(effect.type) && !fraction(effect.size)) throw new Error('Invalid effect size.');
+      if (effect.type === 'dithering' && !(Number.isInteger(effect.steps) && effect.steps >= 1 && effect.steps <= 7)) throw new Error('Dithering color steps must be an integer between 1 and 7.');
+      if (effect.type === 'fluted-glass' && !fraction(effect.distortion)) throw new Error('Invalid fluted glass distortion.');
       continue;
     }
     if (Object.keys(effect).some(key => !Object.hasOwn(DEFAULT_NOISE, key))) fail();
@@ -36,7 +58,7 @@ export function validateEffects(effects) {
     for (const [key, min, max] of [['sizeX', 0.5, 32], ['sizeY', 0.5, 32], ['density', 0, 1], ['opacity', 0, 1], ['seed', 0, 65535]]) {
       if (typeof effect[key] !== 'number' || !Number.isFinite(effect[key]) || effect[key] < min || effect[key] > max) fail();
     }
-    if (!Number.isInteger(effect.seed) || ![effect.color1, effect.color2].every(color => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))) fail();
+    if (!Number.isInteger(effect.seed) || ![effect.color1, effect.color2].every(hex)) fail();
     if (effect.linked && effect.sizeX !== effect.sizeY) fail();
   }
 }
@@ -83,8 +105,8 @@ function decodable(texture) {
 // Precision limit: one 8-bit step displaces by range / 255 of the layer, e.g.
 // about 0.8 % (3 px on a 400 px layer) at amount 1 and 0.6 % at 0.5. Edges
 // curving across the stretch therefore still move in small steps on large
-// layers; the 0.35 px blur below only softens them. Carousels warp in float
-// shader math instead (src/carousel-effects.js).
+// layers; the 0.35 px blur below only softens them. Every layer uses this map
+// so stack ordering and output are identical across layer types.
 export const opticalWarpMapScale = amount => 1.5 * (1 - 1 / (1 + 2 * amount)) * 255 / 127;
 function opticalWarpMap(effect) {
   const scale = opticalWarpMapScale(effect.amount);
@@ -155,6 +177,156 @@ export function effectLayer(id, duration) {
   return { id, type: 'effect', name: 'Adjustment', effectScope: 'below', visible: true, start: 0, end: duration, effects: [{ ...DEFAULT_NOISE }], opacity: 1, fadeIn: 0, fadeOut: 0 };
 }
 
+// Sizes are in scene units (1080 per short side of the composition), so an
+// effect looks the same on every layer and at every export resolution.
+const mixWith = (from, to, t) => from + (to - from) * t;
+const halftoneCell = size => 1080 / (mixWith(300, 7, size ** 0.7) / 2);
+const ditheringCell = size => 1.8 * mixWith(0.5, 20, size);
+const glassRib = size => mixWith(8, 160, size);
+const waveLength = size => mixWith(40, 400, size);
+const svgData = markup => `data:image/svg+xml,${encodeURIComponent(markup)}`;
+const rgbHex = color => [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16) / 255);
+const LUMA = '0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0';
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const SVG_EFFECTS = new Set(['duotone', 'chromatic', 'wave', 'halftone', 'dithering', 'fluted-glass']);
+
+// Two sine periods stacked vertically: R carries the horizontal displacement.
+function waveMap() {
+  return decodable(cachedTexture('wave', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1; canvas.height = 512;
+    const context = canvas.getContext('2d'), pixels = context.createImageData(1, 512);
+    for (let y = 0; y < 512; y++) pixels.data.set([Math.round(127.5 + 127.5 * Math.sin(y / 256 * Math.PI * 2)), 128, 0, 255], y * 4);
+    context.putImageData(pixels, 0, 0);
+    return { canvas };
+  }));
+}
+// A 4 × 4 ordered-dither threshold tile, `cell` pixels per entry.
+function bayerMap(cell) {
+  return decodable(cachedTexture(`bayer:${cell}`, () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = cell * 4;
+    const context = canvas.getContext('2d');
+    BAYER.forEach((value, index) => { const v = Math.round((value + 0.5) / 16 * 255); context.fillStyle = `rgb(${v},${v},${v})`; context.fillRect(index % 4 * cell, Math.floor(index / 4) * cell, cell, cell); });
+    return { canvas };
+  }));
+}
+
+// Builds the SVG filter for duotone, chromatic split, liquid wave, halftone,
+// dithering and fluted glass. Every filter ends by mixing its result with the
+// untouched input by `amount`, so the layer's alpha is preserved. `update`
+// applies animated values and the adjustment strength for one frame.
+function svgEffect(element, effect, id, unit, imagesReady) {
+  const filter = element('filter', { id, x: 0, y: 0, width: '100%', height: '100%', primitiveUnits: 'userSpaceOnUse', 'color-interpolation-filters': 'sRGB' });
+  const add = (tag, attributes = {}, children = []) => {
+    const node = element(tag, attributes); node.append(...children); filter.append(node);
+    // Export captures wait until generated SVG tiles are decoded.
+    if (tag === 'feImage' && attributes.href.startsWith('data:image/svg')) { const decoded = new Image(); decoded.src = attributes.href; imagesReady.push(decoded.decode()); }
+    return node;
+  };
+  const funcs = (type, values) => ['R', 'G', 'B'].map((channel, i) => element(`feFunc${channel}`, { type, ...values(i) }));
+  // Pixelates `input` into cells: one sample per cell, spread over the cell.
+  const pixelate = (cell, input, result) => {
+    const sample = Math.max(1, Math.min(6, Math.round(cell * 0.2)));
+    const tile = svgData(`<svg xmlns="http://www.w3.org/2000/svg" width="${cell}" height="${cell}"><rect x="${(cell - sample) / 2}" y="${(cell - sample) / 2}" width="${sample}" height="${sample}" fill="#fff" shape-rendering="crispEdges"/></svg>`);
+    add('feImage', { href: tile, x: 0, y: 0, width: cell, height: cell, preserveAspectRatio: 'none', result: `${result}Tile` });
+    add('feTile', { in: `${result}Tile`, result: `${result}Grid` });
+    add('feComposite', { in: input, in2: `${result}Grid`, operator: 'in', result: `${result}Samples` });
+    add('feMorphology', { in: `${result}Samples`, operator: 'dilate', radius: Math.max(0, Math.floor((cell - 1) / 2)), result });
+  };
+  const finish = input => add('feComposite', { in: input, in2: 'SourceGraphic', operator: 'arithmetic', k1: 0, k2: 1, k3: 0, k4: 0 });
+  let mix, update = () => {};
+  if (effect.type === 'duotone') {
+    const [shadow, highlight] = [rgbHex(effect.shadow), rgbHex(effect.highlight)];
+    add('feColorMatrix', { in: 'SourceGraphic', type: 'matrix', values: `${LUMA} 0 0 0 1 0`, result: 'luma' });
+    add('feComponentTransfer', { in: 'luma', result: 'duo' }, funcs('table', i => ({ tableValues: `${shadow[i]} ${highlight[i]}` })));
+    mix = finish('duo');
+  } else if (effect.type === 'chromatic') {
+    // Keeps one color channel and the alpha.
+    const channel = (row, result) => add('feColorMatrix', { in: 'SourceGraphic', type: 'matrix', values: [0, 1, 2].map(r => [0, 1, 2, 3, 4].map(c => +(r === row && c === row)).join(' ')).join(' ') + ' 0 0 0 1 0', result });
+    channel(0, 'red'); channel(1, 'green'); channel(2, 'blue');
+    const red = add('feOffset', { in: 'red', dx: 0, dy: 0, result: 'redShift' });
+    const blue = add('feOffset', { in: 'blue', dx: 0, dy: 0, result: 'blueShift' });
+    add('feBlend', { in: 'redShift', in2: 'green', mode: 'screen', result: 'redGreen' });
+    add('feBlend', { in: 'redGreen', in2: 'blueShift', mode: 'screen', result: 'split' });
+    update = (value, strength, time) => {
+      const shift = value.amount * strength * 12 * unit * (effect.animated ? 0.5 + 0.5 * Math.sin(Math.max(0, time) * 1.4) : 1);
+      red.setAttribute('dx', shift); blue.setAttribute('dx', -shift);
+    };
+  } else if (effect.type === 'wave') {
+    const length = waveLength(effect.size) * unit, map = waveMap();
+    imagesReady.push(map.ready);
+    add('feImage', { href: map.url, x: 0, y: 0, width: 1, height: length * 2, preserveAspectRatio: 'none', result: 'periods' });
+    // The tile window slides down the two stacked periods, so it is always full.
+    const window = add('feOffset', { in: 'periods', dx: 0, dy: 0, x: 0, y: 0, width: 1, height: length, result: 'period' });
+    add('feTile', { in: 'period', result: 'waveMap' });
+    const displacement = add('feDisplacementMap', { in: 'SourceGraphic', in2: 'waveMap', scale: 0, xChannelSelector: 'R', yChannelSelector: 'G', result: 'waved' });
+    update = (value, strength, time) => {
+      window.setAttribute('dy', -((Math.max(0, time) * effect.speed / Math.PI) % 1) * length);
+      displacement.setAttribute('scale', value.amount * strength * 48 * unit);
+    };
+  } else if (effect.type === 'halftone') {
+    // Dots keep each cell's color and grow with its brightness over dark gaps,
+    // inside the layer's silhouette.
+    const cell = halftoneCell(effect.size) * unit, reach = 0.406 * cell, edge = 0.4 / Math.max(reach, 0.5);
+    pixelate(cell, 'SourceGraphic', 'cells');
+    add('feColorMatrix', { in: 'cells', type: 'matrix', values: `${LUMA} 0 0 0 1 0`, result: 'cellLuma' });
+    add('feFlood', { 'flood-color': '#000000', result: 'black' });
+    add('feComposite', { in: 'cellLuma', in2: 'black', operator: 'over', result: 'brightness' });
+    const field = svgData(`<svg xmlns="http://www.w3.org/2000/svg" width="${cell}" height="${cell}"><defs><radialGradient id="g" cx="${cell / 2}" cy="${cell / 2}" r="${reach * 1.25}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></radialGradient></defs><rect width="${cell}" height="${cell}" fill="url(#g)"/></svg>`);
+    add('feImage', { href: field, x: 0, y: 0, width: cell, height: cell, preserveAspectRatio: 'none', result: 'fieldTile' });
+    add('feTile', { in: 'fieldTile', result: 'field' });
+    // 1 + (field - 0.2 - 0.8 × (1 - brightness)) / 2 saturates inside the dot.
+    add('feComposite', { in: 'field', in2: 'brightness', operator: 'arithmetic', k1: 0, k2: 0.5, k3: 0.4, k4: 0.5, result: 'coverage' });
+    add('feComponentTransfer', { in: 'coverage', result: 'dotMask' }, [element('feFuncR', { type: 'linear', slope: 1 / edge, intercept: 1 - 1 / edge })]);
+    add('feColorMatrix', { in: 'dotMask', type: 'matrix', values: '0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0', result: 'dotAlpha' });
+    add('feComposite', { in: 'cells', in2: 'dotAlpha', operator: 'in', result: 'dots' });
+    add('feFlood', { 'flood-color': '#060606', result: 'gap' });
+    add('feComposite', { in: 'dots', in2: 'gap', operator: 'over', result: 'screen' });
+    add('feComposite', { in: 'screen', in2: 'SourceAlpha', operator: 'in', result: 'halftone' });
+    mix = finish('halftone');
+  } else if (effect.type === 'dithering') {
+    // Ordered dithering of each channel to `steps` levels on pixelated cells.
+    const cell = Math.max(1, 2 * Math.round((ditheringCell(effect.size) * unit - 1) / 2) + 1), map = bayerMap(cell), steps = effect.steps;
+    imagesReady.push(map.ready);
+    if (cell > 1) pixelate(cell, 'SourceGraphic', 'cells');
+    add('feImage', { href: map.url, x: 0, y: 0, width: cell * 4, height: cell * 4, preserveAspectRatio: 'none', result: 'bayerTile' });
+    add('feTile', { in: 'bayerTile', result: 'bayer' });
+    add('feComposite', { in: cell > 1 ? 'cells' : 'SourceGraphic', in2: 'bayer', operator: 'arithmetic', k1: 0, k2: 1, k3: 1 / steps, k4: -0.5 / steps, result: 'jittered' });
+    // floor(v × steps + 0.5) / steps, as a discrete table of steps + 1 levels.
+    add('feComponentTransfer', { in: 'jittered', result: 'centered' }, funcs('linear', () => ({ slope: steps / (steps + 1), intercept: 0.5 / (steps + 1) })));
+    add('feComponentTransfer', { in: 'centered', result: 'levels' }, funcs('discrete', () => ({ tableValues: Array.from({ length: steps + 1 }, (_, i) => i / steps).join(' ') })));
+    add('feComposite', { in: 'levels', in2: 'SourceAlpha', operator: 'in', result: 'dithered' });
+    mix = finish('dithered');
+  } else {
+    // Fluted glass: each rib shows a compressed, slightly shaded slice.
+    const rib = glassRib(effect.size) * unit;
+    const ramp = svgData(`<svg xmlns="http://www.w3.org/2000/svg" width="${rib}" height="1"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#ff8000"/><stop offset="1" stop-color="#008000"/></linearGradient></defs><rect width="${rib}" height="1" fill="url(#g)"/></svg>`);
+    add('feImage', { href: ramp, x: 0, y: 0, width: rib, height: 1, preserveAspectRatio: 'none', result: 'rampTile' });
+    add('feTile', { in: 'rampTile', result: 'ramp' });
+    const displacement = add('feDisplacementMap', { in: 'SourceGraphic', in2: 'ramp', scale: 0, xChannelSelector: 'R', yChannelSelector: 'G', result: 'fluted' });
+    add('feGaussianBlur', { in: 'fluted', stdDeviation: 0.35, result: 'smooth' });
+    add('feColorMatrix', { in: 'ramp', type: 'matrix', values: '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 1 0', result: 'shade' });
+    const shading = add('feComposite', { in: 'smooth', in2: 'shade', operator: 'arithmetic', k1: 0, k2: 1, k3: 0, k4: 0, result: 'shaded' });
+    add('feComposite', { in: 'shaded', in2: 'smooth', operator: 'in' });
+    update = (value, strength) => {
+      const amount = value.amount * strength;
+      displacement.setAttribute('scale', rib * effect.distortion * 0.8 * amount);
+      shading.setAttribute('k3', 0.1 * amount); shading.setAttribute('k4', -0.05 * amount);
+    };
+  }
+  // Color effects cross-fade with their input by amount; displacements scale
+  // their own strength instead, which avoids a double image.
+  return {
+    filter,
+    update(value, strength, time) {
+      const amount = value.amount * strength;
+      if (mix) { mix.setAttribute('k2', amount); mix.setAttribute('k3', 1 - amount); }
+      update(value, strength, time);
+    }
+  };
+}
+
 let nextScene = 0;
 export function createEffects(root, project, formats, layerAlpha) {
   const ns = 'http://www.w3.org/2000/svg';
@@ -207,9 +379,6 @@ export function createEffects(root, project, formats, layerAlpha) {
       const fades = index === fadingNoise;
       const look = fades ? { ...effect, opacity: 1 } : effect;
       if (effect.type === 'optical-warp') {
-        // Carousels warp their own WebGL output exactly (src/carousel-effects.js),
-        // before the CSS effects on their canvas.
-        if (layer.type === 'carousel') return;
         const id = `floc-warp-${sceneId}-${layerIndex}-${index}`;
         const horizontal = effect.axis === 'horizontal';
         const bounds = { x: horizontal ? 0 : -1, y: horizontal ? -1 : 0, width: horizontal ? 1 : 3, height: horizontal ? 3 : 1 };
@@ -225,6 +394,13 @@ export function createEffects(root, project, formats, layerAlpha) {
         filter.append(image, sourceOffset, displacement, element('feGaussianBlur', { stdDeviation: 0.35 })); defs.append(filter);
         imagesReady.push(map.ready);
         filters.push({ effect, index, url: `url(#${id})`, displacement, image, sourceOffset, amount: effect.amount });
+        return;
+      }
+      if (SVG_EFFECTS.has(effect.type)) {
+        const id = `floc-${effect.type}-${sceneId}-${layerIndex}-${index}`;
+        const built = svgEffect(element, effect, id, unit, imagesReady);
+        defs.append(built.filter);
+        filters.push({ effect, index, url: `url(#${id})`, update: built.update });
         return;
       }
       if (effect.type === 'blur' && effect.mode === 'progressive') {
@@ -285,7 +461,7 @@ export function createEffects(root, project, formats, layerAlpha) {
       const strength = target.adjustment ? layerAlpha(layer, time) : 1;
       const live = evaluateChoreography(layer, time).effects ?? [];
       const filters = target.filters.flatMap(filter => {
-        const { effect, index, url, alpha, blurs, displacement, image, sourceOffset, fades } = filter;
+        const { effect, index, url, alpha, blurs, displacement, image, sourceOffset, fades, update } = filter;
         const value = live[index] ?? effect;
         if (!effect.enabled || strength <= 0) return [];
         if (effect.type === 'optical-warp') {
@@ -311,6 +487,11 @@ export function createEffects(root, project, formats, layerAlpha) {
             sourceOffset.setAttribute('dy', scale * 0.5 / 255);
             filter.key = key;
           }
+          return [url];
+        }
+        if (update) {
+          if (!(value.amount * strength)) return [];
+          update(value, strength, time - layer.start);
           return [url];
         }
         if (effect.type === 'blur') {
