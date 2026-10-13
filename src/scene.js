@@ -269,7 +269,8 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     }
     syncCarouselEffect(layer);
   }
-  // Reuses the pass unless the effect changes or its mix reaches zero.
+  // Reuses the passes unless the Paper effect or the active warps change, or
+  // the Paper mix reaches zero.
   function syncCarouselEffect(settings) {
     if (!carouselEffect?.update(settings)) {
       carouselEffect?.dispose();
@@ -393,7 +394,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       card.uTorsion.value = state.torsion;
     });
     cardVideos.forEach(({ video, texture }) => { if (video.readyState >= 2) texture.needsUpdate = true; });
-    if (carouselEffect) carouselEffect.render(scene, camera);
+    if (carouselEffect) carouselEffect.render(scene, camera, sampled);
     else renderer.render(scene, camera);
     p.layers.forEach(l => {
       const alpha = layerAlpha(l, time);

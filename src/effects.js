@@ -75,11 +75,20 @@ function decodable(texture) {
   return texture;
 }
 
-// Padded coordinates can displace up to one layer dimension in either
-// direction. Leave half a channel step of headroom around the neutral 128.
-const WARP_MAP_SCALE = 2.01;
+// Displacement range of a warp map, as a multiple of the layer's across size.
+// Padded coordinates reach one layer beyond each side, at most 1.5 layers from
+// the center line, and move by up to 1.5 × (1 - 1 / (1 + 2 × amount)) either
+// way; 127 channel steps on each side of the neutral 128 cover that exactly.
+//
+// Precision limit: one 8-bit step displaces by range / 255 of the layer, e.g.
+// about 0.8 % (3 px on a 400 px layer) at amount 1 and 0.6 % at 0.5. Edges
+// curving across the stretch therefore still move in small steps on large
+// layers; the 0.35 px blur below only softens them. Carousels warp in float
+// shader math instead (src/carousel-effects.js).
+export const opticalWarpMapScale = amount => 1.5 * (1 - 1 / (1 + 2 * amount)) * 255 / 127;
 function opticalWarpMap(effect) {
-  return decodable(cachedTexture(`warp:${effect.axis}:${effect.amount}:${effect.center}`, () => {
+  const scale = opticalWarpMapScale(effect.amount);
+  return decodable(cachedTexture(`warp:${effect.axis}:${effect.amount}:${effect.center}:${scale}`, () => {
     const horizontal = effect.axis === 'horizontal';
     const canvas = document.createElement('canvas');
     canvas.width = horizontal ? 256 : 768;
@@ -89,8 +98,8 @@ function opticalWarpMap(effect) {
     for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
       const [dx, dy] = opticalWarpOffset(effect, horizontal ? x / (canvas.width - 1) : -1 + 3 * x / (canvas.width - 1), horizontal ? -1 + 3 * y / (canvas.height - 1) : y / (canvas.height - 1));
       const index = (y * canvas.width + x) * 4;
-      pixels.data[index] = 128 + Math.round(dx / WARP_MAP_SCALE * 255);
-      pixels.data[index + 1] = 128 + Math.round(dy / WARP_MAP_SCALE * 255);
+      pixels.data[index] = 128 + Math.round(dx / scale * 255);
+      pixels.data[index + 1] = 128 + Math.round(dy / scale * 255);
       pixels.data[index + 2] = 0; pixels.data[index + 3] = 255;
     }
     context.putImageData(pixels, 0, 0);
@@ -198,6 +207,9 @@ export function createEffects(root, project, formats, layerAlpha) {
       const fades = index === fadingNoise;
       const look = fades ? { ...effect, opacity: 1 } : effect;
       if (effect.type === 'optical-warp') {
+        // Carousels warp their own WebGL output exactly (src/carousel-effects.js),
+        // before the CSS effects on their canvas.
+        if (layer.type === 'carousel') return;
         const id = `floc-warp-${sceneId}-${layerIndex}-${index}`;
         const horizontal = effect.axis === 'horizontal';
         const bounds = { x: horizontal ? 0 : -1, y: horizontal ? -1 : 0, width: horizontal ? 1 : 3, height: horizontal ? 3 : 1 };
@@ -288,12 +300,12 @@ export function createEffects(root, project, formats, layerAlpha) {
             pending.push(map.ready);
             filter.amount = amount;
           }
-          const key = `${width}:${height}:${strength}`;
+          const key = `${width}:${height}:${strength}:${amount}`;
           if (filter.key !== key) {
             const horizontal = effect.axis === 'horizontal';
             const bounds = { x: horizontal ? 0 : -width, y: horizontal ? -height : 0, width: horizontal ? width : width * 3, height: horizontal ? height * 3 : height };
             for (const node of [image, sourceOffset, displacement]) for (const [key, value] of Object.entries(bounds)) node.setAttribute(key, value);
-            const scale = WARP_MAP_SCALE * (horizontal ? height : width) * strength;
+            const scale = opticalWarpMapScale(amount) * (horizontal ? height : width) * strength;
             displacement.setAttribute('scale', scale);
             sourceOffset.setAttribute('dx', scale * 0.5 / 255);
             sourceOffset.setAttribute('dy', scale * 0.5 / 255);

@@ -13,6 +13,7 @@ import { CAROUSEL_EFFECTS, FORMATS, SHADERS, TEMPLATES, demoProject, validatePro
 import { PROCEDURAL_BACKGROUNDS } from '../src/backgrounds.js';
 import { FONTS, fontFaceCss } from '../src/fonts.js';
 import { DEFAULT_FILTERS, DEFAULT_NOISE } from '../src/effects.js';
+import { captureState } from '../src/choreography.js';
 import { DEFAULT_LAYOUT } from '../src/layout.js';
 
 // Visual regression harness: the export path (prepareComposition + hf-seek)
@@ -52,12 +53,13 @@ function carousel(templateId, index, x) {
 // Slot 14 (Monochrome) belonged to the retired Twist; a second Circular keeps that shader covered.
 const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'circular'], ['window-push', 'wheel']];
 
+// The Horizontal carousel (slot 1, Halftone) also covers Optical Warp after a Paper effect.
 function carouselFixtures() {
   return CAROUSEL_GROUPS.map((group, g) => {
     const project = base(`Carousels ${group.join(' ')}`, 'landscape');
     // Window Push fills the canvas, so its partner sits beside the window.
     const columns = group.length === 3 ? [22, 50, 78] : group.length === 1 ? [50] : group.includes('window-push') ? [50, 72] : [28, 72];
-    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => carousel(id, g * 3 + i, columns[i]))];
+    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => ({ ...carousel(id, g * 3 + i, columns[i]), ...(id === 'horizontal' && { effects: [{ ...DEFAULT_FILTERS['optical-warp'], amount: 0.6 }] }) }))];
     return { id: `carousels-${group.join('-')}`, times: [0.5, 1.7], project };
   });
 }
@@ -75,13 +77,18 @@ function backgroundFixture() {
   project.layers = [...backgrounds, ...texts, { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 82, y: 88, size: 12, fadeIn: 1, fadeOut: 0 }];
   return { id: 'backgrounds-fonts', times: [0.5, 1.7], project };
 }
+// The stack carousel warps in WebGL with a choreographed amount, before the
+// CSS blur on its canvas.
 function effectFixture() {
   const project = base('Effect layers', 'square');
+  const stack = { ...carousel('stack', 1, 70), y: 36, size: 0.6, shader: 'none', layerEffect: 'none', effects: [{ ...DEFAULT_FILTERS['optical-warp'], axis: 'vertical', center: 0.4, amount: 0.15 }, { ...DEFAULT_FILTERS.blur, mode: 'progressive', direction: 'bottom', amount: 18 }] };
+  stack.choreography = captureState(stack, 0, project.fps, { warpAmount: 0.15 }, 'warp-from');
+  stack.choreography = captureState(stack, 3, project.fps, { warpAmount: 0.9 }, 'warp-to');
   project.layers = [
     { ...colorBackground('#000000'), mode: 'image', src: '/demo/poster-3.svg' },
     { id: 'warped', type: 'media', name: 'Warped poster', ...span, src: '/demo/poster-1.svg', x: 4, y: 6, size: 42, offset: 0, loop: false, fadeIn: 0, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS['optical-warp'], amount: 0.8 }] },
     { id: 'adjustment', type: 'effect', name: 'Monochrome adjustment', ...span, start: 1, effectScope: 'below', effects: [{ ...DEFAULT_FILTERS.monochrome, amount: 0.85 }], opacity: 1, fadeIn: 0.4, fadeOut: 0 },
-    { ...carousel('stack', 1, 70), y: 36, size: 0.6, shader: 'none', layerEffect: 'none', effects: [{ ...DEFAULT_FILTERS.blur, mode: 'progressive', direction: 'bottom', amount: 18 }] },
+    stack,
     { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 8, y: 62, size: 22, fadeIn: 1, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS.blur, amount: 6 }, { ...DEFAULT_NOISE, animated: true, color1: '#ff0040', opacity: 0.7, sizeX: 3, sizeY: 3, seed: 11 }] },
     text('grain-title', { text: 'NOISE\nTEXT', x: 44, y: 66, size: 96, font: 'druk-wide', weight: 900, width: 54, effects: [{ ...DEFAULT_NOISE, mode: 'duo', color1: '#ff0040', color2: '#00e0ff', opacity: 0.8, sizeX: 3, sizeY: 3 }] }),
     { id: 'grain', type: 'effect', name: 'Grain', ...span, effectScope: 'overlay', effects: [{ ...DEFAULT_NOISE, mode: 'multi', animated: true, opacity: 0.25, sizeX: 6, sizeY: 6, seed: 7 }], opacity: 0.8, fadeIn: 0, fadeOut: 0 }
