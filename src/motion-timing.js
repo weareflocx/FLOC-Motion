@@ -7,18 +7,17 @@ const clamp = value => Math.max(0, Math.min(1, value));
 const mod = (value, period) => ((value % period) + period) % period;
 
 // Progress, not wall-clock animation: preview, scrubbing and export use the same curve.
+// Original keeps the family's own progress; every other curve uses its strength.
 export function motionEase(value, motion = DEFAULT_MOTION, original = clamp(value)) {
   const t = clamp(value);
   if (t === 0 || t === 1) return t;
-  if (motion.curve === 'native' || motion.intensity === 0) return original;
-  return original + (easeProgress(motion.curve, t) - original) * motion.intensity;
+  return motion.curve === 'native' ? original : easeProgress(motion.curve, t, motion.intensity);
 }
 
-// This wipe's Glide is symmetric: the reveal edge accelerates, then settles.
+// This wipe's Original is symmetric: the reveal edge accelerates, then settles.
 export function sweepProgress(value, motion = DEFAULT_MOTION) {
   const t = clamp(value);
-  const original = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
-  return clamp(motionEase(t, motion.curve === 'glide' ? { ...motion, curve: 'native' } : motion, original));
+  return clamp(motionEase(t, motion, t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2));
 }
 
 export function motionBaseline(layer, name = 'Original motion') {
@@ -40,7 +39,7 @@ export function motionClock(layer, count, time) {
     // These families historically measure speed in card advances, not degrees.
     if (!layer.loopDuration && layer.template === 'horizontal') cycle = local * layer.speed / 35 / count;
     // These families shape each card's transition rather than the whole clock.
-    if (!['flip', 'stickers', 'zoom-through', 'stack-shuffle', 'sweep-reveal', 'window-push'].includes(layer.template) && motion.curve !== 'native' && motion.intensity > 0) {
+    if (!['flip', 'stickers', 'zoom-through', 'stack-shuffle', 'sweep-reveal', 'window-push'].includes(layer.template) && motion.curve !== 'native') {
       const advance = Math.abs(cycle * count);
       cycle = (Math.floor(advance) + motionEase(advance % 1, motion)) * Math.sign(cycle) / count;
     }

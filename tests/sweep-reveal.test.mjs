@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { carouselCard } from '../src/carousel-motion.js';
-import { motionEase, sweepProgress } from '../src/motion-timing.js';
+import { sweepProgress } from '../src/motion-timing.js';
 import { demoProject, patchLayer, validateProject } from '../src/project.js';
 import { createTools } from '../src/webmcp.js';
 
@@ -16,7 +16,7 @@ test('Sweep Reveal applies through the validated agent model and preserves media
   const layer = project.layers[1];
   assert.deepEqual([layer.cardCount, layer.cardAspect, layer.loopDuration, layer.size, layer.cornerRadius], [6, 4 / 3, 10.2, 1, 0]);
   assert.equal(layer.motionVariant, 'right');
-  assert.deepEqual([layer.motion.curve, layer.motion.action, layer.motion.pause], ['glide', 1.7, 0]);
+  assert.deepEqual([layer.motion.curve, layer.motion.action, layer.motion.pause], ['native', 1.7, 0]);
   assert.deepEqual(project.images, before.images);
   assert.deepEqual(project.layers.filter(layer => layer.id !== 'carousel'), before.layers.filter(layer => layer.id !== 'carousel'));
   assert.deepEqual(validateProject(JSON.parse(JSON.stringify(project))), project);
@@ -40,8 +40,9 @@ test('a clean mask reveals the next fixed image with slow-fast-slow motion', () 
   }
   assert.equal(carouselCard(layer, 1, 6, 0).opacity, 0);
   close(sweepProgress(.5, layer.motion), .5);
-  // Existing carousel Glide remains its original ease-out curve.
-  close(motionEase(.5, layer.motion), .875);
+  close(sweepProgress(.25, layer.motion), 4 * .25 ** 3);
+  // Every other curve replaces the symmetric Original wipe.
+  close(sweepProgress(.25, { ...layer.motion, curve: 'ease-out', intensity: .5 }), 1 - .75 ** 3);
 });
 
 test('all four sweep directions expose the correct edge, and Linear remains adjustable', () => {

@@ -27,7 +27,7 @@
       ]
     },
     "carousels-zoom-through-sweep-reveal": {
-      "hash": "84ded75a2933228b",
+      "hash": "834069abe841a7fb",
       "format": "landscape",
       "frames": [
         "carousels-zoom-through-sweep-reveal-0.50s.png",
@@ -51,7 +51,7 @@
       ]
     },
     "carousels-window-push-wheel": {
-      "hash": "470a889e52bcd3b9",
+      "hash": "11bee0f0cd6f1366",
       "format": "landscape",
       "frames": [
         "carousels-window-push-wheel-0.50s.png",
@@ -67,7 +67,7 @@
       ]
     },
     "effects": {
-      "hash": "34613345b3d113d2",
+      "hash": "4ade0994a4be636f",
       "format": "square",
       "frames": [
         "effects-0.50s.png",

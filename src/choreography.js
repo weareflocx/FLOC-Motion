@@ -67,7 +67,7 @@ export function mixColor(from, to, progress) {
   return `#${a.map((value, i) => Math.round(clamp(toSrgb(value + (b[i] - value) * progress), 0, 1) * 255).toString(16).padStart(2, '0')).join('')}`;
 }
 
-// Overshooting curves (back, elastic, custom) stay within the field's bounds.
+// Overshooting curves (back, spring, custom) stay within the field's bounds.
 function sample(states, field, time, base, kind) {
   const holders = states.filter(state => Object.hasOwn(state.values, field));
   if (!holders.length) return base;
@@ -137,7 +137,7 @@ export function captureState(layer, absoluteTime, fps, patch = {}, id = crypto.r
     else if (existing && Object.hasOwn(existing.values, field) && !capturable.has(field)) values[field] = existing.values[field];
     else if (capturable.has(field) && (all || animated.has(field))) values[field] = choreographyValue(pose, field);
   }
-  const state = { id: existing?.id ?? id, time, easing: existing?.easing ?? 'smooth', values };
+  const state = { id: existing?.id ?? id, time, easing: existing?.easing ?? 'ease-in-out', values };
   return [...(layer.choreography ?? []).filter(entry => entry.id !== existing?.id), state].sort((a, b) => a.time - b.time);
 }
 

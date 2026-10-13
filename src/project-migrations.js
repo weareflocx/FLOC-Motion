@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 5;
+export const CURRENT_PROJECT_VERSION = 6;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -94,8 +94,44 @@ function v4ToV5(project) {
   return project;
 }
 
+// v5 progress curves were blended with linear by their intensity k. Each becomes
+// its closest v6 curve, whose intensity is the curve's own strength (null keeps
+// k). At k = 0 every curve showed the family's Original motion, and Sweep Reveal
+// always drew Glide as its Original wipe. Choreography transitions keep their
+// character at the default strength. Frozen here so a v5 file always migrates alike.
+const V5_CURVES = {
+  linear: ['linear', null], smooth: ['ease-in-out', 0.35], natural: ['ease-in-out', 0.35], slow: ['ease-in-out', 0.5],
+  'ease-in': ['ease-in', 0.25], 'ease-out': ['ease-out', 0.25], glide: ['ease-out', 0.5], vive: ['ease-out', 1],
+  back: ['back', 0.4], bounce: ['bounce', 1], elastic: ['spring', 1]
+};
+const V5_EASINGS = { smooth: 'ease-in-out', natural: 'ease-in-out', slow: 'ease-in-out', glide: 'ease-out', vive: 'ease-out', elastic: 'spring' };
+function v5Motion(motion, template) {
+  if (!record(motion) || typeof motion.curve !== 'string' || !Object.hasOwn(V5_CURVES, motion.curve) || typeof motion.intensity !== 'number') return;
+  if (motion.intensity === 0 || (template === 'sweep-reveal' && motion.curve === 'glide')) {
+    motion.curve = 'native';
+    motion.intensity = 0.5;
+    return;
+  }
+  const [curve, scale] = V5_CURVES[motion.curve];
+  motion.curve = curve;
+  if (scale !== null) motion.intensity = Math.round(motion.intensity * scale * 1000) / 1000;
+}
+function v5ToV6(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer)) continue;
+    if (layer.type === 'carousel') {
+      v5Motion(layer.motion, layer.template);
+      if (record(layer.motionBaseline)) v5Motion(layer.motionBaseline.motion, layer.template);
+    }
+    for (const state of Array.isArray(layer.choreography) ? layer.choreography : []) {
+      if (record(state) && typeof state.easing === 'string' && Object.hasOwn(V5_EASINGS, state.easing)) state.easing = V5_EASINGS[state.easing];
+    }
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

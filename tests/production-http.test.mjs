@@ -123,7 +123,7 @@ test('production serves frontend bundles and uploaded media without mixing names
     const savedSweep = (await (await request(`${base}/api/drafts/${draftId}`)).json()).project.layers.find(layer => layer.id === 'carousel');
     assert.equal(savedSweep.template, 'sweep-reveal');
     assert.equal(savedSweep.loopDuration, 10.2);
-    assert.equal(savedSweep.motion.curve, 'glide');
+    assert.deepEqual([savedSweep.motion.curve, savedSweep.motion.action], ['native', 1.7]);
     const sweepReceipt = await sweepDraft.json();
     const windowDraft = await request(`${base}/api/drafts/${draftId}`, { method: 'PUT', body: JSON.stringify({ project: patchLayer(currentDraft.project, 'carousel', { template: 'window-push' }), revision: sweepReceipt.revision, composition: null }) });
     assert.equal(windowDraft.status, 200);

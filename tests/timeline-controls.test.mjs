@@ -146,8 +146,12 @@ test('Save state lists held properties; the easing picker accepts library curves
   assert.equal(note().children.flat().join(''), 'Holds Position, Size, Opacity, Rotation, Color, Letter spacing, Line height.');
   h.render({ time: 2 });
   const easing = () => h.find(node => node.props['aria-label'] === 'Transition into state');
-  easing().props.onChange({ target: { value: 'elastic' } });
-  assert.equal(h.layer().choreography.at(-1).easing, 'elastic');
+  const options = node => (node.children || []).flat(Infinity).filter(child => child && typeof child === 'object');
+  assert.deepEqual(options(easing()).map(group => [group.props.label, options(group).map(option => option.children.flat().join(''))]), [
+    ['Basic', ['Linear', 'Ease in-out', 'Ease in', 'Ease out']], ['Overshoot', ['Back', 'Bounce', 'Spring']], ['Custom', ['Cubic bézier']]
+  ]);
+  easing().props.onChange({ target: { value: 'spring' } });
+  assert.equal(h.layer().choreography.at(-1).easing, 'spring');
   easing().props.onChange({ target: { value: 'custom' } });
   assert.equal(easing().props.value, 'custom');
   const custom = h.layer().choreography.at(-1).easing;
@@ -165,8 +169,8 @@ test('Save state lists held properties; the easing picker accepts library curves
   assert.equal(attributes['aria-invalid'], undefined);
   assert.deepEqual(h.layer().choreography.at(-1).easing, [0.1, -0.4, 0.3, 1.4]);
   assert.equal(bezier().props.defaultValue, '0.1, -0.4, 0.3, 1.4');
-  easing().props.onChange({ target: { value: 'smooth' } });
-  assert.equal(h.layer().choreography.at(-1).easing, 'smooth');
+  easing().props.onChange({ target: { value: 'ease-in-out' } });
+  assert.equal(h.layer().choreography.at(-1).easing, 'ease-in-out');
   assert.equal(bezier(), undefined);
 });
 

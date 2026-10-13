@@ -1,6 +1,6 @@
 import React from 'react';
 import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline, motionEase, sweepProgress } from '../../motion-timing.js';
-import { smoothProgress } from '../../easing.js';
+import { EASINGS, smoothProgress } from '../../easing.js';
 import { Field, NumberField, Range, Section } from '../controls.jsx';
 
 export function MotionControls({ layer, count, onPatch }) {
@@ -8,6 +8,8 @@ export function MotionControls({ layer, count, onPatch }) {
   const baseline = layer.motionBaseline ?? motionBaseline(layer);
   const change = patch => onPatch(layer.id, { motion: { ...motion, ...patch } });
   const label = MOTION_CURVES.find(([id]) => id === motion.curve)[1];
+  // Original and Linear have no strength; every other curve names what it regulates.
+  const strength = EASINGS.find(easing => easing.id === motion.curve)?.strength;
   const native = t => layer.template === 'window-push' ? 1 - (1 - t) ** 3 : layer.template === 'flip' && motion.mode === 'continuous' ? smoothProgress(t) : t;
   const points = Array.from({ length: 101 }, (_, i) => {
     const t = i / 100;
@@ -32,14 +34,17 @@ export function MotionControls({ layer, count, onPatch }) {
       {layer.template === 'stack-shuffle' && <Range label="Exit rotation" value={layer.shuffleRotation ?? 28} min={-180} max={180} step={1} suffix="°" onChange={shuffleRotation => onPatch(layer.id, { shuffleRotation })}/>}
     </Section>
     <Section title="Character">
-      <svg className="motion-curve" viewBox="0 0 200 136" role="img" aria-label={`${label} progress curve at ${Math.round(motion.intensity * 100)} percent intensity`}>
+      <svg className="motion-curve" viewBox="0 0 200 136" role="img" aria-label={strength ? `${label} progress curve at ${Math.round(motion.intensity * 100)} percent ${strength.label.toLowerCase()}` : `${label} progress curve`}>
         <path className="motion-curve-axis" d="M12 18V110H188"/>
         <path className="motion-curve-reference" d="M12 110L188 24"/>
         <path className="motion-curve-path" d={points}/>
         <text x="12" y="130">Time</text><text x="188" y="130" textAnchor="end">Progress</text>
       </svg>
       <div className="motion-curves" role="group" aria-label="Progress curves">{MOTION_CURVES.map(([id, name]) => <button type="button" key={id} aria-pressed={motion.curve === id} onClick={() => change({ curve: id })}>{name}</button>)}</div>
-      <Range label="Curve intensity" value={motion.intensity * 100} min={0} max={100} suffix="%" onChange={value => change({ intensity: value / 100 })}/>
+      {strength && <>
+        <Range label={strength.label} ariaLabel={`Curve ${strength.label.toLowerCase()}`} value={motion.intensity * 100} min={0} max={100} suffix="%" onChange={value => change({ intensity: value / 100 })}/>
+        <p className="helper">{strength.help}</p>
+      </>}
 
       <button type="button" className="outline-button" onClick={reset}>Reset motion</button>
 

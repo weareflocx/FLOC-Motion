@@ -8,7 +8,7 @@ const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9,
 const image = { id: 'replacement', src: '/demo/poster-6.svg', name: 'Replacement' };
 const states = entry => [
   { id: 'entry', time: 0, easing: 'linear', values: Object.fromEntries(Object.keys(choreographyFields(entry)).map(key => [key, key === 'opacity' ? .25 : entry[key]])) },
-  { id: 'exit', time: 5, easing: 'smooth', values: Object.fromEntries(Object.keys(choreographyFields(entry)).map(key => [key, key === 'opacity' ? .75 : key === 'x' || key === 'y' ? 60 : entry[key]])) }
+  { id: 'exit', time: 5, easing: 'ease-in-out', values: Object.fromEntries(Object.keys(choreographyFields(entry)).map(key => [key, key === 'opacity' ? .75 : key === 'x' || key === 'y' ? 60 : entry[key]])) }
 ];
 
 test('legacy format switching keeps the existing flat geometry and content', () => {
@@ -166,7 +166,7 @@ test('choreography adapts with baseline anchors and shares state timing, easing 
   near(adapted[0].values.x, 30 + (40 - 30) * .5625);
   near(adapted[1].values.x, 30 + (60 - 30) * .5625);
   near(adapted[1].values.size, 48 * .5625);
-  assert.deepEqual(adapted.map(({ id, time, easing, values }) => [id, time, easing, values.opacity]), [['entry', 0, 'linear', .25], ['exit', 5, 'smooth', .75]]);
+  assert.deepEqual(adapted.map(({ id, time, easing, values }) => [id, time, easing, values.opacity]), [['entry', 0, 'linear', .25], ['exit', 5, 'ease-in-out', .75]]);
   const edited = structuredClone(adapted);
   edited[1].time = 7;
   edited[1].easing = 'ease-out';

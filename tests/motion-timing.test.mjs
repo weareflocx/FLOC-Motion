@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_MOTION, MOTION_CURVES, motionClock, motionEase } from '../src/motion-timing.js';
+import { easeProgress, legacyCurve } from '../src/easing.js';
 import { carouselCard, MOTION_VARIANTS } from '../src/carousel-motion.js';
 import { demoProject, patchLayer, validateProject } from '../src/project.js';
 import { CATALOG, readCatalogSetting } from '../src/catalog.js';
@@ -19,7 +20,7 @@ test('saved and legacy rhythms migrate without changing motion or mutating the i
   for (const template of Object.keys(MOTION_VARIANTS)) for (const t of [0, .234, 1.72, 19.8]) {
     assert.deepEqual(carouselCard({ ...raw.layers[1], template }, 1, 6, t), carouselCard({ ...migrated.layers[1], template }, 1, 6, t));
   }
-  const changed = patchLayer(raw, 'carousel', { motion: motion({ curve: 'glide' }), speed: -30 });
+  const changed = patchLayer(raw, 'carousel', { motion: motion({ curve: 'ease-out' }), speed: -30 });
   assert.equal(changed.layers[1].motionBaseline.speed, before.layers[1].speed);
   assert.equal(changed.layers[1].motionBaseline.motion.curve, 'native');
 });
@@ -30,11 +31,12 @@ test('motion and its reset baseline reject malformed, unknown and out-of-bounds 
   for (const baseline of [null, {}, { name: 'Invalid', motion: DEFAULT_MOTION, speed: 100, loopDuration: 6 }, { name: 'Invalid', motion: motion({ pause: 40 }), speed: 18, loopDuration: 6 }]) assert.throws(() => patchLayer(demoProject(), 'carousel', { motionBaseline: baseline }));
   const p = validateProject(demoProject());
   p.layers[1].locked = true;
-  assert.throws(() => patchLayer(p, 'carousel', { motion: motion({ curve: 'smooth' }) }), /Unlock/);
+  assert.throws(() => patchLayer(p, 'carousel', { motion: motion({ curve: 'ease-in-out' }) }), /Unlock/);
+  for (const curve of ['smooth', 'natural', 'glide', 'slow', 'vive', 'elastic']) assert.throws(() => patchLayer(demoProject(), 'carousel', { motion: motion({ curve }) }), /Unknown rhythm or curve/);
 });
 
 test('action duration moves exactly one card and pause holds it, independent of FPS or seek order', () => {
-  const l = layer({ motion: motion({ mode: 'steps', action: .5, pause: .5, curve: 'smooth', intensity: 1 }) });
+  const l = layer({ motion: motion({ mode: 'steps', action: .5, pause: .5, curve: 'ease-in-out', intensity: 1 }) });
   close(motionClock(l, 6, .25).advance, .5);
   for (const t of [.5, .6, .75, .99]) {
     close(motionClock(l, 6, t).advance, 1);
@@ -50,20 +52,24 @@ test('action duration moves exactly one card and pause holds it, independent of 
   assert.deepEqual(carouselCard(l, 1, 6, .25), state);
 });
 
-test('curves have exact endpoints, intensity preserves native progress and expressive curves differ', () => {
+test('curves have exact endpoints, Original keeps native progress and strength shapes each curve', () => {
   const fingerprints = new Set();
-  for (const [curve] of MOTION_CURVES) {
-    const settings = motion({ curve, intensity: 1 });
+  for (const [curve] of MOTION_CURVES) for (const intensity of [0, .5, 1]) {
+    const settings = motion({ curve, intensity });
     assert.equal(motionEase(0, settings), 0);
     assert.equal(motionEase(1, settings), 1);
     const values = Array.from({ length: 101 }, (_, i) => motionEase(i / 100, settings));
     assert(values.every(Number.isFinite));
-    fingerprints.add(JSON.stringify(values));
-    close(motionEase(.23, motion({ curve, intensity: 0 }), .19), .19);
+    if (intensity === 1) fingerprints.add(JSON.stringify(values));
   }
   assert.equal(fingerprints.size, MOTION_CURVES.length - 1); // Original / Linear share the clock's native curve.
-  assert(Array.from({ length: 100 }, (_, i) => motionEase(i / 100, motion({ curve: 'elastic', intensity: 1 }))).some(value => value > 1));
-  assert(motionEase(.6, motion({ curve: 'bounce', intensity: 1 })) < motionEase(.4, motion({ curve: 'bounce', intensity: 1 })));
+  // Original ignores strength; every other curve uses it instead of blending with the native progress.
+  for (const intensity of [0, .5, 1]) close(motionEase(.23, motion({ intensity }), .19), .19);
+  for (const curve of ['ease-in-out', 'ease-in', 'ease-out']) close(motionEase(.23, motion({ curve, intensity: 0 }), .19), .23);
+  close(motionEase(.23, motion({ curve: 'back', intensity: .7 }), .19), easeProgress('back', .23, .7));
+  assert(Array.from({ length: 100 }, (_, i) => motionEase(i / 100, motion({ curve: 'spring', intensity: 1 }))).some(value => value > 1));
+  assert(Array.from({ length: 100 }, (_, i) => motionEase(i / 100, motion({ curve: 'bounce', intensity: 1 }))).every(value => value <= 1));
+  assert(motionEase(.5, motion({ curve: 'bounce', intensity: 1 })) < motionEase(.35, motion({ curve: 'bounce', intensity: 1 })));
 });
 
 test('every family and curve remains finite, seek-safe and periodic with action and hold timing', () => {
@@ -83,7 +89,7 @@ test('every family and curve remains finite, seek-safe and periodic with action 
 });
 
 test('character changes timing without changing orbital spacing or a native Flip hold', () => {
-  const l = layer({ motion: motion({ curve: 'glide', intensity: 1 }) });
+  const l = layer({ motion: motion({ curve: 'ease-out', intensity: 1 }) });
   const cards = Array.from({ length: 6 }, (_, i) => carouselCard(l, i, 6, .3));
   const distances = cards.map((card, i) => Math.hypot(card.position[0] - cards[(i + 1) % 6].position[0], card.position[2] - cards[(i + 1) % 6].position[2]));
   distances.forEach(distance => close(distance, distances[0]));
@@ -98,8 +104,10 @@ test('character changes timing without changing orbital spacing or a native Flip
 test('catalog rhythm and curve defaults are applied and reset without reverting composition or fades', () => {
   for (const preset of CATALOG) {
     const settings = preset.carouselPatch.motion;
-    assert.equal(settings.curve, String(readCatalogSetting(preset.raw, 'animation.Curves.Default')).toLowerCase());
-    assert.equal(settings.intensity, readCatalogSetting(preset.raw, 'animation.Easing.Intensity') / 100);
+    const source = String(readCatalogSetting(preset.raw, 'animation.Curves.Default')).toLowerCase();
+    const converted = legacyCurve(source, readCatalogSetting(preset.raw, 'animation.Easing.Intensity') / 100);
+    assert.deepEqual([settings.curve, settings.intensity], [converted.curve, converted.intensity]);
+    assert.equal(settings.curve, { linear: 'linear', smooth: 'ease-in-out', natural: 'ease-in-out' }[source], source);
     const sourceAction = readCatalogSetting(preset.raw, 'animation.Motion.Action');
     if (sourceAction > 0) { assert.equal(settings.mode, 'steps'); assert.equal(settings.action, sourceAction); }
     assert.deepEqual(preset.carouselPatch.motionBaseline.motion, settings);
@@ -107,7 +115,7 @@ test('catalog rhythm and curve defaults are applied and reset without reverting 
   }
   let p = patchLayer(demoProject(), 'carousel', CATALOG.find(preset => preset.id === 'stack-stairs-01').carouselPatch);
   const baseline = structuredClone(p.layers[1].motionBaseline);
-  p = patchLayer(p, 'carousel', { motion: motion({ mode: 'steps', curve: 'elastic', action: .4, pause: .7 }), size: 2, roll: 33, fadeIn: .3 });
+  p = patchLayer(p, 'carousel', { motion: motion({ mode: 'steps', curve: 'spring', action: .4, pause: .7 }), size: 2, roll: 33, fadeIn: .3 });
   p = patchLayer(p, 'carousel', { motion: baseline.motion, speed: baseline.speed, loopDuration: baseline.loopDuration });
   assert.deepEqual(p.layers[1].motion, baseline.motion);
   assert.equal(p.layers[1].size, 2); assert.equal(p.layers[1].roll, 33); assert.equal(p.layers[1].fadeIn, .3);
@@ -121,8 +129,8 @@ test('agent edits share motion validation and reject invalid changes without sav
   let p = demoProject(), saves = 0;
   const tools = createTools({ get: () => p, set: value => { p = value; }, save: async () => { saves++; }, audit: () => {} });
   const set = tools.find(tool => tool.name === 'floc_set_carousel');
-  assert(set.inputSchema.properties.motion.properties.curve.enum.includes('elastic'));
-  await set.execute({ template: 'stack', motion: motion({ mode: 'steps', curve: 'smooth', pause: .5 }) });
+  assert.deepEqual(set.inputSchema.properties.motion.properties.curve.enum, ['native', 'linear', 'ease-in-out', 'ease-in', 'ease-out', 'back', 'bounce', 'spring']);
+  await set.execute({ template: 'stack', motion: motion({ mode: 'steps', curve: 'ease-in-out', pause: .5 }) });
   assert.equal(p.layers[1].motion.pause, .5);
   assert.equal(saves, 1);
   await assert.rejects(set.execute({ template: 'stack', motion: motion({ action: -1 }) }));

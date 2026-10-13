@@ -12,46 +12,33 @@ const near = (actual, expected, epsilon = 1e-9) => assert.ok(Math.abs(actual - e
 const samples = Array.from({ length: 41 }, (_, i) => i / 40);
 const pose = { x: 6, y: 6, size: 48, opacity: 1, roll: 0 };
 
-// The formulas these stored names have always meant.
-const LEGACY_CHOREOGRAPHY = { linear: t => t, smooth: t => t * t * (3 - 2 * t), 'ease-in': t => t * t, 'ease-out': t => 1 - (1 - t) ** 2 };
-function legacyBounce(t) {
-  if (t < 1 / 2.75) return 7.5625 * t * t;
-  if (t < 2 / 2.75) return 7.5625 * (t - 1.5 / 2.75) ** 2 + 0.75;
-  if (t < 2.5 / 2.75) return 7.5625 * (t - 2.25 / 2.75) ** 2 + 0.9375;
-  return 7.5625 * (t - 2.625 / 2.75) ** 2 + 0.984375;
-}
-const LEGACY_MOTION = { linear: t => t, smooth: t => t * t * (3 - 2 * t), natural: t => (1 - Math.cos(Math.PI * t)) / 2, glide: t => 1 - (1 - t) ** 3,
-  slow: t => t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2, vive: t => 1 - (1 - t) ** 5, bounce: legacyBounce,
-  elastic: t => 1 + 2 ** (-10 * t) * Math.sin((t * 10 - 0.75) * 2 * Math.PI / 3) };
+// Choreography uses each curve at the default strength: the eases are cubic there.
+const CUBIC = { linear: t => t, 'ease-in-out': t => t < 0.5 ? 4 * t ** 3 : 1 - (2 - 2 * t) ** 3 / 2, 'ease-in': t => t ** 3, 'ease-out': t => 1 - (1 - t) ** 3 };
 
 function textProject(states, patch = {}) {
   const project = validateProject(demoProject());
   return patchLayer(project, 'headline', { ...patch, choreography: states });
 }
 
-test('stored easing and carousel curve names keep their exact output', () => {
-  for (const [name, curve] of Object.entries(LEGACY_CHOREOGRAPHY)) for (const t of samples) assert.equal(easeProgress(name, t), curve(t), `${name} at ${t}`);
-  assert.deepEqual(MOTION_CURVES.map(([id]) => id).filter(id => id === 'native' || Object.hasOwn(LEGACY_MOTION, id)), ['native', ...Object.keys(LEGACY_MOTION)]);
-  for (const [name, curve] of Object.entries(LEGACY_MOTION)) for (const intensity of [0.35, 1]) for (const t of samples) {
-    const expected = t === 0 || t === 1 ? t : t + (curve(t) - t) * intensity;
-    assert.equal(motionEase(t, { mode: 'continuous', action: 1, pause: 0, curve: name, intensity }), expected, `${name} at ${t}`);
-  }
-  // A version-one composition with every legacy easing still validates and renders the same pose.
-  const states = Object.keys(LEGACY_CHOREOGRAPHY).map((easing, index) => ({ id: easing, time: index, easing, values: { ...pose, x: 10 + index * 20 } }));
+test('choreography easings are the library curves at the default strength, shared with carousel curves', () => {
+  for (const [name, curve] of Object.entries(CUBIC)) for (const t of samples) near(easeProgress(name, t), curve(t), 1e-12);
+  assert.deepEqual(MOTION_CURVES.map(([id]) => id), ['native', ...EASINGS.map(easing => easing.id)]);
+  for (const { id } of EASINGS) for (const t of samples) assert.equal(motionEase(t, { mode: 'continuous', action: 1, pause: 0, curve: id, intensity: 0.5 }), easeProgress(id, t), `${id} at ${t}`);
+  const states = Object.keys(CUBIC).map((easing, index) => ({ id: easing, time: index, easing, values: { ...pose, x: 10 + index * 20 } }));
   const project = textProject(states);
-  assert.deepEqual(layer(project, 'headline').choreography.map(state => state.easing), Object.keys(LEGACY_CHOREOGRAPHY));
-  near(evaluateChoreography(layer(project, 'headline'), 1.5).x, 30 + 20 * LEGACY_CHOREOGRAPHY['ease-in'](0.5));
-  near(evaluateChoreography(layer(project, 'headline'), 2.5).x, 50 + 20 * LEGACY_CHOREOGRAPHY['ease-out'](0.5));
+  assert.deepEqual(layer(project, 'headline').choreography.map(state => state.easing), Object.keys(CUBIC));
+  near(evaluateChoreography(layer(project, 'headline'), 1.5).x, 30 + 20 * CUBIC['ease-in'](0.5));
+  near(evaluateChoreography(layer(project, 'headline'), 2.5).x, 50 + 20 * CUBIC['ease-out'](0.5));
 });
 
 test('choreography accepts every library curve and validated custom cubic béziers', () => {
   const names = EASINGS.map(easing => easing.id);
-  for (const name of ['back', 'bounce', 'elastic', 'natural', 'glide', 'slow', 'vive']) assert(names.includes(name));
+  assert.deepEqual(names, ['linear', 'ease-in-out', 'ease-in', 'ease-out', 'back', 'bounce', 'spring']);
   for (const easing of [...names, [0.25, 0.1, 0.25, 1], [0, -1, 1, 2.5]]) {
     const project = textProject([{ id: 'a', time: 0, easing: 'linear', values: pose }, { id: 'b', time: 2, easing, values: { ...pose, x: 50 } }]);
     for (const time of samples.map(t => t * 2)) assert(Number.isFinite(evaluateChoreography(layer(project, 'headline'), time).x));
   }
-  for (const easing of [[1.2, 0, 0.5, 1], [-0.1, 0, 0.5, 1], [0.5, 0, 0.5], [0.5, 0, 0.5, 1, 0], [0.5, '0', 0.5, 1], [0.5, NaN, 0.5, 1], [0.2, 4, 0.5, 1], 'spring', 'native', null]) {
+  for (const easing of [[1.2, 0, 0.5, 1], [-0.1, 0, 0.5, 1], [0.5, 0, 0.5], [0.5, 0, 0.5, 1, 0], [0.5, '0', 0.5, 1], [0.5, NaN, 0.5, 1], [0.2, 4, 0.5, 1], 'smooth', 'elastic', 'glide', 'native', null]) {
     assert.equal(isCubicBezier(easing), false);
     assert.throws(() => textProject([{ id: 'a', time: 0, easing, values: pose }]), /Unknown choreography easing/);
   }
@@ -83,12 +70,12 @@ test('a state that omits a property leaves it to the states that hold it, or to 
   project = patchLayer(project, 'headline', { choreography: [
     { id: 'a', time: 0, easing: 'linear', values: { ...pose, color: '#000000', blurAmount: 0, lineHeight: 1 } },
     { id: 'b', time: 1, easing: 'linear', values: { ...pose, x: 40 } },
-    { id: 'c', time: 4, easing: 'smooth', values: { ...pose, color: '#ffffff', blurAmount: 40 } }
+    { id: 'c', time: 4, easing: 'ease-in-out', values: { ...pose, color: '#ffffff', blurAmount: 40 } }
   ] });
   const headline = layer(project, 'headline');
   const at = time => evaluateChoreography(headline, time);
   // Color and blur pass state b by interpolating from a to c with c's easing.
-  const progress = easeProgress('smooth', 2 / 4);
+  const progress = easeProgress('ease-in-out', 2 / 4);
   assert.equal(at(2).color, mixColor('#000000', '#ffffff', progress));
   near(at(2).effects[0].amount, 40 * progress);
   near(at(0.5).x, 23);
@@ -106,7 +93,7 @@ test('a state that omits a property leaves it to the states that hold it, or to 
 test('overshooting transitions stay inside each property’s bounds', () => {
   const project = textProject([
     { id: 'a', time: 0, easing: 'linear', values: { ...pose, opacity: 0, letterSpacing: -0.15 } },
-    { id: 'b', time: 2, easing: 'elastic', values: { ...pose, opacity: 1, letterSpacing: 0.5 } }
+    { id: 'b', time: 2, easing: 'spring', values: { ...pose, opacity: 1, letterSpacing: 0.5 } }
   ]);
   const values = samples.map(t => evaluateChoreography(layer(project, 'headline'), t * 2));
   assert(values.every(value => value.opacity >= 0 && value.opacity <= 1 && value.letterSpacing >= -0.15 && value.letterSpacing <= 0.5));

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { CURRENT_PROJECT_VERSION, migrateProject } from '../src/project-migrations.js';
 import { blankProject, demoProject, validateProject } from '../src/project.js';
+import { motionEase, sweepProgress } from '../src/motion-timing.js';
 import { parseProjectFile } from '../src/editor/project-import.js';
 import { createDraftStore } from '../server/draft-store.mjs';
 import { createTemplateStore } from '../server/template-store.mjs';
@@ -15,11 +16,11 @@ const fixture = async name => JSON.parse(await readFile(new URL(`./fixtures/proj
 // version 1 out) and only bumped to the current version. The junk/duplicate-ID expectation
 // additionally drops the junk keys and repairs image IDs, by design; v2→v3 turns the
 // legacy-text content label into a typed field, v3→v4 turns the retired Arc
-// carousel into a rocking Wheel, and v4→v5 retires Twist.
+// carousel into a rocking Wheel, v4→v5 retires Twist and v5→v6 converts progress curves.
 const LEGACY = ['v1-legacy-text', 'v1-legacy-defaults', 'v1-linked-formats', 'v1-junk-duplicate-ids'];
 
-test('current version is 5 and new projects are written at it', () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 5);
+test('current version is 6 and new projects are written at it', () => {
+  assert.equal(CURRENT_PROJECT_VERSION, 6);
   assert.equal(blankProject().version, CURRENT_PROJECT_VERSION);
   assert.equal(validateProject(demoProject()).version, CURRENT_PROJECT_VERSION);
 });
@@ -94,6 +95,52 @@ test('v4 Twist carousels become Flip (single panel) or a Horizontal strip (ribbo
   assert.deepEqual(input, before, 'stored data is not rewritten');
   assert.deepEqual(validateProject(project), project, 'a migrated project is current');
   assert.throws(() => validateProject({ ...input, version: CURRENT_PROJECT_VERSION }), /Unknown carousel or shader/);
+});
+
+test('v5 progress curves and choreography easings become their closest v6 curve and strength', () => {
+  const demo = demoProject(), carousel = demo.layers.find(l => l.type === 'carousel'), headline = demo.layers.find(l => l.id === 'headline');
+  // [v5 curve, v5 intensity, v6 curve, v6 strength]
+  const curves = [
+    ['smooth', 1, 'ease-in-out', 0.35], ['natural', 0.5, 'ease-in-out', 0.175], ['slow', 1, 'ease-in-out', 0.5],
+    ['ease-in', 1, 'ease-in', 0.25], ['ease-out', 0.6, 'ease-out', 0.15], ['glide', 0.8, 'ease-out', 0.4], ['vive', 1, 'ease-out', 1],
+    ['back', 1, 'back', 0.4], ['bounce', 0.65, 'bounce', 0.65], ['elastic', 0.3, 'spring', 0.3],
+    ['linear', 0.7, 'linear', 0.7], ['native', 0.2, 'native', 0.2],
+    // At intensity 0 every v5 curve showed the family's Original motion.
+    ['smooth', 0, 'native', 0.5], ['linear', 0, 'native', 0.5]
+  ];
+  const motion = (curve, intensity, mode = 'steps') => ({ mode, action: 1, pause: 0.5, curve, intensity });
+  const layers = curves.map(([curve, intensity], i) => ({ ...carousel, id: `curve-${i}`, motion: motion(curve, intensity), motionBaseline: { name: 'Original motion', speed: 18, loopDuration: 0, motion: motion(curve, intensity, 'continuous') } }));
+  // Sweep Reveal always drew Glide as its own symmetric wipe; Window Push's Glide was its Original ease-out.
+  const sweep = { ...carousel, id: 'sweep', template: 'sweep-reveal', motionVariant: 'right', motion: { ...motion('glide', 1, 'continuous'), action: 1.7, pause: 0 } };
+  const push = { ...carousel, id: 'push', template: 'window-push', motionVariant: 'right', motion: { ...motion('glide', 1, 'continuous'), action: 1.2, pause: 0 } };
+  const easings = [['linear', 'linear'], ['smooth', 'ease-in-out'], ['natural', 'ease-in-out'], ['slow', 'ease-in-out'], ['ease-in', 'ease-in'], ['ease-out', 'ease-out'],
+    ['glide', 'ease-out'], ['vive', 'ease-out'], ['back', 'back'], ['bounce', 'bounce'], ['elastic', 'spring'], [[0.25, 0.1, 0.25, 1], [0.25, 0.1, 0.25, 1]]];
+  const states = values => easings.map(([easing], i) => ({ id: `s${i}`, time: i * 0.5, easing, values }));
+  const text = { ...headline, choreography: states({ x: 10, y: 10, size: 40, opacity: 1, roll: 0 }) };
+  const animated = { ...carousel, id: 'animated', choreography: [{ id: 'a', time: 0, easing: 'elastic', values: { x: 50, y: 54, size: 1.35, opacity: 1, tilt: -12, yaw: 0, roll: -26 } }] };
+  const input = { ...demo, version: 5, layers: [demo.layers[0], ...layers, sweep, push, text, animated] };
+  const before = structuredClone(input);
+  const project = validateProject(input);
+  const layer = id => project.layers.find(l => l.id === id);
+  curves.forEach(([from, intensity, curve, strength], i) => {
+    for (const settings of [layer(`curve-${i}`).motion, layer(`curve-${i}`).motionBaseline.motion]) assert.deepEqual([settings.curve, settings.intensity], [curve, strength], `${from} at ${intensity}`);
+  });
+  assert.deepEqual(layer('headline').choreography.map(state => state.easing), easings.map(([, easing]) => easing));
+  assert.equal(layer('animated').choreography[0].easing, 'spring');
+  assert.deepEqual([layer('sweep').motion.curve, layer('push').motion.curve, layer('push').motion.intensity], ['native', 'ease-out', 0.5]);
+  // Full-intensity Glide (in both wipes), Slow and Vive were exactly the curves they become.
+  for (let t = 0; t <= 1; t += 1 / 64) {
+    assert.ok(Math.abs(sweepProgress(t, layer('sweep').motion) - (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2)) < 1e-12);
+    assert.ok(Math.abs(motionEase(t, layer('push').motion) - (1 - (1 - t) ** 3)) < 1e-12);
+    assert.ok(Math.abs(motionEase(t, layer('curve-2').motion) - (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2)) < 1e-12);
+    assert.ok(Math.abs(motionEase(t, layer('curve-6').motion) - (1 - (1 - t) ** 5)) < 1e-12);
+  }
+  assert.deepEqual(input, before, 'stored data is not rewritten');
+  assert.deepEqual(validateProject(project), project, 'a migrated project is current');
+  assert.deepEqual(migrateProject(project), project, 'migration is idempotent');
+  // A current file cannot name a retired curve.
+  assert.throws(() => validateProject({ ...input, version: CURRENT_PROJECT_VERSION }), /Unknown rhythm or curve/);
+  assert.throws(() => validateProject({ ...demo, layers: [demo.layers[0], text] }), /Unknown choreography easing/);
 });
 
 test('legacy v1 fixtures migrate to the output the pre-migration validator produced', async () => {
