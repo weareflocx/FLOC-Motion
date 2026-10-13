@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { transform } from 'esbuild';
-import { assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../src/project.js';
+import { PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../src/project.js';
 import { captureState } from '../src/choreography.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
 import * as historyOps from '../src/editor/history.js';
@@ -23,7 +23,7 @@ function editor({ linked = true } = {}) {
   const session = { draftId: 'original-draft', compositionId: identity?.id, remember() {} };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = {
-    assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject, historyShortcut, ...historyOps, editorSession: () => session, crypto: webcrypto,
+    PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject, historyShortcut, ...historyOps, editorSession: () => session, crypto: webcrypto,
     request: async (url, options) => {
       const body = options?.body && JSON.parse(options.body);
       requests.push({ url, method: options?.method || 'GET', body });
@@ -76,7 +76,7 @@ test('copying another template keeps the current identity until creation succeed
   const template = demoProject();
   template.name = 'Stored source';
   const headline = template.layers.find(layer => layer.id === 'headline');
-  headline.text = 'Source headline'; headline.contentField = 'Headline'; headline.locked = true;
+  headline.text = 'Source headline'; headline.contentField = { id: 'headline', label: 'Headline', required: false }; headline.locked = true;
   headline.choreography = captureState(headline, 0, template.fps, { size: 36 }, 'intro');
   headline.choreography = captureState(headline, 2, template.fps, { size: 72 }, 'hero');
   const before = structuredClone(template);
@@ -208,7 +208,7 @@ test('invalid new composition settings leave current work untouched before savin
   const h = editor();
   await h.render().reload();
   const asset = { name: 'Remote.png', src: 'https://example.com/image.png' };
-  for (const options of [{ format: 'unknown' }, { assets: [asset] }, { assets: Array(21).fill(asset) }]) {
+  for (const options of [{ format: 'unknown' }, { assets: [asset] }, { assets: Array(PROJECT_LIMITS.maxLayers + 1).fill(asset) }]) {
     await assert.rejects(h.render().newComposition('Invalid', options));
   }
   assert.equal(h.requests.some(item => item.method !== 'GET'), false);

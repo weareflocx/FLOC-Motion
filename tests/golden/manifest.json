@@ -11,7 +11,7 @@
   },
   "fixtures": {
     "carousels-circular-depth-arc": {
-      "hash": "9912ddc7c106a964",
+      "hash": "e554912967f208ad",
       "format": "landscape",
       "frames": [
         "carousels-circular-depth-arc-0.50s.png",
@@ -19,7 +19,7 @@
       ]
     },
     "carousels-horizontal-flip-showcase": {
-      "hash": "7f3a276e52da1a9e",
+      "hash": "93b3c07b38882ee6",
       "format": "landscape",
       "frames": [
         "carousels-horizontal-flip-showcase-0.50s.png",
@@ -27,7 +27,7 @@
       ]
     },
     "carousels-nested-rise-zoom-through-sweep-reveal": {
-      "hash": "cb509ee58eeee3bf",
+      "hash": "ecd8239201ae9529",
       "format": "landscape",
       "frames": [
         "carousels-nested-rise-zoom-through-sweep-reveal-0.50s.png",
@@ -35,7 +35,7 @@
       ]
     },
     "carousels-stack-shuffle-sphere-spinner": {
-      "hash": "edd1ad4dcea3d77f",
+      "hash": "416a3b8af79cba35",
       "format": "landscape",
       "frames": [
         "carousels-stack-shuffle-sphere-spinner-0.50s.png",
@@ -43,7 +43,7 @@
       ]
     },
     "carousels-stack-stickers-twist": {
-      "hash": "28238b3d00b9256c",
+      "hash": "6347fd5fc6f420e5",
       "format": "landscape",
       "frames": [
         "carousels-stack-stickers-twist-0.50s.png",
@@ -51,7 +51,7 @@
       ]
     },
     "carousels-window-push-wheel": {
-      "hash": "80110203d2b43bad",
+      "hash": "470a889e52bcd3b9",
       "format": "landscape",
       "frames": [
         "carousels-window-push-wheel-0.50s.png",
@@ -59,7 +59,7 @@
       ]
     },
     "backgrounds-fonts": {
-      "hash": "6f401fb4bbb2a201",
+      "hash": "c0f56c8bb1227401",
       "format": "portrait34",
       "frames": [
         "backgrounds-fonts-0.50s.png",
@@ -67,7 +67,7 @@
       ]
     },
     "effects": {
-      "hash": "ca18e3411d06d3f5",
+      "hash": "4c6a5a3f3ffbdb19",
       "format": "square",
       "frames": [
         "effects-0.50s.png",

@@ -30,6 +30,7 @@ async function workspace(t) {
   await put(data, 'project-migration.json', '{"migrated":true}\n');
   await put(data, 'access/auth.json', '{"users":[]}\n');
   await put(data, 'assets/a.png', Buffer.from([0, 1, 2, 255]));
+  await put(data, 'fonts/00000000-0000-4000-8000-000000000001.woff2', Buffer.from('wOF2-font-bytes'));
   await put(data, 'drafts/draft.json', '{"draft":true}\n');
   await put(data, 'templates/template.json', '{"template":true}\n');
   await put(data, 'renderers/renderers.json', '{"devices":[]}\n');
@@ -60,12 +61,12 @@ test('backup and restore round trip authoritative data only', async t => {
   assert.deepEqual(created.files.map(file => file.path), [...created.files.map(file => file.path)].sort((a, b) => a.localeCompare(b)));
   assert.ok(created.files.every(file => /^[a-f0-9]{64}$/.test(file.sha256)));
   assert.deepEqual(created.files.map(file => file.path), [
-    'access/auth.json', 'assets/a.png', 'drafts/draft.json', 'floc.db', 'project-migration.json', 'project.json',
+    'access/auth.json', 'assets/a.png', 'drafts/draft.json', 'floc.db', 'fonts/00000000-0000-4000-8000-000000000001.woff2', 'project-migration.json', 'project.json',
     'renderers/renderers.json', 'renders/job-1/job.json', 'renders/job-1/render-input.json', 'renders/job-1/render.log', 'templates/template.json',
   ].sort((a, b) => a.localeCompare(b)));
   assert.equal(created.version, 2); assert.equal(created.database.path, 'floc.db'); assert.ok(created.database.schemaVersion >= 1);
   const verified = await verifyWorkspaceBackup(backup);
-  assert.equal(verified.files, 11);
+  assert.equal(verified.files, 12);
   assert.deepEqual((await readdir(path.join(backup, 'files'))).filter(name => name.startsWith('floc.db')), ['floc.db'], 'the snapshot is self-contained');
   await mkdir(restored);
   await restoreWorkspaceBackup(backup, restored);

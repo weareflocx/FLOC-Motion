@@ -1,5 +1,6 @@
 import React from 'react';
-import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline, motionEase, smoothProgress, sweepProgress } from '../../motion-timing.js';
+import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline, motionEase, sweepProgress } from '../../motion-timing.js';
+import { smoothProgress } from '../../easing.js';
 import { Field, NumberField, Range, Section } from '../controls.jsx';
 
 export function MotionControls({ layer, count, onPatch }) {

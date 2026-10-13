@@ -9,8 +9,11 @@ import { DEFAULT_LAYOUT } from '../layout.js';
 import { canvasViewport } from './canvas-viewport.js';
 import { evaluateChoreography } from '../choreography.js';
 import { usePlaybackTime } from './usePlayback.js';
+import { measureLayerBounds } from './layer-bounds.js';
+import { selectionBounds } from './arrange.js';
+import { workspaceFontsReady } from './workspace-fonts.js';
 
-export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, onSelect, onPatch, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
+export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
   const [activeProject, setActiveProject] = useState(project);
   const [sceneReady, setSceneReady] = useState(false);
   const [geometry, setGeometry] = useState({ rect: null, targets: [] });
@@ -59,6 +62,8 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
     const resources = createResourceCache();
     const manager = createPreviewSession({
       async prepare(project) {
+        // Workspace @font-face rules must exist before the scene loads the faces it needs.
+        await workspaceFontsReady();
         const node = document.createElement('div');
         node.style.cssText = 'position:absolute;inset:0';
         node.innerHTML = stageMarkup(project);
@@ -165,20 +170,16 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
     Promise.resolve(ready).then(() => {
       if (cancelled || !synchronized || now.playing) return;
       const frame = root.current.getBoundingClientRect(); if (!frame.width || !frame.height) return;
-      const nodes = [...root.current.querySelectorAll('[data-floc-layer]')];
-      const rects = activeProject.layers.filter(l => l.visible && now.time >= l.start && now.time < l.end).map(l => evaluateChoreography(l, now.time)).flatMap(l => {
-        if (l.type === 'carousel') return [{ id: l.id, x: l.x, y: l.y, width: 0, height: 0 }];
-        if (!['text', 'logo', 'media', 'model'].includes(l.type)) return [];
-        const node = nodes.find(n => n.dataset.flocLayer === l.id); if (!node) return [];
-        const box = node.getBoundingClientRect();
-        return [{ id: l.id, x: (box.left - frame.left) / frame.width * 100, y: (box.top - frame.top) / frame.height * 100, width: box.width / frame.width * 100, height: box.height / frame.height * 100 }];
-      });
-      setGeometry({ rect: rects.find(r => r.id === selected), targets: rects.filter(r => r.id !== selected), scale: frame.width / FORMATS[activeProject.format][0] });
+      const rects = measureLayerBounds(root.current, activeProject.layers.filter(l => l.visible && now.time >= l.start && now.time < l.end).map(l => evaluateChoreography(l, now.time)));
+      // A multi-selection is guided as one box against the unselected layers.
+      const ids = selection?.length > 1 ? selection : [selected];
+      const chosen = rects.filter(r => ids.includes(r.id));
+      setGeometry({ rect: ids.length > 1 ? selectionBounds(chosen) ?? undefined : chosen[0], targets: rects.filter(r => !ids.includes(r.id)), scale: frame.width / FORMATS[activeProject.format][0] });
     });
     return () => { cancelled = true; };
-  }, [positionPreview, project, activeProject, selected, time, playing, synchronized, clock]);
+  }, [positionPreview, project, activeProject, selected, selection, time, playing, synchronized, clock]);
 
-  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, time, clock, onSelect, onPatch, onPreview, onPendingEdit, enabled: synchronized });
+  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, selection, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, enabled: synchronized });
   // Selection chrome is measured at render time, so it is hidden while frames advance without renders.
   return <div ref={holder} className={`stage-holder${panning ? ' is-panning' : ''}`} tabIndex={0} aria-label={panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : 'Canvas workspace: click empty space or press Escape to deselect'} onPointerDown={event => { if (!panning && event.target === event.currentTarget) { event.currentTarget.focus({ preventScroll: true }); handlers.onPointerDown(event); } }} onKeyDown={event => { if (!panning && event.target === event.currentTarget) handlers.onKeyDown(event); }} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{!playing && ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
 }

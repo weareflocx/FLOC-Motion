@@ -1,15 +1,15 @@
 import React, { useId, useRef, useState } from 'react';
 import { UploadSimple, X } from '@phosphor-icons/react';
-import { FORMATS, FORMAT_LABELS } from '../../project.js';
+import { FORMATS, FORMAT_LABELS, PROJECT_LIMITS } from '../../project.js';
 import { IconButton, Modal } from '../controls.jsx';
 import { uploadAssets } from '../upload-assets.js';
 import { SavedTemplates } from './SavedTemplates.jsx';
 
 const acceptedFiles = '.png,.jpg,.jpeg,.webp,.gif,.avif,.svg,.mp4,.webm,.mp3,.wav,.m4a,.ogg,.glb';
 
-export function NewCompositionDialog({ project, onCreate, onOpen, onClose }) {
+export function NewCompositionDialog({ project, initialTab = 'aspect', onCreate, onOpen, onClose }) {
   const title = useId();
-  const [tab, setTab] = useState('aspect');
+  const [tab, setTab] = useState(initialTab);
   const [selected, setSelected] = useState(null);
   const [name, setName] = useState('Untitled');
   const [format, setFormat] = useState('square');
@@ -25,7 +25,7 @@ export function NewCompositionDialog({ project, onCreate, onOpen, onClose }) {
     event.target.value = '';
     if (!selected.length || busy) return;
     const next = [...files, ...selected];
-    if (next.length > 20) { setError('Use up to 20 files. Each file becomes a layer.'); return; }
+    if (next.length > PROJECT_LIMITS.maxLayers) { setError(`Use up to ${PROJECT_LIMITS.maxLayers} files. Each file becomes a layer.`); return; }
     const unsupported = selected.find(file => !acceptedFiles.split(',').includes(`.${file.name.split('.').at(-1).toLowerCase()}`));
     if (unsupported) { setError(`Unsupported file: ${unsupported.name}. Choose an image, video, audio or GLB file.`); return; }
     const oversized = selected.find(file => file.size > 75e6);
@@ -82,8 +82,8 @@ export function NewCompositionDialog({ project, onCreate, onOpen, onClose }) {
         <p className="helper new-composition-dimensions">{FORMATS[format].join(' × ')} px</p>
       </fieldset>
       <section className="new-composition-files" aria-labelledby={`${title}-files`}>
-        <div className="new-composition-files-heading"><h3 id={`${title}-files`}>Files <span>Optional</span></h3><span>{files.length} / 20</span></div>
-        <button type="button" className="outline-button" disabled={Boolean(busy) || files.length >= 20} onClick={() => fileInput.current.click()}><UploadSimple size={17}/>Add files</button>
+        <div className="new-composition-files-heading"><h3 id={`${title}-files`}>Files <span>Optional</span></h3><span>{files.length} / {PROJECT_LIMITS.maxLayers}</span></div>
+        <button type="button" className="outline-button" disabled={Boolean(busy) || files.length >= PROJECT_LIMITS.maxLayers} onClick={() => fileInput.current.click()}><UploadSimple size={17}/>Add files</button>
         <input ref={fileInput} hidden type="file" accept={acceptedFiles} multiple disabled={Boolean(busy)} onChange={chooseFiles}/>
         <p className="helper">Images, SVG, GIF, video, audio or GLB · Each file becomes a layer.</p>
         {files.length > 0 && <ul className="new-composition-file-list">{files.map((file, index) => <li key={index}><span title={file.name}>{file.name}</span><IconButton label={`Remove file ${index + 1}: ${file.name}`} disabled={Boolean(busy)} onClick={() => removeFile(index)}><X size={15}/></IconButton></li>)}</ul>}

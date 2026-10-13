@@ -5,8 +5,9 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { validateProject } from '../src/project.js';
+import { validateFontFaces } from '../src/fonts.js';
 import { validateExportSettings, exportDimensions } from '../src/export-settings.js';
-import { verifyExport } from './export.mjs';
+import { verifyExport, reportExportEnded } from './export.mjs';
 import { writeJsonAtomic } from './json-store.mjs';
 import { CANCELLED_MESSAGE } from '../src/export-jobs.js';
 
@@ -15,7 +16,7 @@ export function createRenderWorker({ data, jobs, token, now = Date.now }) {
   let seen = 0, active = null;
   const pending = new Map();
   const folder = id => path.join(data, 'renders', id);
-  const persist = job => writeJsonAtomic(path.join(folder(job.id), 'job.json'), job);
+  const persist = async job => { await writeJsonAtomic(path.join(folder(job.id), 'job.json'), job); reportExportEnded(job); };
   const failure = (message, status = 409) => Object.assign(new Error(message), { status });
   async function expire() {
     if (pending.size && now() - seen > 90000) {
@@ -33,18 +34,18 @@ export function createRenderWorker({ data, jobs, token, now = Date.now }) {
       const expected = Buffer.from(`Bearer ${token}`), received = Buffer.from(header || '');
       return Boolean(token) && received.length === expected.length && timingSafeEqual(received, expected);
     },
-    async enqueue(input, options) {
+    async enqueue(input, options, fonts = []) {
       await expire();
       const settings = validateExportSettings(options);
       // The streaming upload protocol carries a single MP4.
       if (settings.format !== 'mp4') throw failure('The render Mac exports MP4 only. Connect a personal renderer for MOV or PNG sequences.', 400);
       if (!seen || now() - seen > 15000) throw failure('The render Mac is offline. Open FLOC Motion on the Mac and reconnect its renderer.', 503);
       if (pending.size) throw failure('Another export is running. Wait until it finishes.');
-      const project = validateProject(input);
+      const project = validateProject(input), faces = validateFontFaces(fonts);
       if (!project.layers.some(layer => layer.visible && layer.type !== 'music')) throw failure('Add a visible visual layer before exporting.', 400);
       const [width, height] = exportDimensions(project.format, settings.resolution);
       const job = { id: randomUUID(), state: 'queued', progress: 0, message: 'Waiting for the Mac', name: project.name, ...settings, width, height, fps: project.fps, createdAt: new Date(now()).toISOString() };
-      jobs.set(job.id, job); pending.set(job.id, { project, settings });
+      jobs.set(job.id, job); pending.set(job.id, { project, settings, fonts: faces });
       try { await mkdir(folder(job.id), { recursive: true }); await persist(job); return job; }
       catch (error) { jobs.delete(job.id); pending.delete(job.id); throw error; }
     },

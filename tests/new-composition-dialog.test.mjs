@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { FORMATS, FORMAT_LABELS } from '../src/project.js';
+import { FORMATS, FORMAT_LABELS, PROJECT_LIMITS } from '../src/project.js';
 
 const source = fs.readFileSync(new URL('../src/editor/components/NewCompositionDialog.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -12,7 +12,7 @@ function dialog({ upload = async files => files.map(file => ({ name: file.name, 
   let cursor = 0, closes = 0;
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    Modal() {}, IconButton() {}, SavedTemplates() {}, UploadSimple() {}, X() {}, FORMATS, FORMAT_LABELS,
+    Modal() {}, IconButton() {}, SavedTemplates() {}, UploadSimple() {}, X() {}, FORMATS, FORMAT_LABELS, PROJECT_LIMITS,
     useId: () => 'new-composition',
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -63,7 +63,7 @@ test('empty creation uses square and cancel sends no upload or creation request'
 test('unsupported, oversized and excessive selections are rejected without replacing valid files', () => {
   const h = dialog();
   h.choose([{ name: 'good.PNG', size: 75e6 }]);
-  for (const files of [[{ name: 'bad.pdf', size: 10 }], [{ name: 'large.mp4', size: 75e6 + 1 }], Array(20).fill({ name: 'extra.png', size: 10 })]) {
+  for (const files of [[{ name: 'bad.pdf', size: 10 }], [{ name: 'large.mp4', size: 75e6 + 1 }], Array(PROJECT_LIMITS.maxLayers).fill({ name: 'extra.png', size: 10 })]) {
     h.choose(files);
     assert(h.find(node => node.props.role === 'alert'));
     assert(h.button('Remove file 1: good.PNG'));

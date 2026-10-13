@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
-import { assertLocksRespected, carouselImages, demoProject, duplicateLayer, linkFormats, patchLayer, patchTemplateContent, reorderLayer, resetFormat, resizeDuration, switchFormat, validateProject } from '../src/project.js';
+import { PROJECT_LIMITS, assertLocksRespected, carouselImages, demoProject, duplicateLayer, linkFormats, patchLayer, patchTemplateContent, reorderLayer, resetFormat, resizeDuration, switchFormat, validateProject } from '../src/project.js';
 import { getCatalogEntry, listCatalog } from '../src/catalog.js';
 import { createStyleAlternatives } from '../src/visual-alternatives.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
@@ -18,7 +18,7 @@ const check = (previous, next, options) => assertLocksRespected(previous, valida
 function editor() {
   const slots = []; let cursor = 0, selected = 'headline';
   const context = {
-    assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, duplicateLayer, reorderLayer, carouselImages, crypto: webcrypto, ...historyOps,
+    PROJECT_LIMITS, assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, duplicateLayer, reorderLayer, carouselImages, crypto: webcrypto, ...historyOps,
     editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }),
     request: async () => { throw new Error('Offline'); },
     useCallback: fn => fn, useEffect() {},
@@ -75,7 +75,7 @@ test('documented composition-wide exceptions pass only for their own fields', ()
   assert.deepEqual(check(p, shorter, { allow: ['timing'] }), shorter);
   assert.throws(() => check(p, replace(shorter, 'carousel', { speed: 40 }), { allow: ['timing'] }), /Unlock “Carousel”/);
 
-  const content = patchLayer(patchLayer(validateProject(demoProject()), 'headline', { contentField: 'Headline' }), 'headline', { locked: true });
+  const content = patchLayer(patchLayer(validateProject(demoProject()), 'headline', { contentField: { id: 'headline', label: 'Headline', required: false } }), 'headline', { locked: true });
   const filled = patchTemplateContent(content, 'headline', 'NEW');
   assert.throws(() => check(content, filled), /Unlock “Headline”/);
   assert.doesNotThrow(() => check(content, filled, { allow: ['content'] }));

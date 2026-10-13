@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
+import { PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
 import { request } from './request.js';
 import { historyShortcut } from './history-shortcut.js';
 import { applyDiff, diffProjects, pushHistory, restoreHistory, revertDiff, stashHistory } from './history.js';
@@ -245,7 +245,7 @@ export function useProject({ userId } = {}) {
   }, [save, session]);
 
   const newComposition = useCallback(async (name, { format = 'square', assets = [] } = {}) => {
-    if (assets.length > 20) throw new Error('Use up to 20 layers.');
+    if (assets.length > PROJECT_LIMITS.maxLayers) throw new Error(`Use up to ${PROJECT_LIMITS.maxLayers} layers.`);
     const draft = blankProject(name.trim());
     const next = validateProject({ ...draft, format, layers: assets.map(asset => fileLayer(asset, draft.duration, crypto.randomUUID())) });
     await preserveCurrent();

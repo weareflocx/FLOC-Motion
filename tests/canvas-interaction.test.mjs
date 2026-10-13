@@ -10,6 +10,9 @@ import { dragOrientation, wrapDegrees } from '../src/orientation.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
 import { nudgeAmount } from '../src/editor/nudge.js';
+import { layerPosition, measureLayerBounds } from '../src/editor/layer-bounds.js';
+import { transformableLayers } from '../src/editor/selection.js';
+import { groupPositions, selectionBounds } from '../src/editor/arrange.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useCanvasInteraction.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -27,6 +30,7 @@ function editor() {
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
     gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
+    layerPosition, measureLayerBounds, transformableLayers, groupPositions, selectionBounds,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -394,4 +398,93 @@ test('corner drag shows both height guides and releases past the edge; Shift byp
     assert.equal(h.patches[0].guides, undefined);
     h.unmount();
   }
+});
+
+function groupEditor({ locked = [], selection = ['headline', 'logo', 'carousel'] } = {}) {
+  const h = editor(), moves = [], toggles = [], selections = [];
+  for (const id of locked) h.project.layers.find(layer => layer.id === id).locked = true;
+  const box = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  const nodes = {
+    headline: { ...h.node, dataset: { flocLayer: 'headline' }, style: { opacity: '1', left: '6%', top: '6%' }, getBoundingClientRect: () => box(100, 60, 400, 100), focus() {} },
+    logo: { ...h.node, dataset: { flocLayer: 'logo' }, style: { opacity: '1', left: '87%', top: '6%' }, getBoundingClientRect: () => box(870, 60, 70, 70), focus() {} }
+  };
+  const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => Object.values(nodes), addEventListener() {}, removeEventListener() {} };
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const { handlers } = h.render({ root: { current: frame }, selection, selected: selection.at(-1), engine: { current: { hitTest: () => false } },
+    onMoveGroup: positions => moves.push(positions), onToggle: id => toggles.push(id), onSelect: id => selections.push(id) });
+  const pointer = (extra = {}) => ({ button: 0, pointerId: 1, clientX: 200, clientY: 100, target: { closest: () => null }, currentTarget: target, preventDefault() {}, ...extra });
+  return { h, handlers, moves, toggles, selections, nodes, pointer };
+}
+
+test('dragging any selected layer moves every unlocked member as one committed edit', () => {
+  for (const locked of [[], ['logo']]) {
+    const g = groupEditor({ locked });
+    g.handlers.onPointerDown(g.pointer());
+    g.handlers.onPointerMove(g.pointer({ clientX: 250, clientY: 200, shiftKey: true }));
+    assert.deepEqual(Object.keys(g.h.previews.at(-1).layers).sort(), locked.length ? ['carousel', 'headline'] : ['carousel', 'headline', 'logo']);
+    assert.equal(g.moves.length, 0);
+    g.handlers.onPointerUp(g.pointer());
+    assert.equal(g.moves.length, 1);
+    assert.equal(g.h.patches.length, 0);
+    assert.deepEqual(g.selections, [], 'a group drag keeps the selection');
+    const expected = [{ id: 'headline', x: 11, y: 16 }, { id: 'logo', x: 92, y: 16 }, { id: 'carousel', x: 55, y: 64 }].filter(item => !locked.includes(item.id));
+    assert.deepEqual(g.moves[0], expected);
+    assert.equal(g.h.previews.at(-1), null);
+  }
+});
+
+test('a group drag stops at the first member limit so the arrangement keeps its shape', () => {
+  const g = groupEditor();
+  g.handlers.onPointerDown(g.pointer());
+  g.handlers.onPointerMove(g.pointer({ clientX: 700, clientY: 100, shiftKey: true }));
+  g.handlers.onPointerUp(g.pointer());
+  // The carousel limit (90) stops the shared offset at +40% for every member.
+  assert.deepEqual(g.moves[0].map(({ id, x }) => [id, x]), [['headline', 46], ['logo', 127], ['carousel', 90]]);
+});
+
+test('group clicks collapse or toggle the selection; Escape and pointer cancel keep the project', () => {
+  for (const shiftKey of [false, true]) {
+    const g = groupEditor();
+    g.handlers.onPointerDown(g.pointer({ shiftKey }));
+    g.handlers.onPointerUp(g.pointer({ shiftKey }));
+    assert.deepEqual(shiftKey ? g.toggles : g.selections, ['headline']);
+    assert.equal(g.moves.length, 0);
+  }
+  const g = groupEditor();
+  g.handlers.onPointerDown(g.pointer());
+  g.handlers.onPointerMove(g.pointer({ clientX: 260, clientY: 160 }));
+  g.handlers.onPointerCancel(g.pointer());
+  assert.equal(g.moves.length, 0);
+  g.handlers.onKeyDown({ key: 'Escape', target: { closest: () => null }, preventDefault() {} });
+  assert.deepEqual(g.selections, ['carousel'], 'Escape clears the multi-selection to its primary layer');
+});
+
+test('Shift- and Command-clicking an unselected layer toggles it without editing; a modifier drag still edits once', () => {
+  for (const modifier of ['shiftKey', 'metaKey', 'ctrlKey']) {
+    const g = groupEditor({ selection: ['logo'] });
+    g.handlers.onPointerDown(g.pointer({ [modifier]: true }));
+    g.handlers.onPointerUp(g.pointer({ [modifier]: true }));
+    assert.deepEqual(g.toggles, ['headline'], modifier);
+    assert.deepEqual(g.selections, []);
+    assert.equal(g.h.patches.length, 0);
+  }
+  const g = groupEditor({ selection: ['logo'] });
+  g.handlers.onPointerDown(g.pointer({ shiftKey: true }));
+  g.handlers.onPointerMove(g.pointer({ clientX: 250, clientY: 100, shiftKey: true }));
+  g.handlers.onPointerUp(g.pointer({ shiftKey: true }));
+  assert.deepEqual(g.toggles, []);
+  assert.deepEqual(g.selections, ['headline']);
+  assert.equal(g.h.patches.length, 1);
+});
+
+test('arrow keys nudge the whole selection in composition pixels as one edit', () => {
+  const g = groupEditor({ locked: ['logo'] });
+  const target = { closest: selector => selector === '[data-floc-layer]' ? g.nodes.headline : null };
+  g.handlers.onKeyDown({ key: 'ArrowRight', shiftKey: true, target, preventDefault() {} });
+  const step = 8 / FORMATS[g.h.project.format][0] * 100;
+  assert.equal(g.moves.length, 1);
+  assert.deepEqual(g.moves[0].map(({ id }) => id), ['headline', 'carousel']);
+  assert(Math.abs(g.moves[0][0].x - (6 + step)) < 1e-6);
+  assert(Math.abs(g.moves[0][1].x - (50 + step)) < 1e-6);
+  assert.equal(g.h.patches.length, 0);
 });

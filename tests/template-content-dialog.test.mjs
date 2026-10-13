@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { carouselImages, demoProject, patchTemplateContent, validateProject } from '../src/project.js';
-import { contentFields } from '../src/template-content.js';
+import { PROJECT_LIMITS, carouselImages, demoProject, patchTemplateContent, validateProject } from '../src/project.js';
+import { contentFields, contentIssues } from '../src/template-content.js';
 
 const source = fs.readFileSync(new URL('../src/editor/components/TemplateContentDialog.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
 
-function dialog({ copy = false, upload = async () => [], submit = async () => {} } = {}) {
+function dialog({ copy = false, upload = async () => [], submit = async () => {}, headline = {} } = {}) {
   const project = validateProject(demoProject());
-  for (const [id, label] of [['headline', 'Headline'], ['carousel', 'Gallery'], ['logo', 'Logo'], ['music', 'Soundtrack']]) project.layers.find(layer => layer.id === id).contentField = label;
+  for (const [id, label] of [['headline', 'Headline'], ['carousel', 'Gallery'], ['logo', 'Logo'], ['music', 'Soundtrack']]) project.layers.find(layer => layer.id === id).contentField = { id, label, required: false, ...(id === 'headline' ? headline : {}) };
   project.layers.find(layer => layer.id === 'headline').locked = true;
   project.layers.find(layer => layer.id === 'carousel').locked = true;
   const slots = [], submissions = [], uploads = [];
@@ -19,7 +19,7 @@ function dialog({ copy = false, upload = async () => [], submit = async () => {}
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     ArrowLeft() {}, ArrowRight() {}, Trash() {}, UploadSimple() {}, X() {}, Modal() {}, IconButton() {}, TemplatePreview() {},
-    carouselImages, patchTemplateContent, validateProject, contentFields,
+    carouselImages, patchTemplateContent, validateProject, contentFields, contentIssues, PROJECT_LIMITS,
     useId: () => 'dialog-title',
     useRef(value) { const index = cursor++; return slots[index] ??= { current: value }; },
     useState(value) { const index = cursor++; slots[index] ??= { value: typeof value === 'function' ? value() : value }; return [slots[index].value, next => { slots[index].value = next; }]; },
@@ -58,6 +58,30 @@ test('content edits remain a private draft until a single validated submit', asy
   assert.equal(h.closes(), 1);
 });
 
+test('required and over-long fields show markers and counters and block Apply until fixed', async () => {
+  const h = dialog({ headline: { required: true, maxLength: 12 } });
+  const headlineLabel = () => h.find(node => node.type?.name === 'FieldLabel' && node.props.layer.id === 'headline');
+  const issue = () => h.find(node => node.props.className === 'template-content-issue');
+  const type = value => h.find(node => node.type === 'textarea').props.onChange({ target: { value } });
+  assert.equal(headlineLabel().props.layer.contentField.required, true, 'the label receives the required declaration');
+  type('');
+  assert.equal(h.button('Apply content').props.disabled, true);
+  assert.equal(issue().children[0], 'Headline is required.');
+  await h.form().props.onSubmit({ preventDefault() {} });
+  assert.equal(h.submissions.length, 0, 'submitting anyway is refused');
+  assert.equal(h.find(node => node.props.role === 'alert').children[0], 'Headline is required.');
+  type('Thirteen char');
+  assert.equal(headlineLabel().props.layer.text.length, 13);
+  assert.equal(issue().children[0], 'Headline is longer than 12 characters.');
+  assert.equal(h.button('Apply content').props.disabled, true);
+  type('Twelve chars');
+  assert.equal(issue(), undefined);
+  assert.equal(h.button('Apply content').props.disabled, false);
+  await h.form().props.onSubmit({ preventDefault() {} });
+  assert.equal(h.submissions.length, 1);
+  assert.equal(h.submissions[0].draft.layers.find(layer => layer.id === 'headline').text, 'Twelve chars');
+});
+
 test('cancel discards content and carousel reorder materializes only that layer', () => {
   const h = dialog();
   h.button('Move card 1 later').props.onClick();
@@ -75,9 +99,9 @@ test('cancel discards content and carousel reorder materializes only that layer'
 test('carousel upload rejects an oversized selection before sending any file', async () => {
   const h = dialog();
   h.button('Replace cards').props.onClick();
-  await h.fileInput().props.onChange({ target: { files: Array.from({ length: 25 }, () => ({ name: 'card.png' })), value: 'chosen' } });
+  await h.fileInput().props.onChange({ target: { files: Array.from({ length: PROJECT_LIMITS.maxImages + 1 }, () => ({ name: 'card.png' })), value: 'chosen' } });
   assert.equal(h.uploads.length, 0);
-  assert.equal(h.find(node => node.props.role === 'alert').children[0], 'Use up to 24 carousel assets.');
+  assert.equal(h.find(node => node.props.role === 'alert').children[0], `Use up to ${PROJECT_LIMITS.maxImages} carousel assets.`);
   assert.equal(h.button('Cancel').props.disabled, false);
 });
 

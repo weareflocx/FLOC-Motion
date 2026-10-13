@@ -8,7 +8,7 @@ import { GRID_POINTS, freePlacement, gridPlacement, nearestGridPoint, nudgePlace
 import { alignmentPlacement, DEFAULT_LAYOUT, fitsSafeArea, safeArea } from '../src/layout.js';
 import { canvasMediaPlacement } from '../src/editor/canvas-resize.js';
 import { nudgeAmount } from '../src/editor/nudge.js';
-import { fontDefinition } from '../src/fonts.js';
+import { fontStack } from '../src/fonts.js';
 import { textTypography } from '../src/text-style.js';
 
 const source = readFileSync(new URL('../src/placement-map.jsx', import.meta.url), 'utf8');
@@ -19,7 +19,7 @@ function map(project, id, nudge = { small: 3, big: 12 }) {
   const frame = { clientWidth: 200, clientHeight: 200 }, element = { offsetHeight: 40 };
   const context = {
     FORMATS, GRID_POINTS, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement, stepGridPoint,
-    alignmentPlacement, DEFAULT_LAYOUT, fitsSafeArea, safeArea, canvasMediaPlacement, nudgeAmount, fontDefinition, textTypography,
+    alignmentPlacement, DEFAULT_LAYOUT, fitsSafeArea, safeArea, canvasMediaPlacement, nudgeAmount, fontStack, textTypography,
     NumberField() {}, PlacementGuides() {},
     useState: value => [value, () => {}], useRef: value => ({ current: value }), useEffect() {},
     React: { createElement(type, props, ...children) {

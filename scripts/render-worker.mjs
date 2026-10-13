@@ -20,7 +20,9 @@ const { startExport, cancelExport } = await import('../server/export.mjs');
 const { isTerminalJobState } = await import('../src/export-jobs.js');
 const { validateProject } = await import('../src/project.js');
 const { exportFormat } = await import('../src/export-settings.js');
+const { validateFontFaces, workspaceFontFile } = await import('../src/fonts.js');
 await mkdir(path.join(process.env.FLOC_DATA_DIR, 'assets'), { recursive: true });
+await mkdir(path.join(process.env.FLOC_DATA_DIR, 'fonts'), { recursive: true });
 const lock = path.join(root, '.data/render-worker/worker.pid');
 try { const pid = Number(await readFile(lock, 'utf8')); if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, 0); throw new Error('The renderer is already running.'); } catch (cause) { if (cause.code !== 'ESRCH') throw cause; } } await rm(lock, { force: true }); }
 catch (cause) { if (cause.code !== 'ENOENT') throw cause; }
@@ -67,6 +69,24 @@ async function downloadAssets(project, signal) {
     } finally { await rm(temp, { force: true }); }
   }
 }
+// Workspace fonts use the same token as assets. A face deleted after the export was queued
+// answers 404 and is left out, so its text falls back to Geist as it does in the editor.
+async function downloadFonts(input, signal) {
+  const available = [];
+  for (const face of validateFontFaces(input)) {
+    const dest = path.join(process.env.FLOC_DATA_DIR, 'fonts', workspaceFontFile(face)), temp = `${dest}.download`;
+    const response = await fetch(new URL(`/fonts/workspace/${workspaceFontFile(face)}`, origin), { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]), redirect: 'error' });
+    if (response.status === 404) { await log(`Workspace font ${face.family} ${face.weight} is no longer in the library; using Geist.`); continue; }
+    if (!response.ok) throw new Error(`Could not download workspace font (${response.status}).`);
+    let size = 0;
+    try {
+      await pipeline(Readable.fromWeb(response.body), new Transform({ transform(chunk, encoding, callback) { size += chunk.length; callback(size > 10 * 1024 * 1024 ? new Error('Workspace font exceeds 10 MB.') : null, chunk); } }), createWriteStream(temp));
+      await rename(temp, dest);
+    } finally { await rm(temp, { force: true }); }
+    available.push(face);
+  }
+  return available;
+}
 let connected = false;
 while (!stopping) {
   try {
@@ -93,8 +113,9 @@ while (!stopping) {
           finally { updating = false; }
         }, 5000);
         await downloadAssets(project, lease.signal);
+        const fonts = await downloadFonts(input.fonts, lease.signal);
         lease.signal.throwIfAborted();
-        localJob = await startExport(project, input.settings);
+        localJob = await startExport(project, input.settings, fonts);
         while (!isTerminalJobState(localJob.state)) await sleep(1000);
         await copyFile(path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, 'render.log'), path.join(process.env.FLOC_DATA_DIR, 'last-render.log')).catch(error => console.error(`Could not retain render diagnostics: ${error.message}`));
         lease.signal.throwIfAborted();

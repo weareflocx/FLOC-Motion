@@ -22,7 +22,7 @@ function dialog(props = {}) {
     FORMAT_LABELS, EXPORT_QUALITIES, EXPORT_RESOLUTIONS, EXPORT_FORMATS, exportDimensions, exportFormat, isTerminalJobState
   };
   vm.runInNewContext(`${compiled}\nglobalThis.Dialogs = Dialogs;`, context);
-  const base = { project: validateProject(demoProject()), exportOpen: true, agentOpen: false, job: null, busy: false, recent: [], onRender: settings => renders.push(settings), ...props };
+  const base = { project: validateProject(demoProject()), exportOpen: true, agentOpen: false, job: null, busy: false, recent: [], settings: { quality: 'high', resolution: '1080p', format: 'mp4', transparent: false }, onSettingsChange: next => { base.settings = next; }, onRender: settings => renders.push(settings), ...props };
   const expand = node => {
     if (Array.isArray(node)) return node.flatMap(expand);
     if (!node || typeof node !== 'object') return [node];

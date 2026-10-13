@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoProject, validateProject, patchLayer, duplicateLayer, carouselImages } from '../src/project.js';
+import { PROJECT_LIMITS, demoProject, validateProject, patchLayer, duplicateLayer, carouselImages } from '../src/project.js';
 import { stageMarkup } from '../src/scene.js';
 import { createTools } from '../src/webmcp.js';
 
@@ -25,7 +25,7 @@ test('legacy cards are preserved while new carousels own independent media and t
 });
 test('each carousel validates local cards, card limits and locks', () => {
   const p = multiple();
-  assert.throws(() => patchLayer(p, 'second', { images: Array(25).fill(p.images[0]) }), /24/);
+  assert.throws(() => patchLayer(p, 'second', { images: Array(PROJECT_LIMITS.maxImages + 1).fill(p.images[0]) }), new RegExp(`up to ${PROJECT_LIMITS.maxImages} carousel cards`));
   assert.throws(() => patchLayer(p, 'second', { images: [{ ...p.images[0], src: 'https://example.com/image.png' }] }), /local/);
   assert.throws(() => patchLayer(p, 'second', { images: [{ ...p.images[0], src: '/assets/12345678-1234-1234-1234-123456789012.mp3' }] }), /Carousel cards/);
   assert.throws(() => patchLayer(patchLayer(p, 'second', { locked: true }), 'second', { images: [] }), /Unlock/);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { demoProject, validateProject, patchLayer, fileLayer, duplicateLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
+import { PROJECT_LIMITS, demoProject, validateProject, patchLayer, fileLayer, duplicateLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
 import { effectLayer } from '../src/effects.js';
 import { stageMarkup } from '../src/scene.js';
 
@@ -59,9 +59,9 @@ const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace(
 
 test('the inspector edits the selected visual layer opacity, respects locks and excludes audio', () => {
   const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    useState: () => [false, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] },
-    FONTS: [], FONT_WEIGHTS: {}, fontDefinition: () => ({ weights: [600] }), SHADERS: [] };
-  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'MusicNotes', 'UploadSimple', 'PlacementMap', 'TypographyControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls']) context[name] = function() {};
+    useState: () => [false, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] }, PROJECT_LIMITS,
+    SHADERS: [] };
+  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'MusicNotes', 'UploadSimple', 'PlacementMap', 'FontControls', 'TypographyControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls']) context[name] = function() {};
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.render = InspectorPanel;', context);
   const nodes = node => node && typeof node === 'object' ? [node, ...(node.children || []).flat(Infinity).flatMap(nodes)] : [];

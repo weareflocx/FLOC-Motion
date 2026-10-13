@@ -23,3 +23,22 @@
 .access-form textarea{resize:vertical;overflow-wrap:anywhere}
 .access-card [role=alert]{font-size:13px;color:#ff6060}
 .header-actions>.icon-button[aria-label=Account]{display:inline-flex}
+.account-dialog{width:min(100%,560px)}
+.account-tabs{grid-template-columns:repeat(4,1fr);margin-bottom:20px}
+.account-role{margin-top:4px;font-size:12px;color:#aaa}
+.invite-fields{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:10px;align-items:start}
+.access-form select{width:100%;padding:10px 12px}
+.team-list,.activity-list{list-style:none;margin:16px 0 0;padding:0;display:flex;flex-direction:column;gap:10px;max-height:min(360px,50dvh);overflow:auto}
+.team-list li{display:grid;grid-template-columns:minmax(0,1fr) 104px 52px;gap:10px;align-items:center;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.team-list strong{display:block;font-size:12px;font-weight:500;color:#ddd;overflow-wrap:anywhere}
+.team-list select{padding:7px 8px;font-size:12px}
+.team-list .text-button{padding:0;text-align:right}
+.team-list small,.activity-list small{display:block;margin-top:3px;font-size:11px;color:#aaa;font-variant-numeric:tabular-nums}
+.activity-list li{padding-bottom:10px;border-bottom:1px solid var(--line);font-size:12px;line-height:1.45;color:#ddd;overflow-wrap:anywhere}
+.activity-list+.outline-button{margin-top:12px}
+.account-confirm{display:flex;flex-direction:column;gap:10px}
+.account-confirm p{font-size:13px;line-height:1.5;color:#ddd}
+.font-list .font-sample{display:block;margin-bottom:4px;font-size:22px;line-height:1.2;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.font-list .font-edit{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) 120px 92px auto auto;gap:8px;align-items:center}
+.font-edit input,.font-edit select{width:100%;padding:7px 8px;font:inherit;font-size:12px}
+.font-missing{color:#ff6060}

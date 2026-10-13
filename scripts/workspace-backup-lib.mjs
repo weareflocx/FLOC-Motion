@@ -14,8 +14,9 @@ const MANIFEST = 'manifest.json';
 const CONTENT = 'files';
 const MAX_MANIFEST_BYTES = 10 * 1024 * 1024;
 const MAX_FILES = 100_000;
-// access, drafts, renderers and templates hold the pre-SQLite JSON, kept as a legacy backup.
-const FULL_DIRECTORIES = new Set(['access', 'assets', 'drafts', 'renderers', 'templates']);
+// access, drafts, renderers and templates hold the pre-SQLite JSON, kept as a legacy backup;
+// fonts holds the workspace font library files named by the database.
+const FULL_DIRECTORIES = new Set(['access', 'assets', 'drafts', 'fonts', 'renderers', 'templates']);
 const ROOT_FILES = new Set([DATABASE_FILE, 'project.json', 'project-migration.json']);
 const RENDER_FILES = new Set(['job.json', 'render-input.json', 'render.log']);
 const TEMPORARY_NAME = /\.(?:tmp|upload)(?:-|$)/;
