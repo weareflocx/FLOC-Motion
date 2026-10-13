@@ -12,7 +12,7 @@ const VISUAL_FIELDS = Object.freeze({
   logo: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   media: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   model: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size', 'tilt', 'yaw', 'roll']),
-  carousel: new Set([...COMMON_VISUAL_FIELDS, 'shader', 'intensity', 'tint', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion', 'perspective', 'yaw', 'transitionTurn', 'cornerRadius', 'cardShape', 'frontface', 'backface', 'cardCount', 'cardAspect', 'radius', 'fade', 'tilt', 'roll', 'size', 'gap', 'curve', 'x', 'y'])
+  carousel: new Set([...COMMON_VISUAL_FIELDS, 'shader', 'intensity', 'tint', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion', 'perspective', 'yaw', 'transitionTurn', 'cornerRadius', 'cardShape', 'frontface', 'backface', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'fade', 'tilt', 'roll', 'size', 'gap', 'curve', 'x', 'y'])
 });
 
 function canonical(value) {

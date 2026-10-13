@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +13,7 @@ import { CAROUSEL_EFFECTS, FORMATS, SHADERS, TEMPLATES, demoProject, validatePro
 import { PROCEDURAL_BACKGROUNDS } from '../src/backgrounds.js';
 import { FONTS, fontFaceCss } from '../src/fonts.js';
 import { DEFAULT_FILTERS, DEFAULT_NOISE } from '../src/effects.js';
+import { captureState } from '../src/choreography.js';
 import { DEFAULT_LAYOUT } from '../src/layout.js';
 
 // Visual regression harness: the export path (prepareComposition + hf-seek)
@@ -37,26 +38,43 @@ const base = (name, format) => ({ version: 1, name, format, duration: DURATION, 
 const span = { visible: true, start: 0, end: DURATION };
 const colorBackground = color => ({ id: 'background', type: 'background', name: 'Background', ...span, color, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true });
 const text = (id, values) => ({ id, type: 'text', name: id, ...span, x: 6, y: 6, size: 48, color: '#ffffff', font: 'geist', weight: 700, width: 80, fadeIn: 0, fadeOut: 0, rise: false, ...values });
-const PLANAR = ['nested-rise', 'zoom-through', 'sweep-reveal', 'window-push'];
-// Carousel N gets SHADERS[N % 6] and CAROUSEL_EFFECTS[N % 4], so every shader
-// and post effect renders on at least one template.
+const PLANAR = ['zoom-through', 'sweep-reveal', 'window-push'];
+// The carousel in slot N (group × 3 + column) gets SHADERS[N % 6] and
+// CAROUSEL_EFFECTS[N % 4], so every shader and post effect renders on at least
+// one template and a smaller group never reshuffles the groups after it.
 function carousel(templateId, index, x) {
   const template = TEMPLATES.find(item => item.id === templateId);
   const layer = { ...demoProject().layers.find(l => l.type === 'carousel'), id: `carousel-${templateId}`, name: template.name, template: templateId, ...template.defaults };
   return { ...layer, ...span, x, y: 50, cardCount: template.defaults?.cardCount ?? 6, speed: template.defaults?.speed ?? 30, loopDuration: template.defaults?.loopDuration ?? 0,
-    size: PLANAR.includes(templateId) ? 0.5 : templateId === 'stack-shuffle' ? 0.58 : 1, tilt: ['arc', 'flip'].includes(templateId) ? 0 : -12, roll: 0,
+    size: PLANAR.includes(templateId) ? 0.5 : templateId === 'stack-shuffle' ? 0.58 : 1, tilt: templateId === 'flip' ? 0 : -12, roll: 0,
     shader: SHADERS[index % SHADERS.length].id, intensity: 0.6, layerEffect: CAROUSEL_EFFECTS[index % CAROUSEL_EFFECTS.length].id,
     cornerRadius: index % 3 ? 12 : 0, cardShape: index % 2 ? 'squircle' : 'rounded' };
 }
-const CAROUSEL_GROUPS = [['circular', 'depth', 'arc'], ['horizontal', 'flip', 'showcase'], ['nested-rise', 'zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'twist'], ['window-push', 'wheel']];
+// Slot 14 (Monochrome) belonged to the retired Twist; a second Circular keeps that shader covered.
+const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'circular'], ['window-push', 'wheel']];
 
+// The Horizontal carousel (slot 1, Halftone) also covers Optical Warp after a Paper effect.
 function carouselFixtures() {
-  let index = 0;
-  return CAROUSEL_GROUPS.map(group => {
+  return CAROUSEL_GROUPS.map((group, g) => {
     const project = base(`Carousels ${group.join(' ')}`, 'landscape');
-    const columns = group.length === 3 ? [22, 50, 78] : [50, 72];
-    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => carousel(id, index++, columns[i]))];
+    // Window Push fills the canvas, so its partner sits beside the window.
+    const columns = group.length === 3 ? [22, 50, 78] : group.length === 1 ? [50] : group.includes('window-push') ? [50, 72] : [28, 72];
+    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => ({ ...carousel(id, g * 3 + i, columns[i]), ...(id === 'horizontal' && { effects: [{ ...DEFAULT_FILTERS['optical-warp'], amount: 0.6 }] }) }))];
     return { id: `carousels-${group.join('-')}`, times: [0.5, 1.7], project };
+  });
+}
+// Per-image cards: portrait, square and landscape media, repeated over six cards,
+// at one shared height and at one shared width. Fixture assets are served from
+// tests/fixtures/card-fit as workspace assets.
+export const FIXTURE_ASSET_DIR = path.join(root, 'tests/fixtures/card-fit');
+const mixedImages = ['a0c1f1e2-9d16-4c11-8a6e-000000000916', 'a0c1f1e2-0101-4c11-8a6e-000000000101', 'a0c1f1e2-1609-4c11-8a6e-000000001609']
+  .map((id, i) => ({ id: `mixed-${i + 1}`, src: `/assets/${id}.png`, name: ['Portrait', 'Square', 'Landscape'][i] }));
+function cardFitFixtures() {
+  return ['height', 'width'].map(cardFit => {
+    const project = { ...base(`Card fit ${cardFit}`, 'landscape'), images: mixedImages };
+    const rows = [['horizontal', 22, 0.5], ['flip', 52, 0.5], ['circular', 80, 0.5]];
+    project.layers = [colorBackground('#16181d'), ...rows.map(([id, y, size], i) => ({ ...carousel(id, i, 50), y, size, cardCount: 6, cardFit, shader: 'none', layerEffect: 'none', cornerRadius: 8, tilt: id === 'circular' ? -12 : 0 }))];
+    return { id: `card-fit-${cardFit}`, times: [0.5, 1.7], project };
   });
 }
 // Twelve full-canvas backgrounds offset into a 4 × 3 grid: in row-major order
@@ -73,13 +91,18 @@ function backgroundFixture() {
   project.layers = [...backgrounds, ...texts, { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 82, y: 88, size: 12, fadeIn: 1, fadeOut: 0 }];
   return { id: 'backgrounds-fonts', times: [0.5, 1.7], project };
 }
+// The stack carousel warps in WebGL with a choreographed amount, before the
+// CSS blur on its canvas.
 function effectFixture() {
   const project = base('Effect layers', 'square');
+  const stack = { ...carousel('stack', 1, 70), y: 36, size: 0.6, shader: 'none', layerEffect: 'none', effects: [{ ...DEFAULT_FILTERS['optical-warp'], axis: 'vertical', center: 0.4, amount: 0.15 }, { ...DEFAULT_FILTERS.blur, mode: 'progressive', direction: 'bottom', amount: 18 }] };
+  stack.choreography = captureState(stack, 0, project.fps, { warpAmount: 0.15 }, 'warp-from');
+  stack.choreography = captureState(stack, 3, project.fps, { warpAmount: 0.9 }, 'warp-to');
   project.layers = [
     { ...colorBackground('#000000'), mode: 'image', src: '/demo/poster-3.svg' },
     { id: 'warped', type: 'media', name: 'Warped poster', ...span, src: '/demo/poster-1.svg', x: 4, y: 6, size: 42, offset: 0, loop: false, fadeIn: 0, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS['optical-warp'], amount: 0.8 }] },
     { id: 'adjustment', type: 'effect', name: 'Monochrome adjustment', ...span, start: 1, effectScope: 'below', effects: [{ ...DEFAULT_FILTERS.monochrome, amount: 0.85 }], opacity: 1, fadeIn: 0.4, fadeOut: 0 },
-    { ...carousel('stack', 1, 70), y: 36, size: 0.6, shader: 'none', layerEffect: 'none', effects: [{ ...DEFAULT_FILTERS.blur, mode: 'progressive', direction: 'bottom', amount: 18 }] },
+    stack,
     { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 8, y: 62, size: 22, fadeIn: 1, fadeOut: 0, effects: [{ ...DEFAULT_FILTERS.blur, amount: 6 }, { ...DEFAULT_NOISE, animated: true, color1: '#ff0040', opacity: 0.7, sizeX: 3, sizeY: 3, seed: 11 }] },
     text('grain-title', { text: 'NOISE\nTEXT', x: 44, y: 66, size: 96, font: 'druk-wide', weight: 900, width: 54, effects: [{ ...DEFAULT_NOISE, mode: 'duo', color1: '#ff0040', color2: '#00e0ff', opacity: 0.8, sizeX: 3, sizeY: 3 }] }),
     { id: 'grain', type: 'effect', name: 'Grain', ...span, effectScope: 'overlay', effects: [{ ...DEFAULT_NOISE, mode: 'multi', animated: true, opacity: 0.25, sizeX: 6, sizeY: 6, seed: 7 }], opacity: 0.8, fadeIn: 0, fadeOut: 0 }
@@ -87,7 +110,7 @@ function effectFixture() {
   return { id: 'effects', times: [0.5, 1.7, 2.9], project };
 }
 
-export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixture()].map(fixture => ({ ...fixture, project: validateProject(fixture.project) }));
+export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixture(), ...cardFitFixtures()].map(fixture => ({ ...fixture, project: validateProject(fixture.project) }));
 // The schema version is left out: a version bump that keeps the project's content keeps its frames.
 export const fixtureHash = fixture => createHash('sha256').update(JSON.stringify({ times: fixture.times, project: { ...fixture.project, version: undefined } })).digest('hex').slice(0, 16);
 export const frameName = (id, time) => `${id}-${time.toFixed(2)}s.png`;
@@ -98,7 +121,7 @@ function serve(routes, exportRoot) {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
       if (routes.has(pathname)) { const [type, body] = routes.get(pathname); res.writeHead(200, { 'Content-Type': type }); return res.end(body); }
-      const [prefix, folder] = pathname.startsWith('/export/') ? ['/export/', exportRoot] : ['/', path.join(root, 'public')];
+      const [prefix, folder] = pathname.startsWith('/export/') ? ['/export/', exportRoot] : pathname.startsWith('/assets/') ? ['/assets/', FIXTURE_ASSET_DIR] : ['/', path.join(root, 'public')];
       const file = path.join(folder, path.normalize(pathname.slice(prefix.length)));
       if (!file.startsWith(folder + path.sep)) throw new Error('Outside served folder');
       const body = await readFile(file);
@@ -148,6 +171,11 @@ const defaultLanes = Math.max(1, Math.min(4, Math.floor(os.availableParallelism(
 export async function openGoldenSession({ lanes = defaultLanes } = {}) {
   const { default: puppeteer } = await import('puppeteer-core');
   const work = await mkdtemp(path.join(os.tmpdir(), 'floc-golden-'));
+  // Exports read workspace assets from the data folder; this session's is temporary.
+  const assets = path.join(work, 'data/assets'), dataDir = process.env.FLOC_DATA_DIR;
+  await mkdir(assets, { recursive: true });
+  for (const name of await readdir(FIXTURE_ASSET_DIR)) await copyFile(path.join(FIXTURE_ASSET_DIR, name), path.join(assets, name));
+  process.env.FLOC_DATA_DIR = path.dirname(assets);
   const bundle = await build({ stdin: { resolveDir: path.join(root, 'src'), contents: `
     import { createScene, stageMarkup } from './scene.js';
     import { FORMATS } from './project.js';
@@ -246,6 +274,7 @@ export async function openGoldenSession({ lanes = defaultLanes } = {}) {
       }));
       server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
       await rm(work, { recursive: true, force: true });
+      if (dataDir === undefined) delete process.env.FLOC_DATA_DIR; else process.env.FLOC_DATA_DIR = dataDir;
     }
   };
 }
@@ -276,16 +305,22 @@ export async function checkFrame(session, fixture, frame, baseline) {
   return { failures, summary: `${name}: ${notes.join('; ')}` };
 }
 
-async function update() {
+// Recaptures every fixture, or only the named ones (keeping the other baselines).
+async function update(only = []) {
   if (!executablePath) throw new Error('Chrome or Edge is required to capture golden frames.');
+  const unknown = only.filter(id => !FIXTURES.some(fixture => fixture.id === id));
+  if (unknown.length) throw new Error(`Unknown golden fixtures: ${unknown.join(', ')}`);
+  const fixtures = only.length ? FIXTURES.filter(fixture => only.includes(fixture.id)) : FIXTURES;
+  const previous = only.length ? JSON.parse(await readFile(path.join(GOLDEN_DIR, 'manifest.json'), 'utf8')) : null;
   const started = Date.now();
   const session = await openGoldenSession();
   const manifest = { captureWidth: CAPTURE_WIDTH, browser: await session.browserVersion(), baselineTolerance: BASELINE_TOLERANCE, parityTolerance: PARITY_TOLERANCE, fixtures: {} };
   const failures = [], outputs = new Map();
   await rm(QA_DIR, { recursive: true, force: true });
   try {
-    const captures = await session.captureAll(FIXTURES);
-    for (const fixture of FIXTURES) {
+    if (previous && previous.browser !== manifest.browser) throw new Error(`Baselines were captured with ${previous.browser}; update every fixture with ${manifest.browser}.`);
+    const captures = await session.captureAll(fixtures);
+    for (const fixture of fixtures) {
       for (const frame of captures[fixture.id]) {
         const result = await checkFrame(session, fixture, frame);
         console.log(result.summary);
@@ -297,7 +332,8 @@ async function update() {
   } finally { await session.close(); }
   // Baselines double as parity references; never store a mismatched preview/export pair.
   if (failures.length) throw new Error(`Preview/export parity failed; baselines were not updated:\n${failures.join('\n')}`);
-  await rm(GOLDEN_DIR, { recursive: true, force: true });
+  if (previous) manifest.fixtures = Object.fromEntries(FIXTURES.filter(({ id }) => manifest.fixtures[id] || previous.fixtures[id]).map(({ id }) => [id, manifest.fixtures[id] ?? previous.fixtures[id]]));
+  else await rm(GOLDEN_DIR, { recursive: true, force: true });
   await mkdir(GOLDEN_DIR, { recursive: true });
   for (const [name, buffer] of outputs) await writeFile(path.join(GOLDEN_DIR, name), buffer);
   await writeFile(path.join(GOLDEN_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -305,6 +341,7 @@ async function update() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (!process.argv.includes('--update')) { console.error('Usage: node scripts/golden-frames.mjs --update'); process.exit(2); }
-  await update();
+  const flag = process.argv.indexOf('--update');
+  if (flag < 0) { console.error('Usage: node scripts/golden-frames.mjs --update [fixture-id ...]'); process.exit(2); }
+  await update(process.argv.slice(flag + 1));
 }

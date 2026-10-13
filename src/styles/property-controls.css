@@ -17,8 +17,10 @@
   padding: 7px 8px;
 }
 
+/* Stacked rows: tall controls, and card ratio names that describe whole sizing modes. */
 .field:has(textarea),
-.field:has(.segmented) {
+.field:has(.segmented),
+.field:has(.card-ratio-select) {
   grid-template-columns: 1fr;
   gap: 5px;
 }

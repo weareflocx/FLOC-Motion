@@ -18,7 +18,7 @@ test('Window Push defaults and independent zoom/spacing persist through validate
   await tool.execute({ template: 'window-push' });
   const layer = project.layers[1];
   assert.deepEqual([layer.cardCount, layer.loopDuration, layer.size, layer.windowZoom, layer.windowSpacing], [6, 7.2, 1, .5, 0]);
-  assert.deepEqual([layer.motionVariant, layer.motion.curve, layer.motion.action, layer.motion.pause], ['right', 'glide', 1.2, 0]);
+  assert.deepEqual([layer.motionVariant, layer.motion.curve, layer.motion.action, layer.motion.pause], ['right', 'native', 1.2, 0]);
   assert.deepEqual(project.images, before.images);
   assert.deepEqual(project.layers.filter(layer => layer.id !== 'carousel'), before.layers.filter(layer => layer.id !== 'carousel'));
   await tool.execute({ template: 'window-push', windowZoom: .8, windowSpacing: 36 });

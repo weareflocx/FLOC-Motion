@@ -1,6 +1,6 @@
 import { createModelScene } from './model-scene.js';
 import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, cardFrameSource, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
-import { carouselCard, motionVariant, elasticState } from './carousel-motion.js';
+import { carouselCard, motionVariant, elasticState, cardMetrics, ringRadius } from './carousel-motion.js';
 import * as THREE from 'three';
 import { fontFamily, fontStack } from './fonts.js';
 import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages } from './project.js';
@@ -80,10 +80,10 @@ if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacit
 #include <colorspace_fragment>
 }`;
 
-// Values that differ per card. Cards share one geometry and one material; each
-// card copies these into the material just before it is drawn.
+// Values that differ per card. Cards share one material, and cards of equal size
+// share one geometry; each card copies these into the material just before it is drawn.
 function cardUniforms(texture, imageAspect) {
-  return { uMap: { value: texture }, uImageAspect: { value: imageAspect }, uCrop: { value: new THREE.Vector2(1, 1) }, uCorner: { value: 0 }, uElastic: { value: 0 }, uSide: { value: 0 },
+  return { uMap: { value: texture }, uImageAspect: { value: imageAspect }, uAspect: { value: 1 }, uCrop: { value: new THREE.Vector2(1, 1) }, uCorner: { value: 0 }, uElastic: { value: 0 }, uSide: { value: 0 },
     uClip: { value: new THREE.Vector4(0, 0, 1, 1) }, uPush: { value: new THREE.Vector4(0, 0, 1, 0) }, uDepth: { value: 1 }, uOpacity: { value: 1 }, uTorsion: { value: 0 } };
 }
 function unloadVideo(video) { pauseMedia(video); video.removeAttribute('src'); video.load(); }
@@ -112,9 +112,10 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   function updateCamera() {
     camera.position.z = 8 * Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     if (layer.template === 'wheel') {
-      const count = layer.cardCount || p.images.length;
-      const radius = layer.radius || Math.max(2.2, count * (layer.size + layer.gap) / (2 * Math.PI));
-      const extent = radius + Math.max(layer.size, layer.size / layer.cardAspect) * 0.6;
+      const sizes = cardSizes(layer);
+      const radius = ringRadius(layer, layer.cardCount || p.images.length, sizes, 2.2);
+      const largest = sizes.perCard && sizes.widths.length ? Math.max(...sizes.widths.map((w, i) => Math.max(w, w / sizes.aspects[i]))) : Math.max(layer.size, layer.size / layer.cardAspect);
+      const extent = radius + largest * 0.6;
       camera.position.z = Math.max(camera.position.z, extent * 1.12 / (Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, width / height)));
     }
   }
@@ -159,9 +160,19 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   // Last animated typography and color written to each text node.
   const textStyles = new Map();
   const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, transparent: true,
-    uniforms: { ...cardUniforms(null, 1), uCardSize: { value: layer.size }, uAspect: { value: layer.cardAspect }, uShape: { value: 0 }, uTime: { value: 0 }, uStrength: { value: 0 }, uEffect: { value: 0 }, uTint: { value: new THREE.Color() }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) } } });
-  let geometry = null;
+    uniforms: { ...cardUniforms(null, 1), uCardSize: { value: layer.size }, uShape: { value: 0 }, uTime: { value: 0 }, uStrength: { value: 0 }, uEffect: { value: 0 }, uTint: { value: new THREE.Color() }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) } } });
+  // Media aspect (width / height) of each card, known once its media has loaded.
+  let mediaAspects = [];
+  let sizesKey = '', sizes = null;
+  // One geometry per card shape, each card's geometry, and the inputs they were shaped for.
+  let geometries = new Map();
+  let cardGeometries = [];
   let geometryKey = '';
+  function cardSizes(sampled) {
+    const key = `${sampled.template}:${sampled.size}:${sampled.cardAspect}:${sampled.cardFit}`;
+    if (key !== sizesKey) { sizes = cardMetrics(sampled, mediaAspects); sizesKey = key; }
+    return sizes;
+  }
   let requestedTime = 0;
   let requestedPlaying = false;
   function placeLayers(time) {
@@ -212,14 +223,11 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       if (l.type === 'text') el.style.clipPath = textRevealClip(l, time);
     }
   }
-  function reshapeCardGeometry(geometry, sampled) {
-    const windowPush = sampled.template === 'window-push';
-    const size = windowPush ? 1 : sampled.size;
-    const aspect = windowPush ? width / height : sampled.cardAspect;
+  // A `size` × `size / aspect` card; a wrapped ring bends it around its radius.
+  function reshapeCardGeometry(geometry, sampled, size, aspect, radius) {
     const positions = geometry.attributes.position;
     const uv = geometry.attributes.uv;
     const wrapped = sampled.template === 'circular' && ['wrapped', undefined].includes(motionVariant(sampled));
-    const radius = sampled.radius || Math.max(1.45, ((sampled.cardCount || p.images.length) * (size + sampled.gap)) / (2 * Math.PI));
     for (let i = 0; i < positions.count; i++) {
       const x = (uv.getX(i) - 0.5) * size;
       const angle = x / radius;
@@ -230,20 +238,36 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
   }
-  // Every card has the same shape; reshape the shared geometry when it changes.
+  // Cards of equal size share a geometry; reshape them when a size changes.
+  // Returns the per-card sizes.
   function shapeCards(sampled) {
     const segments = layer.shader === 'elastic' ? 64 : 32;
-    const key = JSON.stringify([sampled.template, sampled.size, sampled.cardAspect, sampled.radius, sampled.gap, sampled.curve, sampled.cardCount, motionVariant(sampled), segments]);
-    if (key === geometryKey) return;
-    if (geometry?.parameters.widthSegments !== segments) {
-      const previous = geometry;
-      geometry = new THREE.PlaneGeometry(1, 1, segments, 16);
-      meshes.forEach(mesh => { mesh.geometry = geometry; });
-      previous?.dispose();
-    }
-    reshapeCardGeometry(geometry, sampled);
+    const cards = cardSizes(sampled);
+    const radius = ringRadius(sampled, sampled.cardCount || p.images.length, cards);
+    const key = JSON.stringify([sizesKey, radius, sampled.curve, motionVariant(sampled), segments]);
+    if (key === geometryKey) return cards;
+    const windowPush = sampled.template === 'window-push';
+    const shapes = new Map();
+    const cardShapes = cards.widths.map((size, i) => {
+      const dimensions = windowPush ? [1, width / height] : [size, cards.aspects[i]];
+      const shape = dimensions.join(':');
+      shapes.set(shape, dimensions);
+      return shape;
+    });
+    const previous = geometries;
+    const spare = [...previous].filter(([shape, geometry]) => !shapes.has(shape) && geometry.parameters.widthSegments === segments).map(([, geometry]) => geometry);
+    geometries = new Map([...shapes.keys()].map(shape => {
+      const kept = previous.get(shape);
+      return [shape, kept?.parameters.widthSegments === segments ? kept : spare.pop() ?? new THREE.PlaneGeometry(1, 1, segments, 16)];
+    }));
+    const used = new Set(geometries.values());
+    previous.forEach(geometry => { if (!used.has(geometry)) geometry.dispose(); });
+    geometries.forEach((geometry, shape) => reshapeCardGeometry(geometry, sampled, ...shapes.get(shape), radius));
+    cardGeometries = cardShapes.map(shape => geometries.get(shape));
+    meshes.forEach((mesh, i) => { mesh.geometry = cardGeometries[i]; });
     material.uniforms.uCardSize.value = sampled.size;
     geometryKey = key;
+    return cards;
   }
   // Carousel-wide values; rerun after in-place edits.
   function applySettings() {
@@ -255,21 +279,24 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     uniforms.uEffect.value = SHADERS.find(s => s.id === layer.shader).mode;
     uniforms.uTint.value.set(layer.tint);
     uniforms.uShape.value = layer.cardShape === 'squircle' ? 1 : 0;
-    uniforms.uAspect.value = layer.cardAspect;
     const side = layer.backface === 'hide' ? THREE.FrontSide : layer.frontface === 'hide' ? THREE.BackSide : THREE.DoubleSide;
     if (material.side !== side) { material.side = side; material.needsUpdate = true; }
-    shapeCards(layer);
-    for (const mesh of meshes) {
+    const cards = shapeCards(layer);
+    // Window Push fills the canvas with each card and crops its window in the shader.
+    const windowAspect = layer.template === 'window-push' ? width / height : 0;
+    meshes.forEach((mesh, i) => {
       const card = mesh.userData.uniforms;
-      const imageRatio = card.uImageAspect.value, cardRatio = layer.cardAspect;
+      const imageRatio = card.uImageAspect.value, cardRatio = cards.aspects[i];
       if (imageRatio > cardRatio) card.uCrop.value.set(cardRatio / imageRatio, 1); else card.uCrop.value.set(1, imageRatio / cardRatio);
+      card.uAspect.value = windowAspect || cardRatio;
       card.uCorner.value = layer.cornerRadius / 100;
       // Vertex wings extend beyond the CPU-side geometry bounds.
       mesh.frustumCulled = layer.shader !== 'elastic';
-    }
+    });
     syncCarouselEffect(layer);
   }
-  // Reuses the pass unless the effect changes or its mix reaches zero.
+  // Reuses the passes unless the Paper effect or the active warps change, or
+  // the Paper mix reaches zero.
   function syncCarouselEffect(settings) {
     if (!carouselEffect?.update(settings)) {
       carouselEffect?.dispose();
@@ -311,12 +338,15 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     const failed = results.find(result => result.status === 'rejected');
     if (failed) throw failed.reason;
     const loaded = p.images.map(img => textures[sources.indexOf(img.src)]);
+    const cardTextures = Array.from({ length: loaded.length ? layer.cardCount || loaded.length : 0 }, (_, i) => loaded[i % loaded.length]);
+    // Per-image card sizes come from the loaded media, so the first frame is already right.
+    mediaAspects = cardTextures.map(texture => (texture.image.videoWidth || texture.image.width) / (texture.image.videoHeight || texture.image.height));
     shapeCards(layer);
-    Array.from({ length: loaded.length ? layer.cardCount || loaded.length : 0 }, (_, i) => loaded[i % loaded.length]).forEach(texture => {
+    cardTextures.forEach((texture, i) => {
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      const card = cardUniforms(texture, (texture.image.videoWidth || texture.image.width) / (texture.image.videoHeight || texture.image.height));
-      const mesh = new THREE.Mesh(geometry, material);
+      const card = cardUniforms(texture, mediaAspects[i]);
+      const mesh = new THREE.Mesh(cardGeometries[i], material);
       mesh.userData.uniforms = card;
       mesh.onBeforeRender = (renderer, scene, camera, geometry, shared) => {
         for (const key in card) shared.uniforms[key].value = card[key].value;
@@ -336,7 +366,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     carouselEffect?.dispose();
     models.forEach(model => model.dispose());
     mediaNodes.forEach(m => { pauseMedia(m); m.removeAttribute('src'); m.load(); });
-    geometry?.dispose(); material.dispose();
+    geometries.forEach(geometry => geometry.dispose()); material.dispose();
     textures.forEach(t => t.dispose());
     // Shared decoders keep playing for the scene that replaces this one.
     handles.forEach(handle => handle.release());
@@ -349,21 +379,20 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     models.forEach(model => model.draw(time, placementFor(model.id) ?? undefined));
     const local = Math.max(0, time - layer.start);
     const sampled = { ...evaluateChoreography(layer, time), ...orientation };
-    shapeCards(sampled);
+    const cards = shapeCards(sampled);
     group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
     const viewHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
     const placed = placementFor(layer.id);
     const position = placed ? { ...sampled, ...placed } : sampled;
     group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, 0);
     // Planar carousels size their largest card as a fraction of the canvas.
-    const planar = ['nested-rise', 'zoom-through', 'sweep-reveal'].includes(layer.template);
+    const planar = ['zoom-through', 'sweep-reveal'].includes(layer.template);
     const shuffle = layer.template === 'stack-shuffle';
     const windowPush = layer.template === 'window-push';
     const canvasSize = windowPush ? viewHeight * width / height : planar ? Math.min(viewHeight * width / height, viewHeight * sampled.cardAspect) : shuffle ? viewHeight : 1;
     const windowHeight = Math.min(0.72 * sampled.size, 0.96, 0.96 * width / height / sampled.cardAspect);
     const uniforms = material.uniforms;
     uniforms.uWindow.value.set(windowPush ? windowHeight * sampled.cardAspect * height / width : 0, windowPush ? windowHeight : 0);
-    if (windowPush) uniforms.uAspect.value = width / height;
     uniforms.uTime.value = local;
     uniforms.uStrength.value = sampled.intensity;
     if (sampled.layerEffectIntensity !== effectMix) syncCarouselEffect(sampled);
@@ -371,7 +400,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     material.depthWrite = !(planar || shuffle || windowPush);
     meshes.forEach((mesh, i) => {
       const card = mesh.userData.uniforms;
-      const state = carouselCard(sampled, i, meshes.length, time);
+      const state = carouselCard(sampled, i, meshes.length, time, cards);
       const optical = elasticState(sampled, state);
       card.uElastic.value = optical.strength;
       card.uSide.value = optical.side;
@@ -386,14 +415,17 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       mesh.renderOrder = state.renderOrder ?? 0;
       card.uClip.value.set(...(state.clip ?? [0, 0, 1, 1]));
       card.uPush.value.set(...(state.push ?? [0, 0, 1, 0]));
-      if (shuffle) card.uCorner.value = Math.min(1, 2 * (sampled.shuffleCorner ?? 15) / (sampled.size * height * Math.min(1, 1 / sampled.cardAspect) * state.scale));
+      if (shuffle) {
+        const side = cards.perCard ? Math.min(cards.widths[i], cards.widths[i] / cards.aspects[i]) * height : sampled.size * height * Math.min(1, 1 / sampled.cardAspect);
+        card.uCorner.value = Math.min(1, 2 * (sampled.shuffleCorner ?? 15) / (side * state.scale));
+      }
       mesh.visible = !(layer.frontface === 'hide' && layer.backface === 'hide') && layerAlpha(layer, time) > 0 && state.opacity > 0.001;
       card.uDepth.value = state.depth;
       card.uOpacity.value = state.opacity;
       card.uTorsion.value = state.torsion;
     });
     cardVideos.forEach(({ video, texture }) => { if (video.readyState >= 2) texture.needsUpdate = true; });
-    if (carouselEffect) carouselEffect.render(scene, camera);
+    if (carouselEffect) carouselEffect.render(scene, camera, sampled);
     else renderer.render(scene, camera);
     p.layers.forEach(l => {
       const alpha = layerAlpha(l, time);

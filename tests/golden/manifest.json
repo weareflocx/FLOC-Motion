@@ -10,28 +10,28 @@
     "ratio": 0.005
   },
   "fixtures": {
-    "carousels-circular-depth-arc": {
-      "hash": "e554912967f208ad",
+    "carousels-circular": {
+      "hash": "294cdd35740a3f2f",
       "format": "landscape",
       "frames": [
-        "carousels-circular-depth-arc-0.50s.png",
-        "carousels-circular-depth-arc-1.70s.png"
+        "carousels-circular-0.50s.png",
+        "carousels-circular-1.70s.png"
       ]
     },
     "carousels-horizontal-flip-showcase": {
-      "hash": "93b3c07b38882ee6",
+      "hash": "738710ba0080c854",
       "format": "landscape",
       "frames": [
         "carousels-horizontal-flip-showcase-0.50s.png",
         "carousels-horizontal-flip-showcase-1.70s.png"
       ]
     },
-    "carousels-nested-rise-zoom-through-sweep-reveal": {
-      "hash": "ecd8239201ae9529",
+    "carousels-zoom-through-sweep-reveal": {
+      "hash": "834069abe841a7fb",
       "format": "landscape",
       "frames": [
-        "carousels-nested-rise-zoom-through-sweep-reveal-0.50s.png",
-        "carousels-nested-rise-zoom-through-sweep-reveal-1.70s.png"
+        "carousels-zoom-through-sweep-reveal-0.50s.png",
+        "carousels-zoom-through-sweep-reveal-1.70s.png"
       ]
     },
     "carousels-stack-shuffle-sphere-spinner": {
@@ -42,16 +42,16 @@
         "carousels-stack-shuffle-sphere-spinner-1.70s.png"
       ]
     },
-    "carousels-stack-stickers-twist": {
-      "hash": "6347fd5fc6f420e5",
+    "carousels-stack-stickers-circular": {
+      "hash": "f66579566d669e33",
       "format": "landscape",
       "frames": [
-        "carousels-stack-stickers-twist-0.50s.png",
-        "carousels-stack-stickers-twist-1.70s.png"
+        "carousels-stack-stickers-circular-0.50s.png",
+        "carousels-stack-stickers-circular-1.70s.png"
       ]
     },
     "carousels-window-push-wheel": {
-      "hash": "470a889e52bcd3b9",
+      "hash": "11bee0f0cd6f1366",
       "format": "landscape",
       "frames": [
         "carousels-window-push-wheel-0.50s.png",
@@ -67,12 +67,28 @@
       ]
     },
     "effects": {
-      "hash": "4c6a5a3f3ffbdb19",
+      "hash": "4ade0994a4be636f",
       "format": "square",
       "frames": [
         "effects-0.50s.png",
         "effects-1.70s.png",
         "effects-2.90s.png"
+      ]
+    },
+    "card-fit-height": {
+      "hash": "eaf457b34eae0d3c",
+      "format": "landscape",
+      "frames": [
+        "card-fit-height-0.50s.png",
+        "card-fit-height-1.70s.png"
+      ]
+    },
+    "card-fit-width": {
+      "hash": "95ae4bbe561e3fc0",
+      "format": "landscape",
+      "frames": [
+        "card-fit-width-0.50s.png",
+        "card-fit-width-1.70s.png"
       ]
     }
   }

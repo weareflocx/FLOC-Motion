@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 6,
   "name": "Legacy linked formats",
   "format": "square",
   "duration": 8,
@@ -53,7 +53,7 @@
       "visible": true,
       "start": 0,
       "end": 8,
-      "template": "arc",
+      "template": "wheel",
       "speed": 18,
       "tilt": 0,
       "roll": 0,
@@ -84,7 +84,7 @@
       "cardAspect": 0.8771929824561404,
       "radius": 0,
       "loopDuration": 0,
-      "motionVariant": "default",
+      "motionVariant": "rock",
       "fade": 0,
       "motion": {
         "mode": "continuous",

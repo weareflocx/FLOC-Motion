@@ -31,6 +31,20 @@ test('every family and variant is finite, seek-safe, changes over time and close
     assert(moving, `${template}/${motionVariant} is static`);
   }
 });
+test('overlapping wheel cards never share a depth, and the gap widens the rocking fan', () => {
+  for (const motionVariant of ['rock', 'ring']) {
+    const layer = { ...base(), template: 'wheel', motionVariant, size: 1.6, gap: 0 };
+    for (let time = 0; time < 4; time += 0.1) {
+      const cards = Array.from({ length: 8 }, (_, i) => carouselCard(layer, i, 8, time)).filter(card => card.opacity > 0);
+      for (let i = 0; i < cards.length; i++) for (let j = i + 1; j < cards.length; j++) {
+        const [a, b] = [cards[i].position, cards[j].position];
+        if (Math.hypot(a[0] - b[0], a[1] - b[1]) < layer.size) assert(Math.abs(a[2] - b[2]) > 1e-3, `${motionVariant} cards ${i}/${j} z-fight at ${time}s`);
+      }
+    }
+  }
+  const spread = gap => { const layer = { ...base(), template: 'wheel', motionVariant: 'rock', gap }; return carouselCard(layer, 5, 6, 0).rotation[2] - carouselCard(layer, 0, 6, 0).rotation[2]; };
+  assert(Math.abs(spread(0.6)) > Math.abs(spread(0.1)));
+});
 test('reverse, pause, nonzero layer start and legacy positions retain their semantics', () => {
   const l = { ...base(), template: 'sphere' };
   close(carouselCard({ ...l, speed: -30 }, 1, 6, 1), carouselCard(l, 1, 6, 3));
@@ -39,9 +53,7 @@ test('reverse, pause, nonzero layer start and legacy positions retain their sema
   const horizontal = carouselCard({ ...base(), template: 'horizontal', loopDuration: 0, speed: 35 }, 1, 6, 1);
   assert.deepEqual(horizontal.position, [0, 0, -0]);
 });
-test('108 recipes use nine real families and 24 variants with observed composition settings', () => {
-  assert.equal(new Set(CATALOG.map(p => p.carouselPatch.template)).size, 9);
-  assert.equal(new Set(CATALOG.map(p => `${p.carouselPatch.template}/${p.carouselPatch.motionVariant}`)).size, 24);
+test('every catalog recipe applies as a valid carousel with observed composition settings', () => {
   for (const p of CATALOG) {
     const next = patchLayer(demoProject(), 'carousel', p.carouselPatch);
     assert(next.layers[1].loopDuration > 0);
@@ -64,7 +76,8 @@ test('new settings migrate without mutating old projects and reject malformed or
 });
 test('recycling cards is invisible at loop boundaries and native families differ', () => {
   const fingerprints = new Set();
-  for (const template of ['circular','horizontal','showcase','sphere','spinner','stack','stickers','twist','wheel']) {
+  const families = ['circular','horizontal','showcase','sphere','spinner','stack','stickers','wheel'];
+  for (const template of families) {
     const l = { ...base(), template };
     fingerprints.add(JSON.stringify(carouselCard(l, 1, 12, 0.7)));
     for (let i=0;i<12;i++) {
@@ -75,7 +88,7 @@ test('recycling cards is invisible at loop boundaries and native families differ
       a.rotation.forEach((v,j)=>assert(Math.abs(Math.sin(v)-Math.sin(b.rotation[j]))<1e-4,`${template} rotation seam`));
     }
   }
-  assert.equal(fingerprints.size,9);
+  assert.equal(fingerprints.size, families.length);
 });
 test('agents apply real family controls through the same validated project model', async () => {
   const {createTools}=await import('../src/webmcp.js');

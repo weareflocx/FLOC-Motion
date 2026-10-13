@@ -9,10 +9,9 @@ export const MOTION_VARIANTS = {
   spinner: [['rotor', 'Axis rotor'], ['hinge', 'Hinged rotor'], ['fan', 'Radial fan']],
   stack: [['deck', 'Cycling deck'], ['stairs', 'Staircase'], ['spread', 'Splayed deck'], ['radial', 'Rosette'], ['infinite', 'Depth queue']],
   stickers: [['peel', 'Peeling posters'], ['scatter', 'Sticker field']],
-  twist: [['single', 'Single torsion'], ['ribbon', 'Torsion ribbon']],
   wheel: [['rock', 'Rocking arc'], ['ring', 'Radial wheel']],
   flip: [['step', 'Step and turn']],
-  depth: [], arc: [], 'nested-rise': [], 'zoom-through': [],
+  'zoom-through': [],
   'stack-shuffle': [['down', 'Down'], ['up', 'Up'], ['left', 'Left'], ['right', 'Right']],
   'sweep-reveal': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']],
   'window-push': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']]
@@ -24,16 +23,69 @@ const fadeEdge = (d, limit) => clamp((limit - Math.abs(d)) * 2);
 export function motionVariant(layer) {
   return layer.motionVariant && layer.motionVariant !== 'default' ? layer.motionVariant : MOTION_VARIANTS[layer.template]?.[0]?.[0];
 }
-export function carouselCard(layer, index, count, time) {
+// How cards are sized: every card at the layer's cardAspect, or each card at its
+// own media's aspect with a shared height or a shared width.
+export const CARD_FITS = ['fixed', 'height', 'width'];
+// Per-card widths and aspects in scene units for `mediaAspects` (one per card).
+// The shared side equals that side of the fixed card, so switching modes keeps
+// the scale. Window Push always uses its window ratio.
+export function cardMetrics(layer, mediaAspects) {
+  const fit = layer.template === 'window-push' ? 'fixed' : layer.cardFit ?? 'fixed';
+  const perCard = fit !== 'fixed';
+  const aspects = mediaAspects.map(aspect => perCard && Number.isFinite(aspect) && aspect > 0 ? Math.max(0.25, Math.min(4, aspect)) : layer.cardAspect);
+  const widths = aspects.map(aspect => fit === 'height' ? layer.size / layer.cardAspect * aspect : layer.size);
+  return { perCard, widths, aspects, paths: new Map() };
+}
+// Card centers along a closed path on which neighbouring edges keep `gap`
+// apart; `scale` shrinks the widths of families whose cards overlap by design.
+function cardPath(metrics, scale, gap) {
+  const key = `${scale}:${gap}`;
+  let path = metrics.paths.get(key);
+  if (!path) {
+    const centers = [];
+    let length = 0;
+    for (const width of metrics.widths) { centers.push(length + width * scale / 2); length += width * scale + gap; }
+    path = { centers, length };
+    metrics.paths.set(key, path);
+  }
+  return path;
+}
+// Path position of a card-unit coordinate, extended periodically. Aligned
+// coordinates land on card centers at whole numbers (stepped and eased clocks
+// rest there); otherwise the path moves at constant speed.
+function pathAt(path, coordinate, aligned) {
+  const { centers, length } = path, count = centers.length;
+  if (!aligned) return centers[0] + coordinate * length / count;
+  const loops = Math.floor(coordinate / count), local = coordinate - loops * count;
+  const index = Math.min(count - 1, Math.floor(local));
+  const next = index + 1 < count ? centers[index + 1] : centers[0] + length;
+  return loops * length + centers[index] + (local - index) * (next - centers[index]);
+}
+// Signed path distance of a card from the front, for its card-unit offset. The
+// offset's wrap keeps every card in one contiguous run along the path.
+const pathOffset = (path, index, offset, aligned) => path.centers[index] - pathAt(path, index - offset, aligned);
+// Ring radius that fits the cards around the circumference, unless set.
+export function ringRadius(layer, count, metrics, minimum = 1.45) {
+  if (layer.radius > 0) return layer.radius;
+  const ring = metrics?.perCard && metrics.widths.length === count ? cardPath(metrics, 1, layer.gap) : null;
+  return Math.max(minimum, (ring ? ring.length : count * (layer.size + layer.gap)) / TAU);
+}
+// `metrics` (from cardMetrics) spaces per-image cards by their own widths;
+// without it, or for fixed cards, every card measures layer.size.
+export function carouselCard(layer, index, count, time, metrics) {
   const motion = layer.motion ?? DEFAULT_MOTION;
   const clock = motionClock(layer, count, time);
   const phase = clock.phase;
   const angle = phase * TAU;
   const size = layer.size, gap = layer.gap;
-  const radius = layer.radius > 0 ? layer.radius : Math.max(1.45, count * (size + gap) / TAU);
+  const sizes = metrics?.perCard && metrics.widths.length === count ? metrics : null;
+  const aligned = clock.stepped || motion.curve !== 'native';
+  const radius = ringRadius(layer, count, sizes);
   const variant = motionVariant(layer);
   const state = { position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, opacity: 1, depth: 1, torsion: 0 };
-  const theta = index / count * TAU + angle;
+  // Each card's angular share of a ring is proportional to its width.
+  const ring = sizes && ['circular', 'wheel'].includes(layer.template) ? cardPath(sizes, 1, gap) : null;
+  const theta = ring ? TAU * (ring.centers[index] - pathAt(ring, -phase * count, aligned)) / ring.length : index / count * TAU + angle;
   const d = mod(index - phase * count + count / 2, count) - count / 2;
   if (layer.template === 'circular') {
     state.position = [Math.sin(theta) * radius, 0, Math.cos(theta) * radius];
@@ -41,35 +93,32 @@ export function carouselCard(layer, index, count, time) {
     if (variant === 'bloom') state.rotation[1] = Math.sin(theta) * 0.65;
     state.depth = 0.65 + (Math.cos(theta) + 1) * 0.175;
     state.opacity = 1 - (layer.fade || 0) * (1 - Math.cos(theta)) / 2;
-  } else if (layer.template === 'horizontal' || layer.template === 'depth' || layer.template === 'arc') {
+  } else if (layer.template === 'horizontal') {
     // Preserve legacy speed semantics unless an explicit loop duration is set.
     const advance = clock.advance;
     const timed = layer.loopDuration > 0 || clock.stepped;
     const offset = mod(index - advance + count / 2, count) - count / 2;
-    if (layer.template === 'arc') {
-      const a = offset * (0.34 + gap * 0.2);
-      state.position = [Math.sin(a) * 3.6, Math.cos(a) * 3.6 - 2.1, -Math.abs(offset) * 0.06];
-      state.rotation[2] = -a;
-      state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 1.7 / (0.34 + gap * 0.2))) : Math.abs(a) < 1.7 ? 1 : 0;
-    } else {
-      state.position = layer.template === 'depth' ? [offset * (0.65 + gap), offset * 0.18, -Math.abs(offset) * 0.85] : [offset * (size + gap), 0, -Math.abs(offset) * 0.35];
-      state.rotation[1] = offset * (layer.template === 'depth' ? 0.2 : -0.18);
-      state.depth = Math.max(0.45, 1 - Math.abs(offset) * 0.14);
-      state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 3.2)) : Math.abs(offset) < 3.2 ? 1 : 0;
-      if (variant === 'focus') state.scale = 0.65 + 0.55 * Math.exp(-offset * offset * 1.2);
-    }
+    const strip = sizes && cardPath(sizes, 1, gap);
+    // Distance from the front in average card pitches; equals `offset` for fixed cards.
+    const x = strip ? pathOffset(strip, index, offset, aligned) : offset * (size + gap);
+    const along = strip ? x * count / strip.length : offset;
+    state.position = [x, 0, -Math.abs(along) * 0.35];
+    state.rotation[1] = along * -0.18;
+    state.depth = Math.max(0.45, 1 - Math.abs(along) * 0.14);
+    state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 3.2)) : Math.abs(offset) < 3.2 ? 1 : 0;
+    if (variant === 'focus') state.scale = 0.65 + 0.55 * Math.exp(-along * along * 1.2);
   } else if (layer.template === 'flip') {
     const step = phase * count;
     const progress = (step % 1 - 0.6) / 0.4;
     const t = clamp(progress);
     const advance = clock.stepped ? step : Math.floor(step) + motionEase(t, motion, smoothProgress(t));
     const offset = mod(index - advance + count / 2, count) - count / 2;
-    state.position = [offset * (size + gap + 0.25), 0, -Math.abs(offset) * 0.08];
+    state.position = [sizes ? pathOffset(cardPath(sizes, 1, gap + 0.25), index, offset, true) : offset * (size + gap + 0.25), 0, -Math.abs(offset) * 0.08];
     const turn = clamp(Math.abs(offset));
     state.rotation[1] = Math.sign(offset) * (layer.transitionTurn ?? 360) * Math.PI / 180 * turn * turn * (3 - 2 * turn);
     state.opacity = fadeEdge(offset, Math.min(count / 2, 2));
   } else if (layer.template === 'showcase') {
-    state.position = [d * (size * 0.6 + gap), -d * 0.6, -Math.abs(d) * 0.65];
+    state.position = [sizes ? pathOffset(cardPath(sizes, 0.6, gap), index, d, true) : d * (size * 0.6 + gap), -d * 0.6, -Math.abs(d) * 0.65];
     state.rotation = [0.18, -0.32, -0.12];
     state.opacity = fadeEdge(d, Math.min(count / 2, 4));
   } else if (layer.template === 'sphere') {
@@ -96,14 +145,12 @@ export function carouselCard(layer, index, count, time) {
       state.rotation[0] = -theta;
       if (variant === 'hinge') { state.position[0] = Math.sin(theta) * size * 0.5; state.rotation[1] = Math.sin(theta) * 0.6; }
     }
-  } else if (['nested-rise', 'zoom-through'].includes(layer.template)) {
-    const centered = layer.template === 'zoom-through';
-    const age = mod(phase * count - index + (centered ? 0.5 : 0), count);
+  } else if (layer.template === 'zoom-through') {
+    const age = mod(phase * count - index + 0.5, count);
     // Older cards reach full size behind the next card before being recycled.
-    const progress = clamp(age / Math.max(1, Math.min(centered ? 2.4 : 3, count - 1)));
+    const progress = clamp(age / Math.max(1, Math.min(2.4, count - 1)));
     state.scale = Math.max(1e-6, motionEase(progress, motion, 1 - (1 - progress) ** 3));
-    if (centered) state.rotation[2] = (layer.zoomRotation ?? 0) * Math.PI / 180 * (1 - clamp(state.scale));
-    else state.position[1] = (state.scale - 1) * size / (2 * layer.cardAspect);
+    state.rotation[2] = (layer.zoomRotation ?? 0) * Math.PI / 180 * (1 - clamp(state.scale));
     state.renderOrder = count - age;
     if (count === 1) state.opacity = clamp((1 - age) * 8);
   } else if (layer.template === 'window-push') {
@@ -153,7 +200,7 @@ export function carouselCard(layer, index, count, time) {
       const level = slot - progress;
       state.scale = 0.9 ** level;
       // Keep an exposed strip above each smaller card, measured in canvas pixels.
-      state.position[1] = (1 - state.scale) * size / (2 * layer.cardAspect);
+      state.position[1] = sizes ? (1 - state.scale) * sizes.widths[index] / sizes.aspects[index] / 2 : (1 - state.scale) * size / (2 * layer.cardAspect);
       state.positionPixels[1] = level * (layer.shuffleGap ?? 36);
       state.opacity = clamp(3 - level);
     }
@@ -183,17 +230,18 @@ export function carouselCard(layer, index, count, time) {
       state.scale = index === 0 ? 1 : 0.55 * (0.6 + 0.4 * envelope);
       state.torsion = (1 - envelope) * 0.7;
     }
-  } else if (layer.template === 'twist') {
-    state.position = variant === 'single' ? [0, 0, -Math.abs(d) * 0.15] : [0, d * (size / (layer.cardAspect || 1 / 1.14) + gap), -Math.abs(d) * 0.15];
-    state.opacity = fadeEdge(d, Math.min(count / 2, variant === 'single' ? 1 : 2.5));
-    state.torsion = Math.sin(angle * count + index / count * TAU) * 1.2;
-    state.rotation[1] = Math.sin(angle * count) * 0.35;
   } else if (layer.template === 'wheel') {
-    const a = variant === 'rock' ? (index - (count - 1) / 2) * 0.3 + Math.sin(angle) * 0.45 : theta;
-    const r = layer.radius > 0 ? radius : Math.max(2.2, count * (size + gap) / TAU);
-    state.position = [Math.sin(a) * r, Math.cos(a) * r - (variant === 'rock' ? r * 0.55 : 0), 0];
+    const rock = variant === 'rock';
+    const r = ringRadius(layer, count, sizes, 2.2);
+    // Fanned cards overlap by design; the gap widens the fan instead of being ignored.
+    const fan = rock && sizes ? cardPath(sizes, 0.4, gap) : null;
+    const spread = fan ? fan.centers[index] - (fan.centers[0] + fan.centers[count - 1]) / 2 : (index - (count - 1) / 2) * (size * 0.4 + gap);
+    const a = rock ? spread / r + Math.sin(angle) * 0.45 : theta;
+    // Coplanar overlapping cards need distinct depths or they z-fight; stack each card over its left neighbour.
+    const layerDepth = Math.atan2(Math.sin(a), Math.cos(a)) * 0.01;
+    state.position = [Math.sin(a) * r, Math.cos(a) * r - (rock ? r * 0.55 : 0), layerDepth];
     state.rotation[2] = -a;
-    if (variant === 'rock') state.opacity = fadeEdge(a, 1.55);
+    if (rock) state.opacity = fadeEdge(a, 1.55);
   }
   return state;
 }

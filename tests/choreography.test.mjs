@@ -63,7 +63,7 @@ test('poses interpolate position, size, opacity and direct orientation with dest
   const layer = getLayer(validateProject(demoProject()));
   const from = state(layer, 'start', 0, { x: 10, y: 20, size: 0.5, opacity: 0, tilt: -65, yaw: -170, roll: 170 }, 'ease-in');
   const to = state(layer, 'end', 4, { x: 90, y: 80, size: 2.5, opacity: 1, tilt: 65, yaw: 170, roll: -170 });
-  const expected = { linear: 0.25, smooth: 0.15625, 'ease-in': 0.0625, 'ease-out': 0.4375 };
+  const expected = { linear: 0.25, 'ease-in-out': 0.0625, 'ease-in': 0.015625, 'ease-out': 0.578125 };
   for (const easing of Object.keys(expected)) {
     const authored = { ...layer, start: 2, end: 8, choreography: [from, { ...to, easing }] };
     const pose = evaluateChoreography(authored, 3);
@@ -78,7 +78,7 @@ test('poses interpolate position, size, opacity and direct orientation with dest
 
 test('seeking in arbitrary order does not mutate authored poses or retain motion state', () => {
   const layer = getLayer(validateProject(demoProject()));
-  const authored = { ...layer, choreography: [state(layer, 'a', 1, { x: 10 }), state(layer, 'b', 7, { x: 90 }, 'smooth')] };
+  const authored = { ...layer, choreography: [state(layer, 'a', 1, { x: 10 }), state(layer, 'b', 7, { x: 90 }, 'ease-in-out')] };
   const before = structuredClone(authored);
   const expected = new Map([0, 1, 2, 4, 7, 9].map(time => [time, evaluateChoreography(authored, time)]));
   for (const time of [7, 0, 4, 9, 1, 2, 4, 0]) assert.deepEqual(evaluateChoreography(authored, time), expected.get(time));
@@ -103,9 +103,9 @@ test('capture saves evaluated complete poses and updates the same frame identity
   const captured = captureState(authored, 4.01, 24, { y: 60 }, 'middle');
   const middle = captured[1];
   assert.equal(middle.time, 2);
-  assert.equal(middle.values.x, 70);
+  assert.equal(middle.values.x, 80);
   assert.equal(middle.values.y, 60);
-  assert.equal(middle.easing, 'smooth');
+  assert.equal(middle.easing, 'ease-in-out');
   assert.deepEqual(Object.keys(middle.values).sort(), Object.keys(choreographyFields(layer)).sort());
   const updated = captureState({ ...authored, choreography: captured.map(s => s.id === 'middle' ? { ...s, easing: 'ease-in' } : s) }, 4.015, 24, { size: 2 }, 'unused');
   assert.equal(updated.length, 3);

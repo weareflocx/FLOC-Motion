@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 6,
   "name": "Legacy text entrances",
   "format": "portrait",
   "duration": 10,
@@ -164,7 +164,7 @@
         {
           "id": "b",
           "time": 2,
-          "easing": "smooth",
+          "easing": "ease-in-out",
           "values": {
             "x": 50,
             "y": 40,

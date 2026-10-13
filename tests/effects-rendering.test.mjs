@@ -134,3 +134,15 @@ test('animated noise slides one cached texture at 12 Hz, reverses exactly and le
     assert.equal(encoded, created);
   } finally { Node.prototype.toDataURL = toDataURL; }
 });
+
+test('carousel warps render in WebGL, so their canvas gets no SVG warp filter', async () => {
+  const demo = demoProject();
+  const project = validateProject({ ...demo, layers: demo.layers.map(layer => layer.type === 'carousel' ? { ...layer, effects: [{ type: 'optical-warp' }, { type: 'monochrome', amount: 0.5 }] } : layer.id === 'headline' ? { ...layer, effects: [{ type: 'optical-warp' }] } : layer) });
+  const { root, nodes, effects } = fixture(project);
+  const collect = node => [node, ...node.childNodes.flatMap(collect)];
+  assert.equal(collect(root).filter(node => node.tagName === 'filter').length, 1);
+  await effects.seek(1);
+  assert.equal(nodes.carousel.style.filter, 'grayscale(0.5)');
+  assert.match(nodes.headline.style.filter, /^url\(#floc-warp-[\d-]+\)$/);
+  effects.dispose();
+});

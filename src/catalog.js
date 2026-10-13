@@ -1,21 +1,22 @@
 import sourceCatalog from './catalog/preset-catalog.json' with { type: 'json' };
 import { BRAND } from './brand.js';
-import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline } from './motion-timing.js';
+import { DEFAULT_MOTION, motionBaseline } from './motion-timing.js';
+import { legacyCurve } from './easing.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const numberValue = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
 
 const familyTemplate = {
   Orbit: 'circular', Spinner: 'spinner', Showcase: 'showcase', Sliders: 'horizontal',
-  Sphere: 'sphere', Stack: 'stack', Stickers: 'stickers', Twist: 'twist', Wheel: 'wheel'
+  Sphere: 'sphere', Stack: 'stack', Stickers: 'stickers', Wheel: 'wheel'
 };
 const modelVariant = {
   circular_orbit_wrapped_faces: 'wrapped', circular_orbit_billboards: 'billboard', inward_facing_orbit: 'inward', splayed_orbit: 'bloom',
   perspective_linear_queue: 'queue', linear_slider: 'strip', linear_slider_with_scale_field: 'focus',
-  spherical_point_cloud_billboards: 'billboard', spherical_tangential_panels: 'tangent', multi_axis_spherical_cloud: 'cloud',
-  axis_rotor: 'rotor', hinged_axis_rotor: 'hinge', fan_axis_rotor: 'fan',
-  cycling_deck: 'deck', stair_deck: 'stairs', arc_deck: 'spread', radial_deck: 'radial', recycled_depth_queue: 'infinite',
-  layered_peeling_posters: 'peel', curling_stickers: 'scatter', single_torsion_panel: 'single', torsion_panel_carousel: 'ribbon',
+  spherical_point_cloud_billboards: 'billboard',
+  axis_rotor: 'rotor', hinged_axis_rotor: 'hinge',
+  stair_deck: 'stairs', arc_deck: 'spread', radial_deck: 'radial',
+  curling_stickers: 'scatter',
   large_radius_radial_arc: 'rock', planar_circle_or_ellipse: 'ring'
 };
 const aspectValue = entry => {
@@ -33,7 +34,6 @@ const familyCurve = {
   Sphere: 0.45,
   Stack: 0.18,
   Stickers: 0.12,
-  Twist: 0.5,
   Wheel: 0.55
 };
 
@@ -102,14 +102,14 @@ function derivePatch(entry) {
     tint: BRAND.colors.blue
   };
   const action = settingsFor(entry).find(setting => setting.key === 'animation.Motion.Action' && setting.disabled !== true);
-  const curve = String(readCatalogSetting(entry, 'animation.Curves.Default', 'Original')).toLowerCase();
+  const source = String(readCatalogSetting(entry, 'animation.Curves.Default', 'Original')).toLowerCase();
   patch.motion = {
     ...DEFAULT_MOTION,
     mode: numberValue(action?.value) > 0 ? 'steps' : 'continuous',
     action: clamp(numberValue(action?.value) || 1, 0.05, 30),
     pause: clamp(numberSetting(entry, 'animation.Motion.Pause', 0), 0, 30),
-    curve: MOTION_CURVES.some(([id]) => id === curve) ? curve : 'native',
-    intensity: clamp(numberSetting(entry, 'animation.Easing.Intensity', 50) / 100, 0, 1)
+    // The source names the pre-v6 curves, blended with linear by its intensity.
+    ...legacyCurve(source, clamp(numberSetting(entry, 'animation.Easing.Intensity', 50) / 100, 0, 1))
   };
   patch.motionBaseline = motionBaseline(patch, (entry.name || entry.id).slice(0, 100));
   return patch;
@@ -122,7 +122,7 @@ const supportedMappings = [
   'card count + aspect ratio → card geometry (media cycles deterministically)',
   'Motion.Duration + Direction → exact full loop / direction',
   'Motion.Action + Pause → FLOC per-card action / hold rhythm',
-  'Curves.Default + Easing.Intensity → FLOC progress curves / blend',
+  'Curves.Default + Easing.Intensity → closest FLOC progress curve / strength',
   'Distribution.X + Y + Z → orientation',
   'Distribution.Fade → rear fade for orbit',
   'Camera.Zoom → card size',
@@ -178,14 +178,14 @@ export function getCatalogEntry(id) {
   return entry;
 }
 
-export function listCatalog({ query = '', family = '', limit = 108 } = {}) {
+export function listCatalog({ query = '', family = '', limit = CATALOG.length } = {}) {
   const normalizedQuery = String(query).trim().toLowerCase();
   const normalizedFamily = String(family).trim().toLowerCase();
   const matches = CATALOG.filter(entry => {
     const searchable = `${entry.id} ${entry.name} ${entry.family} ${entry.group} ${entry.description}`.toLowerCase();
     return (!normalizedQuery || searchable.includes(normalizedQuery)) && (!normalizedFamily || entry.family.toLowerCase() === normalizedFamily);
   });
-  return matches.slice(0, clamp(Number(limit) || 108, 1, 108));
+  return matches.slice(0, clamp(Number(limit) || CATALOG.length, 1, CATALOG.length));
 }
 
 export function catalogSummary() {
