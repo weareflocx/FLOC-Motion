@@ -29,7 +29,7 @@ test('parameter edits apply to the live scene', () => {
   const carousel = idOf(base, 'carousel'), text = idOf(base, 'text'), background = idOf(base, 'background');
   const edits = [
     [carousel, { shader: 'elastic', intensity: 0.2, tint: '#ff0000' }], [carousel, { size: 1.4, gap: 0.3, cardAspect: 1.2, curve: 0.5, radius: 3 }],
-    [carousel, { speed: 12, perspective: 60, cornerRadius: 30, cardShape: 'squircle', backface: 'hide' }],
+    [carousel, { speed: 12, perspective: 60, cornerRadius: 30, cardShape: 'squircle', backface: 'hide' }], [carousel, { cardFit: 'height' }], [carousel, { cardFit: 'width', template: 'circular' }],
     [carousel, { layerEffect: 'halftone', layerEffectIntensity: 0.5, halftoneSize: 0.6 }],
     [text, { text: 'New title', color: '#ff00ff', size: 70, width: 40 }], [text, { visible: false, start: 1, fadeIn: 0.5 }],
     [background, { color: '#123456' }], [idOf(base, 'media'), { x: 40, size: 20, offset: 1, loop: true }], [idOf(base, 'model'), { yaw: 30, offset: 0.5 }]
@@ -155,7 +155,11 @@ test('in-place updates draw exactly what a rebuilt scene draws', { skip: !execut
   const edits = [
     { carousel: { shader: 'elastic', intensity: 0.9, size: 1.3, cardAspect: 1.4, cornerRadius: 30, cardShape: 'squircle', backface: 'hide', perspective: 60, layerEffect: 'dithering', layerEffectIntensity: 0.7 },
       headline: { text: 'Updated <title>', color: '#ff00aa', size: 90, effects: [{ type: 'blur', enabled: true, amount: 6, mode: 'uniform', direction: 'bottom' }] }, background: { color: '#203040' } },
-    { carousel: { shader: 'duotone', layerEffect: 'none', ditheringSteps: 2, tint: '#00ffaa' }, headline: { effects: [] }, signature: { visible: false } }
+    { carousel: { shader: 'duotone', layerEffect: 'none', ditheringSteps: 2, tint: '#00ffaa' }, headline: { effects: [] }, signature: { visible: false } },
+    // Per-image cards resize and re-crop in place; the demo posters are 4:5.
+    { carousel: { cardFit: 'height', size: 1.2, cornerRadius: 12 } },
+    { carousel: { cardFit: 'width', motionVariant: 'billboard' } },
+    { carousel: { cardFit: 'fixed', cardAspect: 16 / 9 } }
   ];
   for (const edit of edits) {
     for (const [id, patch] of Object.entries(edit)) project = patchLayer(project, id, patch);

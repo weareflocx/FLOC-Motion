@@ -1,4 +1,4 @@
-import { MOTION_VARIANTS } from './carousel-motion.js';
+import { CARD_FITS, MOTION_VARIANTS } from './carousel-motion.js';
 import { BRAND } from './brand.js';
 import { textFontValid } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
@@ -101,7 +101,7 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   logo: ['src', 'x', 'y', 'size', 'roll'],
   media: ['src', 'x', 'y', 'size', 'roll', 'offset', 'loop'],
   model: ['src', 'x', 'y', 'size', 'yaw', 'tilt', 'roll', 'offset', 'loop'],
-  carousel: ['images', 'template', 'shader', 'speed', 'cardCount', 'cardAspect', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
+  carousel: ['images', 'template', 'shader', 'speed', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
     'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'intensity', 'tint',
     'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion',
     'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing'],
@@ -204,6 +204,8 @@ export function validateProject(input) {
       l.cardCount ??= 0; l.cardAspect ??= 1 / 1.14; l.radius ??= 0; l.loopDuration ??= 0; l.motionVariant ??= 'default'; l.fade ??= 0;
       if (!Number.isInteger(l.cardCount)) fail('Card count must be an integer.');
       finite(l.cardCount, 0, PROJECT_LIMITS.maxCardCount, 'Card count'); finite(l.cardAspect, 0.25, 4, 'Card aspect'); finite(l.radius, 0, 6, 'Radius'); finite(l.loopDuration, 0, 60, 'Loop duration'); finite(l.fade, 0, 1, 'Rear fade');
+      // Optional: absent means fixed, so older projects keep their exact shape.
+      if (l.cardFit !== undefined && !CARD_FITS.includes(l.cardFit)) fail('Unknown card fit.');
       if (l.motionVariant !== 'default' && !MOTION_VARIANTS[l.template].some(v => v[0] === l.motionVariant)) fail('Unknown motion variant for this family.');
       finite(l.yaw, -180, 180, 'Orientation Y'); finite(l.speed, -90, 90, 'Speed'); finite(l.tilt, -65, 65, 'Tilt'); finite(l.roll, -180, 180, 'Rotation'); finite(l.size, 0.5, 2.5, 'Card size'); finite(l.gap, 0, 1, 'Gap'); finite(l.curve, 0, 1, 'Curve'); finite(l.x, 10, 90, 'X'); finite(l.y, 10, 90, 'Y'); finite(l.intensity, 0, 1, 'Shader intensity'); color(l.tint);
       if (l.motion === undefined) l.motion = { ...DEFAULT_MOTION };
@@ -330,7 +332,7 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'cardFit', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {

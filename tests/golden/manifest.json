@@ -74,6 +74,22 @@
         "effects-1.70s.png",
         "effects-2.90s.png"
       ]
+    },
+    "card-fit-height": {
+      "hash": "eaf457b34eae0d3c",
+      "format": "landscape",
+      "frames": [
+        "card-fit-height-0.50s.png",
+        "card-fit-height-1.70s.png"
+      ]
+    },
+    "card-fit-width": {
+      "hash": "95ae4bbe561e3fc0",
+      "format": "landscape",
+      "frames": [
+        "card-fit-width-0.50s.png",
+        "card-fit-width-1.70s.png"
+      ]
     }
   }
 }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -63,6 +63,20 @@ function carouselFixtures() {
     return { id: `carousels-${group.join('-')}`, times: [0.5, 1.7], project };
   });
 }
+// Per-image cards: portrait, square and landscape media, repeated over six cards,
+// at one shared height and at one shared width. Fixture assets are served from
+// tests/fixtures/card-fit as workspace assets.
+export const FIXTURE_ASSET_DIR = path.join(root, 'tests/fixtures/card-fit');
+const mixedImages = ['a0c1f1e2-9d16-4c11-8a6e-000000000916', 'a0c1f1e2-0101-4c11-8a6e-000000000101', 'a0c1f1e2-1609-4c11-8a6e-000000001609']
+  .map((id, i) => ({ id: `mixed-${i + 1}`, src: `/assets/${id}.png`, name: ['Portrait', 'Square', 'Landscape'][i] }));
+function cardFitFixtures() {
+  return ['height', 'width'].map(cardFit => {
+    const project = { ...base(`Card fit ${cardFit}`, 'landscape'), images: mixedImages };
+    const rows = [['horizontal', 22, 0.5], ['flip', 52, 0.5], ['circular', 80, 0.5]];
+    project.layers = [colorBackground('#16181d'), ...rows.map(([id, y, size], i) => ({ ...carousel(id, i, 50), y, size, cardCount: 6, cardFit, shader: 'none', layerEffect: 'none', cornerRadius: 8, tilt: id === 'circular' ? -12 : 0 }))];
+    return { id: `card-fit-${cardFit}`, times: [0.5, 1.7], project };
+  });
+}
 // Twelve full-canvas backgrounds offset into a 4 × 3 grid: in row-major order
 // each later layer covers the cells at and after its own, so every cell shows
 // exactly one pattern.
@@ -96,7 +110,7 @@ function effectFixture() {
   return { id: 'effects', times: [0.5, 1.7, 2.9], project };
 }
 
-export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixture()].map(fixture => ({ ...fixture, project: validateProject(fixture.project) }));
+export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixture(), ...cardFitFixtures()].map(fixture => ({ ...fixture, project: validateProject(fixture.project) }));
 // The schema version is left out: a version bump that keeps the project's content keeps its frames.
 export const fixtureHash = fixture => createHash('sha256').update(JSON.stringify({ times: fixture.times, project: { ...fixture.project, version: undefined } })).digest('hex').slice(0, 16);
 export const frameName = (id, time) => `${id}-${time.toFixed(2)}s.png`;
@@ -107,7 +121,7 @@ function serve(routes, exportRoot) {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
       if (routes.has(pathname)) { const [type, body] = routes.get(pathname); res.writeHead(200, { 'Content-Type': type }); return res.end(body); }
-      const [prefix, folder] = pathname.startsWith('/export/') ? ['/export/', exportRoot] : ['/', path.join(root, 'public')];
+      const [prefix, folder] = pathname.startsWith('/export/') ? ['/export/', exportRoot] : pathname.startsWith('/assets/') ? ['/assets/', FIXTURE_ASSET_DIR] : ['/', path.join(root, 'public')];
       const file = path.join(folder, path.normalize(pathname.slice(prefix.length)));
       if (!file.startsWith(folder + path.sep)) throw new Error('Outside served folder');
       const body = await readFile(file);
@@ -157,6 +171,11 @@ const defaultLanes = Math.max(1, Math.min(4, Math.floor(os.availableParallelism(
 export async function openGoldenSession({ lanes = defaultLanes } = {}) {
   const { default: puppeteer } = await import('puppeteer-core');
   const work = await mkdtemp(path.join(os.tmpdir(), 'floc-golden-'));
+  // Exports read workspace assets from the data folder; this session's is temporary.
+  const assets = path.join(work, 'data/assets'), dataDir = process.env.FLOC_DATA_DIR;
+  await mkdir(assets, { recursive: true });
+  for (const name of await readdir(FIXTURE_ASSET_DIR)) await copyFile(path.join(FIXTURE_ASSET_DIR, name), path.join(assets, name));
+  process.env.FLOC_DATA_DIR = path.dirname(assets);
   const bundle = await build({ stdin: { resolveDir: path.join(root, 'src'), contents: `
     import { createScene, stageMarkup } from './scene.js';
     import { FORMATS } from './project.js';
@@ -255,6 +274,7 @@ export async function openGoldenSession({ lanes = defaultLanes } = {}) {
       }));
       server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
       await rm(work, { recursive: true, force: true });
+      if (dataDir === undefined) delete process.env.FLOC_DATA_DIR; else process.env.FLOC_DATA_DIR = dataDir;
     }
   };
 }
@@ -285,16 +305,22 @@ export async function checkFrame(session, fixture, frame, baseline) {
   return { failures, summary: `${name}: ${notes.join('; ')}` };
 }
 
-async function update() {
+// Recaptures every fixture, or only the named ones (keeping the other baselines).
+async function update(only = []) {
   if (!executablePath) throw new Error('Chrome or Edge is required to capture golden frames.');
+  const unknown = only.filter(id => !FIXTURES.some(fixture => fixture.id === id));
+  if (unknown.length) throw new Error(`Unknown golden fixtures: ${unknown.join(', ')}`);
+  const fixtures = only.length ? FIXTURES.filter(fixture => only.includes(fixture.id)) : FIXTURES;
+  const previous = only.length ? JSON.parse(await readFile(path.join(GOLDEN_DIR, 'manifest.json'), 'utf8')) : null;
   const started = Date.now();
   const session = await openGoldenSession();
   const manifest = { captureWidth: CAPTURE_WIDTH, browser: await session.browserVersion(), baselineTolerance: BASELINE_TOLERANCE, parityTolerance: PARITY_TOLERANCE, fixtures: {} };
   const failures = [], outputs = new Map();
   await rm(QA_DIR, { recursive: true, force: true });
   try {
-    const captures = await session.captureAll(FIXTURES);
-    for (const fixture of FIXTURES) {
+    if (previous && previous.browser !== manifest.browser) throw new Error(`Baselines were captured with ${previous.browser}; update every fixture with ${manifest.browser}.`);
+    const captures = await session.captureAll(fixtures);
+    for (const fixture of fixtures) {
       for (const frame of captures[fixture.id]) {
         const result = await checkFrame(session, fixture, frame);
         console.log(result.summary);
@@ -306,7 +332,8 @@ async function update() {
   } finally { await session.close(); }
   // Baselines double as parity references; never store a mismatched preview/export pair.
   if (failures.length) throw new Error(`Preview/export parity failed; baselines were not updated:\n${failures.join('\n')}`);
-  await rm(GOLDEN_DIR, { recursive: true, force: true });
+  if (previous) manifest.fixtures = Object.fromEntries(FIXTURES.filter(({ id }) => manifest.fixtures[id] || previous.fixtures[id]).map(({ id }) => [id, manifest.fixtures[id] ?? previous.fixtures[id]]));
+  else await rm(GOLDEN_DIR, { recursive: true, force: true });
   await mkdir(GOLDEN_DIR, { recursive: true });
   for (const [name, buffer] of outputs) await writeFile(path.join(GOLDEN_DIR, name), buffer);
   await writeFile(path.join(GOLDEN_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -314,6 +341,7 @@ async function update() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (!process.argv.includes('--update')) { console.error('Usage: node scripts/golden-frames.mjs --update'); process.exit(2); }
-  await update();
+  const flag = process.argv.indexOf('--update');
+  if (flag < 0) { console.error('Usage: node scripts/golden-frames.mjs --update [fixture-id ...]'); process.exit(2); }
+  await update(process.argv.slice(flag + 1));
 }
