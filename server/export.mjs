@@ -77,9 +77,6 @@ export async function prepareComposition(input, folder, settings = {}, signal, f
     item.src = dest;
   }
   await copyFile(path.join(root, '.data/engine/scene.js'), path.join(folder, 'scene.js'));
-  const notices = path.join(folder, 'licenses/paper-shaders');
-  await mkdir(notices, { recursive: true });
-  for (const name of ['LICENSE', 'NOTICE']) await copyFile(path.join(root, 'public/licenses/paper-shaders', name), path.join(notices, name));
   await copyFile(path.join(root, 'node_modules/gsap/dist/gsap.min.js'), path.join(folder, 'gsap.min.js'));
   for (const font of FONT_FILES) await copyFile(path.join(root, '.data/engine', font.file), path.join(folder, font.file));
   if (faces.length) await mkdir(path.join(folder, 'fonts'), { recursive: true });

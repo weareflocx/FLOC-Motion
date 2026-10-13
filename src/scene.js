@@ -3,10 +3,9 @@ import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, cardFram
 import { carouselCard, motionVariant, elasticState, cardMetrics, ringRadius } from './carousel-motion.js';
 import * as THREE from 'three';
 import { fontFamily, fontStack } from './fonts.js';
-import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages } from './project.js';
+import { FORMATS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages } from './project.js';
 import { constrainPlacement, fitsSafeArea, rotatedTextBounds, safeArea } from './layout.js';
-import { createCarouselEffect } from './carousel-effects.js';
-import { evaluateChoreography } from './choreography.js';
+import { animatedFields, evaluateChoreography } from './choreography.js';
 import { drawProceduralBackground, watchProceduralBackgrounds } from './backgrounds.js';
 import { textTypography, textRevealClip } from './text-style.js';
 import { createEffects } from './effects.js';
@@ -42,9 +41,11 @@ export function stageMarkup(p, path = src => src) {
     return '';
   }).join('');
 }
-const vertex = `varying vec2 vUv; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uTorsion; uniform float uElastic; uniform float uSide; uniform float uCardSize;
-void main(){vUv=uv;vec3 p=position; if(uEffect==1.0){p.z+=sin(p.x*5.0+uTime*2.0)*cos(p.y*3.0-uTime)*uStrength*0.15;}if(uEffect==5.0){float edge=pow(clamp(0.5+(uv.x-0.5)*uSide,0.0,1.0),3.0);p.x+=uSide*uElastic*uCardSize*3.5*edge;p.y*=1.0+uElastic*3.0*edge;}float a=p.y*uTorsion; p.xz=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`;
-const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uTime; uniform float uStrength; uniform float uEffect; uniform float uDepth; uniform vec3 uTint; uniform vec2 uCrop; uniform vec4 uClip; uniform vec2 uWindow; uniform vec2 uCanvasPixels; uniform vec4 uPush; uniform float uImageAspect; uniform float uOpacity; uniform float uCorner; uniform float uAspect; uniform float uShape; uniform float uElastic; uniform float uSide;
+// Edge stretch needs denser geometry, and its wings leave the CPU-side bounds.
+const stretched = layer => layer.stretch > 0 || animatedFields(layer).includes('stretch');
+const vertex = `varying vec2 vUv; uniform float uTorsion; uniform float uElastic; uniform float uSide; uniform float uCardSize;
+void main(){vUv=uv;vec3 p=position; if(uElastic>0.0){float edge=pow(clamp(0.5+(uv.x-0.5)*uSide,0.0,1.0),3.0);p.x+=uSide*uElastic*uCardSize*3.5*edge;p.y*=1.0+uElastic*3.0*edge;}float a=p.y*uTorsion; p.xz=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`;
+const fragment = `varying vec2 vUv; uniform sampler2D uMap; uniform float uDepth; uniform vec2 uCrop; uniform vec4 uClip; uniform vec2 uWindow; uniform vec2 uCanvasPixels; uniform vec4 uPush; uniform float uImageAspect; uniform float uOpacity; uniform float uCorner; uniform float uAspect; uniform float uShape; uniform float uElastic; uniform float uSide;
 void main(){
 if(vUv.x<uClip.x||vUv.y<uClip.y||vUv.x>uClip.z||vUv.y>uClip.w)discard;
 float mask=1.0;
@@ -69,12 +70,9 @@ if(uWindow.x>0.0){
   float aspect=uAspect*zone.x/zone.y;
   crop=uImageAspect>aspect ? vec2(aspect/uImageAspect,1.0) : vec2(1.0,uImageAspect/aspect);
 }
-vec2 uv=(imageUv-0.5)*crop/uPush.z+0.5; if(uEffect==1.0)uv.x+=sin(uv.y*14.0+uTime*2.0)*uStrength*0.015;
-if(uEffect==5.0){float edge=pow(clamp(0.5+(vUv.x-0.5)*uSide,0.0,1.0),2.0);float anchor=uSide>0.0?0.12:0.88;uv.x=mix(uv.x,(anchor-0.5)*uCrop.x+0.5,uElastic*edge*0.85);}
-vec4 c=texture2D(uMap,uv);float lum=dot(c.rgb,vec3(0.2126,0.7152,0.0722));
-if(uEffect==2.0)c.rgb=mix(c.rgb,vec3(lum),uStrength);
-if(uEffect==3.0)c.rgb=mix(c.rgb,mix(vec3(0.02),uTint,lum),uStrength);
-if(uEffect==4.0){float s=uStrength*0.018*(0.5+0.5*sin(uTime*1.4));c.r=texture2D(uMap,uv+vec2(s,0.0)).r;c.b=texture2D(uMap,uv-vec2(s,0.0)).b;}
+vec2 uv=(imageUv-0.5)*crop/uPush.z+0.5;
+if(uElastic>0.0){float edge=pow(clamp(0.5+(vUv.x-0.5)*uSide,0.0,1.0),2.0);float anchor=uSide>0.0?0.12:0.88;uv.x=mix(uv.x,(anchor-0.5)*uCrop.x+0.5,uElastic*edge*0.85);}
+vec4 c=texture2D(uMap,uv);
 if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacity*mask);
 #include <tonemapping_fragment>
 #include <colorspace_fragment>
@@ -121,8 +119,6 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   }
   const group = new THREE.Group(); scene.add(group);
   let disposed = false;
-  let carouselEffect = null;
-  let effectMix = null;
   let orientation = null;
   // Editor-only previews: `{ id, ...fields }` for one layer or `{ layers: { [id]: fields } }` for a group move.
   let placement = null;
@@ -160,7 +156,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   // Last animated typography and color written to each text node.
   const textStyles = new Map();
   const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, transparent: true,
-    uniforms: { ...cardUniforms(null, 1), uCardSize: { value: layer.size }, uShape: { value: 0 }, uTime: { value: 0 }, uStrength: { value: 0 }, uEffect: { value: 0 }, uTint: { value: new THREE.Color() }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) } } });
+    uniforms: { ...cardUniforms(null, 1), uCardSize: { value: layer.size }, uShape: { value: 0 }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) } } });
   // Media aspect (width / height) of each card, known once its media has loaded.
   let mediaAspects = [];
   let sizesKey = '', sizes = null;
@@ -241,7 +237,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   // Cards of equal size share a geometry; reshape them when a size changes.
   // Returns the per-card sizes.
   function shapeCards(sampled) {
-    const segments = layer.shader === 'elastic' ? 64 : 32;
+    const segments = stretched(layer) ? 64 : 32;
     const cards = cardSizes(sampled);
     const radius = ringRadius(sampled, sampled.cardCount || p.images.length, cards);
     const key = JSON.stringify([sizesKey, radius, sampled.curve, motionVariant(sampled), segments]);
@@ -275,9 +271,6 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     camera.updateProjectionMatrix();
     updateCamera();
     const uniforms = material.uniforms;
-    uniforms.uStrength.value = layer.intensity;
-    uniforms.uEffect.value = SHADERS.find(s => s.id === layer.shader).mode;
-    uniforms.uTint.value.set(layer.tint);
     uniforms.uShape.value = layer.cardShape === 'squircle' ? 1 : 0;
     const side = layer.backface === 'hide' ? THREE.FrontSide : layer.frontface === 'hide' ? THREE.BackSide : THREE.DoubleSide;
     if (material.side !== side) { material.side = side; material.needsUpdate = true; }
@@ -291,18 +284,8 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       card.uAspect.value = windowAspect || cardRatio;
       card.uCorner.value = layer.cornerRadius / 100;
       // Vertex wings extend beyond the CPU-side geometry bounds.
-      mesh.frustumCulled = layer.shader !== 'elastic';
+      mesh.frustumCulled = !stretched(layer);
     });
-    syncCarouselEffect(layer);
-  }
-  // Reuses the passes unless the Paper effect or the active warps change, or
-  // the Paper mix reaches zero.
-  function syncCarouselEffect(settings) {
-    if (!carouselEffect?.update(settings)) {
-      carouselEffect?.dispose();
-      carouselEffect = createCarouselEffect(renderer, canvas.width, canvas.height, settings);
-    }
-    effectMix = settings.layerEffectIntensity;
   }
   async function cardTexture(src) {
     if (cardMediaKind(src) === 'image') {
@@ -363,7 +346,6 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     disposed = true;
     mediaErrors.forEach(remove => remove());
     context.dispose();
-    carouselEffect?.dispose();
     models.forEach(model => model.dispose());
     mediaNodes.forEach(m => { pauseMedia(m); m.removeAttribute('src'); m.load(); });
     geometries.forEach(geometry => geometry.dispose()); material.dispose();
@@ -377,7 +359,6 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     if (context.lost && renderMode) throw new Error('The graphics context was lost while rendering.');
     placeLayers(time);
     models.forEach(model => model.draw(time, placementFor(model.id) ?? undefined));
-    const local = Math.max(0, time - layer.start);
     const sampled = { ...evaluateChoreography(layer, time), ...orientation };
     const cards = shapeCards(sampled);
     group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
@@ -393,9 +374,6 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     const windowHeight = Math.min(0.72 * sampled.size, 0.96, 0.96 * width / height / sampled.cardAspect);
     const uniforms = material.uniforms;
     uniforms.uWindow.value.set(windowPush ? windowHeight * sampled.cardAspect * height / width : 0, windowPush ? windowHeight : 0);
-    uniforms.uTime.value = local;
-    uniforms.uStrength.value = sampled.intensity;
-    if (sampled.layerEffectIntensity !== effectMix) syncCarouselEffect(sampled);
     material.depthTest = !(planar || shuffle || windowPush);
     material.depthWrite = !(planar || shuffle || windowPush);
     meshes.forEach((mesh, i) => {
@@ -425,8 +403,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
       card.uTorsion.value = state.torsion;
     });
     cardVideos.forEach(({ video, texture }) => { if (video.readyState >= 2) texture.needsUpdate = true; });
-    if (carouselEffect) carouselEffect.render(scene, camera, sampled);
-    else renderer.render(scene, camera);
+    renderer.render(scene, camera);
     p.layers.forEach(l => {
       const alpha = layerAlpha(l, time);
       opacityNodes.forEach(el => { if (el.dataset.flocLayer === l.id && !['AUDIO', 'VIDEO'].includes(el.tagName)) el.style.opacity = alpha; });
@@ -495,7 +472,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     placementBounds.clear();
     textStyles.clear();
   }
-  return { update, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); carouselEffect?.setResolution(w, h); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
+  return { update, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
 }
 
 // The first engine also owns every non-carousel layer; each further carousel

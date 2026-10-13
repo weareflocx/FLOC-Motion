@@ -9,24 +9,24 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 test('overlapping agent mutations serialize against the latest project', async () => {
   let project = demoProject(); const firstSave = deferred(); let saves = 0; const audits = [];
   const tools = createTools({ get: () => project, set: next => project = next, save: () => ++saves === 1 ? firstSave.promise : Promise.resolve(), audit: name => audits.push(name) });
-  const shader = tools.find(tool => tool.name === 'floc_set_shader').execute({ shader: 'wave', intensity: .4 });
+  const carousel = tools.find(tool => tool.name === 'floc_set_carousel').execute({ speed: 30 });
   const output = tools.find(tool => tool.name === 'floc_set_output').execute({ duration: 15, fps: 30 });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(saves, 1); firstSave.resolve(); await Promise.all([shader, output]);
-  assert.equal(project.layers.find(layer => layer.type === 'carousel').shader, 'wave');
+  assert.equal(saves, 1); firstSave.resolve(); await Promise.all([carousel, output]);
+  assert.equal(project.layers.find(layer => layer.type === 'carousel').speed, 30);
   assert.equal(project.duration, 15); assert.equal(project.fps, 30); assert.equal(saves, 2);
-  assert.deepEqual(audits, ['floc_set_shader', 'floc_set_output']);
+  assert.deepEqual(audits, ['floc_set_carousel', 'floc_set_output']);
 });
 
 test('failed agent saves retain local state, reject the tool, and do not create an audit entry', async () => {
   let project = demoProject(), fail = true; const audits = [];
   const tools = createTools({ get: () => project, set: next => project = next, save: async () => { if (fail) throw Object.assign(new Error('Sign in again'), { status: 401 }); }, audit: name => audits.push(name) });
-  const shader = tools.find(tool => tool.name === 'floc_set_shader');
-  await assert.rejects(shader.execute({ shader: 'wave' }), /Sign in again/);
-  assert.equal(project.layers.find(layer => layer.type === 'carousel').shader, 'wave');
+  const carousel = tools.find(tool => tool.name === 'floc_set_carousel');
+  await assert.rejects(carousel.execute({ speed: 30 }), /Sign in again/);
+  assert.equal(project.layers.find(layer => layer.type === 'carousel').speed, 30);
   assert.deepEqual(audits, []);
   fail = false; await tools.find(tool => tool.name === 'floc_set_output').execute({ fps: 30 });
-  assert.equal(project.layers.find(layer => layer.type === 'carousel').shader, 'wave'); assert.equal(project.fps, 30);
+  assert.equal(project.layers.find(layer => layer.type === 'carousel').speed, 30); assert.equal(project.fps, 30);
   assert.deepEqual(audits, ['floc_set_output']);
 });
 

@@ -22,7 +22,7 @@ for (const template of items) {
   project.format = 'landscape';
   project.duration = template.defaults?.loopDuration || 6;
   project.layers.forEach(layer => { layer.end = project.duration; layer.visible = ['background', 'carousel'].includes(layer.type); });
-  Object.assign(project.layers[1], presets ? template.carouselPatch : { template: template.id, motionVariant: 'default', cardCount: 6, loopDuration: 6, speed: 18, x: 50, y: 50, tilt: template.id === 'flip' ? 0 : -12, yaw: 0, roll: 0, shader: 'none' });
+  Object.assign(project.layers[1], presets ? template.carouselPatch : { template: template.id, motionVariant: 'default', cardCount: 6, loopDuration: 6, speed: 18, x: 50, y: 50, tilt: template.id === 'flip' ? 0 : -12, yaw: 0, roll: 0, stretch: 0 });
   if (!presets && template.defaults) {
     Object.assign(project.layers[1], template.defaults);
     project.format = 'landscape43';

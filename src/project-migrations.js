@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 7;
+export const CURRENT_PROJECT_VERSION = 8;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -140,8 +140,67 @@ function v6ToV7(project) {
   return project;
 }
 
+// v7 carousels carried a single per-card shader and a single whole-carousel
+// finish beside their effect stack. From v8 both are entries of the one effect
+// stack every layer shares: the card shader first (cards were drawn first), then
+// the finish, then the existing effects. Elastic stretch becomes the `stretch`
+// geometry property. Choreography `intensity` and `layerEffectIntensity` values
+// move to the amount field of the effect they drove. Defaults are the v7
+// validation defaults, frozen here so a v7 file always migrates alike.
+const V7_CARD_DEFAULTS = { shader: 'none', intensity: 0.35, tint: '#0000ff' };
+const V7_FINISH_DEFAULTS = { layerEffect: 'none', layerEffectIntensity: 1, halftoneSize: 0.35, ditheringSize: 0.35, ditheringSteps: 4, glassSize: 0.35, glassDistortion: 0.5 };
+const V7_FIELDS = [...Object.keys(V7_CARD_DEFAULTS), ...Object.keys(V7_FINISH_DEFAULTS)];
+// [effect, choreography field] per card shader. The duotone shader mixed from
+// linear 0.02 (sRGB #282828) to the tint; the chromatic shader pulsed.
+const V7_CARD_SHADERS = {
+  none: [null, null],
+  wave: [v => ({ type: 'wave', enabled: true, amount: v.intensity, size: 0.5, speed: 1 }), 'waveAmount'],
+  mono: [v => ({ type: 'monochrome', enabled: true, amount: v.intensity }), 'monochromeAmount'],
+  duotone: [v => ({ type: 'duotone', enabled: true, amount: v.intensity, shadow: '#282828', highlight: v.tint }), 'duotoneAmount'],
+  chromatic: [v => ({ type: 'chromatic', enabled: true, amount: v.intensity, animated: true }), 'chromaticAmount'],
+  elastic: [null, 'stretch']
+};
+const V7_FINISHES = {
+  none: [null, null],
+  halftone: [v => ({ type: 'halftone', enabled: true, amount: v.layerEffectIntensity, size: v.halftoneSize }), 'halftoneAmount'],
+  dithering: [v => ({ type: 'dithering', enabled: true, amount: v.layerEffectIntensity, size: v.ditheringSize, steps: v.ditheringSteps }), 'ditheringAmount'],
+  'fluted-glass': [v => ({ type: 'fluted-glass', enabled: true, amount: v.layerEffectIntensity, size: v.glassSize, distortion: v.glassDistortion }), 'glassAmount']
+};
+const v7Number = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
+function validateV7Effects(v) {
+  if (!Object.hasOwn(V7_CARD_SHADERS, v.shader) || !Object.hasOwn(V7_FINISHES, v.layerEffect) || !/^#[0-9a-f]{6}$/i.test(v.tint)
+    || !v7Number(v.intensity, 0, 1) || !v7Number(v.layerEffectIntensity, 0, 1) || !v7Number(v.halftoneSize, 0, 1)
+    || !v7Number(v.ditheringSize, 0, 1) || !Number.isInteger(v.ditheringSteps) || !v7Number(v.ditheringSteps, 1, 7)
+    || !v7Number(v.glassSize, 0, 1) || !v7Number(v.glassDistortion, 0, 1)) fail('Invalid v7 carousel effect settings.');
+}
+function v7ToV8(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'carousel') continue;
+    const v = { ...V7_CARD_DEFAULTS, ...V7_FINISH_DEFAULTS };
+    for (const field of V7_FIELDS) if (layer[field] !== undefined) v[field] = layer[field];
+    validateV7Effects(v);
+    const [card, cardField] = V7_CARD_SHADERS[v.shader];
+    const [finish, finishField] = V7_FINISHES[v.layerEffect];
+    const added = [card?.(v), finish?.(v)].filter(Boolean);
+    if (layer.effects === undefined) layer.effects = [];
+    if (added.length) {
+      if (!Array.isArray(layer.effects)) fail('Invalid carousel effects.');
+      layer.effects = [...added, ...layer.effects];
+    }
+    if (v.shader === 'elastic') layer.stretch = v.intensity;
+    for (const state of Array.isArray(layer.choreography) ? layer.choreography : []) {
+      if (!record(state) || !record(state.values)) continue;
+      const { values } = state;
+      if (Object.hasOwn(values, 'intensity')) { if (cardField) values[cardField] = values.intensity; delete values.intensity; }
+      if (Object.hasOwn(values, 'layerEffectIntensity')) { if (finishField) values[finishField] = values.layerEffectIntensity; delete values.layerEffectIntensity; }
+    }
+    for (const field of V7_FIELDS) delete layer[field];
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

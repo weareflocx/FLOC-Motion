@@ -11,7 +11,7 @@ primary_region = 'ams'
 
 [env]
   PORT = '8080'
-  FLOC_PUBLIC_ORIGIN = 'https://floc-motion.fly.dev'
+  FLOC_PUBLIC_ORIGIN = 'https://motion.wearefloc.com,https://floc-motion.fly.dev'
   FLOC_DATA_DIR = '/data/floc-motion'
 
 [[mounts]]

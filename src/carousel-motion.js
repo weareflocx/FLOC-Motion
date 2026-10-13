@@ -252,7 +252,7 @@ export function elasticState(layer, card) {
   const weight = influence * influence * (3 - 2 * influence);
   const facing = Math.cos(card.rotation[1]);
   return {
-    strength: layer.shader === 'elastic' ? layer.intensity * weight * Math.abs(facing) : 0,
+    strength: (layer.stretch ?? 0) * weight * Math.abs(facing),
     side: Math.sign(card.position[0]) * (facing < 0 ? -1 : 1)
   };
 }

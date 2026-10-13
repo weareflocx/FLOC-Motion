@@ -1,4 +1,5 @@
 import { BRAND } from './brand.js';
+import { MAX_EFFECTS } from './effects.js';
 import { PROJECT_LIMITS, patchLayer, validateProject } from './project.js';
 
 const fail = message => { throw new Error(message); };
@@ -12,7 +13,7 @@ const VISUAL_FIELDS = Object.freeze({
   logo: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   media: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   model: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size', 'tilt', 'yaw', 'roll']),
-  carousel: new Set([...COMMON_VISUAL_FIELDS, 'shader', 'intensity', 'tint', 'layerEffect', 'layerEffectIntensity', 'halftoneSize', 'ditheringSize', 'ditheringSteps', 'glassSize', 'glassDistortion', 'perspective', 'yaw', 'transitionTurn', 'cornerRadius', 'cardShape', 'frontface', 'backface', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'fade', 'tilt', 'roll', 'size', 'gap', 'curve', 'x', 'y'])
+  carousel: new Set([...COMMON_VISUAL_FIELDS, 'effects', 'stretch', 'perspective', 'yaw', 'transitionTurn', 'cornerRadius', 'cardShape', 'frontface', 'backface', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'fade', 'tilt', 'roll', 'size', 'gap', 'curve', 'x', 'y'])
 });
 
 function canonical(value) {
@@ -87,6 +88,11 @@ const shifted = (value, delta, min, max) => {
   return preferred === value ? clamp(value - delta, min, max) : preferred;
 };
 
+// Each direction's look leads the carousel stack; the layer keeps its other
+// effects (blur, noise, optical warp) after it.
+const LOOK_EFFECTS = new Set(['monochrome', 'duotone', 'chromatic', 'wave', 'halftone', 'dithering', 'fluted-glass']);
+const withLook = (layer, look) => [...look, ...(layer.effects ?? []).filter(effect => !LOOK_EFFECTS.has(effect.type))].slice(0, MAX_EFFECTS);
+
 function curatedPatch(layer, direction) {
   if (layer.type === 'background') return direction === 'Editorial'
     ? { mode: 'procedural', color: BRAND.colors.black, pattern: 'grid', patternColor: BRAND.colors.white, patternScale: 1.4, patternIntensity: 0.22, patternSpeed: 0.08, patternSeed: (layer.patternSeed + 11) % 65536 }
@@ -99,10 +105,10 @@ function curatedPatch(layer, direction) {
       ? { size: shifted(layer.size, 8, 12, 180), font: 'druk-wide', weight: 900, lineHeight: 0.82, letterSpacing: -0.055, textAlign: 'left', reveal: 'right', revealDuration: 0.35 }
       : { size: shifted(layer.size, -8, 12, 180), font: 'geist-mono', weight: 700, lineHeight: 1.18, letterSpacing: 0.045, textAlign: 'center', reveal: 'left', revealDuration: 0.8 };
   if (layer.type === 'carousel') return direction === 'Editorial'
-    ? { size: shifted(layer.size, -0.08, 0.5, 2.5), shader: 'mono', intensity: 0.2, tint: BRAND.colors.white, layerEffect: 'none', cornerRadius: 3, gap: 0.2 }
+    ? { size: shifted(layer.size, -0.08, 0.5, 2.5), effects: withLook(layer, [{ type: 'monochrome', enabled: true, amount: 0.2 }]), cornerRadius: 3, gap: 0.2 }
     : direction === 'Bold'
-      ? { size: shifted(layer.size, 0.14, 0.5, 2.5), shader: 'duotone', intensity: 0.76, tint: BRAND.colors.red, layerEffect: 'halftone', layerEffectIntensity: 0.55, halftoneSize: 0.42, cornerRadius: 0, gap: 0.14 }
-      : { size: shifted(layer.size, -0.16, 0.5, 2.5), shader: 'chromatic', intensity: 0.72, tint: BRAND.colors.blue, layerEffect: 'fluted-glass', layerEffectIntensity: 0.64, glassSize: 0.46, glassDistortion: 0.7, cornerRadius: 18, gap: 0.36 };
+      ? { size: shifted(layer.size, 0.14, 0.5, 2.5), effects: withLook(layer, [{ type: 'duotone', enabled: true, amount: 0.76, shadow: '#282828', highlight: BRAND.colors.red }, { type: 'halftone', enabled: true, amount: 0.55, size: 0.42 }]), cornerRadius: 0, gap: 0.14 }
+      : { size: shifted(layer.size, -0.16, 0.5, 2.5), effects: withLook(layer, [{ type: 'chromatic', enabled: true, amount: 0.72, animated: true }, { type: 'fluted-glass', enabled: true, amount: 0.64, size: 0.46, distortion: 0.7 }]), cornerRadius: 18, gap: 0.36 };
   if (layer.type === 'model') return direction === 'Editorial'
     ? { size: shifted(layer.size, -4, 2, 100), yaw: 0, roll: 0 }
     : direction === 'Bold'

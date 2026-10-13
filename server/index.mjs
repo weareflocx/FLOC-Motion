@@ -3,7 +3,8 @@ import { mkdir, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { root, runtimeConfig, requestOrigin } from './runtime-config.mjs';
-import { TEMPLATES, SHADERS, CAROUSEL_EFFECTS } from '../src/project.js';
+import { TEMPLATES } from '../src/project.js';
+import { EFFECTS } from '../src/effects.js';
 import { catalogSummary } from '../src/catalog.js';
 import { startExport, cancelExport, recoverInterruptedJobs, listJobs, jobs, run, onExportEnded } from './export.mjs';
 import { isTerminalJobState } from '../src/export-jobs.js';
@@ -129,7 +130,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       if (!result.dryRun) audit.record({ actorId: user.id, action: 'storage.cleanup', details: { removedFiles: result.removedFiles, removedBytes: result.removedBytes } });
       return json(res, result);
     }
-    if (route === '/api/catalog') return json(res, { templates: TEMPLATES, shaders: SHADERS, carouselEffects: CAROUSEL_EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
+    if (route === '/api/catalog') return json(res, { templates: TEMPLATES, effects: EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);

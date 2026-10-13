@@ -38,7 +38,7 @@ test('text, title, assets, carousel cards, structure, timing and motion are shar
   p = validateProject({ ...p, name: 'Shared title', images: [image] });
   p = patchLayer(p, 'headline', { text: 'Updated in portrait', color: '#112233', start: 1, end: 10, fadeIn: .2, opacity: .6 });
   p = patchLayer(p, 'logo', { src: '/demo/poster-2.svg', name: 'Shared asset' });
-  p = patchLayer(p, 'carousel', { images: [image], template: 'horizontal', shader: 'wave', speed: 30 });
+  p = patchLayer(p, 'carousel', { images: [image], template: 'horizontal', stretch: 0.4, speed: 30 });
   p = patchLayer(p, 'background', { color: '#123456' });
   p = patchLayer(p, 'music', { volume: .2, offset: 1 });
   p = patchLayer(p, 'logo', { locked: true, visible: false });
@@ -51,7 +51,7 @@ test('text, title, assets, carousel cards, structure, timing and motion are shar
     assert.deepEqual([layer(p, 'headline').start, layer(p, 'headline').end, layer(p, 'headline').fadeIn, layer(p, 'headline').opacity], [1, 10, .2, .6]);
     assert.deepEqual([layer(p, 'logo').src, layer(p, 'logo').name, layer(p, 'logo').locked, layer(p, 'logo').visible], ['/demo/poster-2.svg', 'Shared asset', true, false]);
     assert.deepEqual(layer(p, 'carousel').images, [image]);
-    assert.deepEqual([layer(p, 'carousel').template, layer(p, 'carousel').shader, layer(p, 'carousel').speed], ['horizontal', 'wave', 30]);
+    assert.deepEqual([layer(p, 'carousel').template, layer(p, 'carousel').stretch, layer(p, 'carousel').speed], ['horizontal', 0.4, 30]);
     assert.equal(layer(p, 'background').color, '#123456');
     assert.equal(layer(p, 'music').volume, .2);
   }

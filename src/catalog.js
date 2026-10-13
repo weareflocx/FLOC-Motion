@@ -1,5 +1,4 @@
 import sourceCatalog from './catalog/preset-catalog.json' with { type: 'json' };
-import { BRAND } from './brand.js';
 import { DEFAULT_MOTION, motionBaseline } from './motion-timing.js';
 import { legacyCurve } from './easing.js';
 
@@ -97,9 +96,7 @@ function derivePatch(entry) {
     curve: deriveCurve(entry),
     x: clamp(50 + cameraOffsetX, 10, 90),
     y: clamp(54 + cameraOffsetY, 10, 90),
-    shader: 'none',
-    intensity: 0.35,
-    tint: BRAND.colors.blue
+    stretch: 0
   };
   const action = settingsFor(entry).find(setting => setting.key === 'animation.Motion.Action' && setting.disabled !== true);
   const source = String(readCatalogSetting(entry, 'animation.Curves.Default', 'Original')).toLowerCase();

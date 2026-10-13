@@ -104,15 +104,15 @@ test('new state values are validated by type and bounds', () => {
   const p = validateProject(demoProject());
   const bad = [
     ['headline', { color: 'white' }, /hex color/], ['headline', { color: '#fff' }, /hex color/], ['headline', { letterSpacing: 0.6 }, /State letterSpacing/],
-    ['headline', { lineHeight: 0.2 }, /State lineHeight/], ['headline', { blurAmount: 49 }, /State blurAmount/], ['headline', { intensity: 0.5 }, /Invalid choreography values/],
-    ['carousel', { intensity: 1.5 }, /State intensity/], ['carousel', { layerEffectIntensity: -0.1 }, /State layerEffectIntensity/], ['carousel', { color: '#ffffff' }, /Invalid choreography values/],
+    ['headline', { lineHeight: 0.2 }, /State lineHeight/], ['headline', { blurAmount: 49 }, /State blurAmount/], ['headline', { stretch: 0.5 }, /Invalid choreography values/],
+    ['carousel', { stretch: 1.5 }, /State stretch/], ['carousel', { halftoneAmount: -0.1 }, /State halftoneAmount/], ['carousel', { intensity: 0.5 }, /Invalid choreography values/], ['carousel', { color: '#ffffff' }, /Invalid choreography values/],
     ['logo', { noiseOpacity: 2 }, /State noiseOpacity/], ['logo', { letterSpacing: 0 }, /Invalid choreography values/]
   ];
   for (const [id, values, message] of bad) {
     const base = captureState(layer(p, id), 0, p.fps, {}, 'first');
     assert.throws(() => patchLayer(p, id, { choreography: [{ ...base[0], values: { ...base[0].values, ...values } }] }), message, id);
   }
-  const carousel = captureState(layer(p, 'carousel'), 0, p.fps, { intensity: 1, layerEffectIntensity: 0, warpAmount: 0.4, monochromeAmount: 1 }, 'first');
+  const carousel = captureState(layer(p, 'carousel'), 0, p.fps, { stretch: 1, warpAmount: 0.4, monochromeAmount: 1, duotoneAmount: 0.2, chromaticAmount: 0.3, waveAmount: 0.4, halftoneAmount: 0.5, ditheringAmount: 0.6, glassAmount: 0.7 }, 'first');
   assert.doesNotThrow(() => patchLayer(p, 'carousel', { choreography: carousel }));
 });
 
@@ -125,8 +125,8 @@ test('Save state captures every applicable property; pose edits capture only ani
   assert.deepEqual(full.values, { x: 6, y: 6, opacity: 1, roll: 0, size: 48, color: '#ffffff', letterSpacing: -0.035, lineHeight: 0.98, noiseOpacity: 0.15 });
   assert.deepEqual(capturedProperties(full), ['Position', 'Size', 'Opacity', 'Rotation', 'Color', 'Letter spacing', 'Line height', 'Noise']);
   const carousel = captureState(layer(p, 'carousel'), 0, p.fps, {}, 'c', { all: true })[0];
-  assert.equal(carousel.values.intensity, 0.35);
-  assert.equal(carousel.values.layerEffectIntensity, 1);
+  assert.equal(carousel.values.stretch, 0);
+  assert.equal(Object.hasOwn(carousel.values, 'halftoneAmount'), false);
   assert.equal(Object.hasOwn(carousel.values, 'blurAmount'), false);
   // Once a state holds color, later captures carry the evaluated color too.
   p = patchLayer(p, 'headline', { choreography: [full] });
@@ -191,8 +191,8 @@ test('animated values update the scene in place; animating an effect amount refr
   const state = layer(base, 'headline').choreography[0];
   const colored = patchLayer(base, 'headline', { choreography: [{ ...state, values: { ...state.values, color: '#ff0000', letterSpacing: 0.2 } }] });
   assert.deepEqual(sceneUpdatePlan(base, colored), { effects: false });
-  const shader = patchLayer(base, 'carousel', { choreography: captureState(layer(base, 'carousel'), 0, base.fps, { intensity: 1, layerEffectIntensity: 0.5 }, 'c') });
-  assert.deepEqual(sceneUpdatePlan(base, shader), { effects: false });
+  const stretched = patchLayer(base, 'carousel', { choreography: captureState(layer(base, 'carousel'), 0, base.fps, { stretch: 1 }, 'c') });
+  assert.deepEqual(sceneUpdatePlan(base, stretched), { effects: false });
   const fading = patchLayer(base, 'headline', { choreography: [{ ...state, values: { ...state.values, noiseOpacity: 0.6 } }] });
   assert.deepEqual(sceneUpdatePlan(base, fading), { effects: true });
   const refaded = patchLayer(fading, 'headline', { choreography: [{ ...state, values: { ...state.values, noiseOpacity: 0.3 } }] });

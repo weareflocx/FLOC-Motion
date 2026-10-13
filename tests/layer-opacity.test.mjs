@@ -59,8 +59,7 @@ const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace(
 
 test('the inspector edits the selected visual layer opacity, respects locks and excludes audio', () => {
   const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    useState: () => [false, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] }, PROJECT_LIMITS,
-    SHADERS: [] };
+    useState: () => [false, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] }, PROJECT_LIMITS };
   for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'MusicNotes', 'UploadSimple', 'PlacementMap', 'FontControls', 'TypographyControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls']) context[name] = function() {};
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.render = InspectorPanel;', context);

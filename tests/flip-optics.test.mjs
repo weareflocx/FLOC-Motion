@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {carouselCard,elasticState} from '../src/carousel-motion.js';
 import {demoProject,patchLayer,validateProject} from '../src/project.js';
 import {createTools} from '../src/webmcp.js';
-const layer=()=>({...demoProject().layers[1],template:'flip',loopDuration:6,speed:30,shader:'elastic',intensity:0.7,start:0});
+const layer=()=>({...demoProject().layers[1],template:'flip',loopDuration:6,speed:30,stretch:0.7,start:0});
 test('step holds then turns into a frontal center, with reverse and repeatable seeks',()=>{
  const l=layer();
  assert.deepEqual(carouselCard(l,1,6,0.1),carouselCard(l,1,6,0.5));
@@ -21,8 +21,7 @@ test('transition turn and elastic optics can be disabled independently',()=>{
  const flat=carouselCard({...l,transitionTurn:0},1,6,0.75);
  assert.equal(flat.rotation[1],0);assert.deepEqual(flat.position,moving.position);
  assert(elasticState(l,flat).strength>0);
- assert.equal(elasticState({...l,intensity:0},flat).strength,0);
- assert.equal(elasticState({...l,shader:'none'},flat).strength,0);
+ assert.equal(elasticState({...l,stretch:0},flat).strength,0);
  assert.equal(elasticState(l,carouselCard(l,0,6,0)).strength,0);
  const left=elasticState(l,{position:[-2,0,0],rotation:[0,0,0]});
  const right=elasticState(l,{position:[2,0,0],rotation:[0,0,0]});
@@ -35,6 +34,6 @@ test('old projects migrate turn control; agents validate independent optics and 
  let p=demoProject();const api={get:()=>p,set:n=>p=n,save:async()=>{},audit:()=>{}};
  const tools=createTools(api);
  await tools.find(t=>t.name==='floc_set_carousel').execute({template:'flip',transitionTurn:180,loopDuration:6});
- await tools.find(t=>t.name==='floc_set_shader').execute({shader:'elastic',intensity:0.5});
- assert.equal(p.layers[1].transitionTurn,180);assert.equal(p.layers[1].shader,'elastic');
+ await tools.find(t=>t.name==='floc_update_layer').execute({id:'carousel',patch:{stretch:0.5}});
+ assert.equal(p.layers[1].transitionTurn,180);assert.equal(p.layers[1].stretch,0.5);
 });

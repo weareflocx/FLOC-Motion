@@ -19,3 +19,12 @@ test('invalid public origin and ports fail explicitly', () => {
   for (const PORT of ['abc', '-1', '65536', '1.2']) assert.throws(() => runtimeConfig({ PORT }), /PORT/);
   for (const origin of ['ftp://floc-motion.fly.dev', 'https://user:pass@floc-motion.fly.dev', 'https://floc-motion.fly.dev/app', 'https://floc-motion.fly.dev?x=1']) assert.throws(() => runtimeConfig({ FLOC_PUBLIC_ORIGIN: origin }));
 });
+test('custom and Fly domains each use their own exact origin', () => {
+  const c = runtimeConfig({ FLOC_PUBLIC_ORIGIN: 'https://motion.wearefloc.com, https://floc-motion.fly.dev' });
+  assert.equal(c.publicOrigin, 'https://motion.wearefloc.com');
+  assert.equal(requestOrigin('motion.wearefloc.com', c), 'https://motion.wearefloc.com');
+  assert.equal(requestOrigin('floc-motion.fly.dev', c), 'https://floc-motion.fly.dev');
+  for (const host of ['motion.wearefloc.com.evil.test', 'wearefloc.com', 'motion.wearefloc.com:8080', 'user@motion.wearefloc.com', 'motion.wearefloc.com/path']) assert.equal(requestOrigin(host, c), null);
+  assert.throws(() => runtimeConfig({ FLOC_PUBLIC_ORIGIN: 'https://motion.wearefloc.com,http://motion.wearefloc.com' }), /one protocol per host/);
+  assert.throws(() => runtimeConfig({ FLOC_PUBLIC_ORIGIN: 'https://motion.wearefloc.com,https://floc-motion.fly.dev/path' }));
+});
