@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
-import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawProceduralBackground } from '../../backgrounds.js';
+import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview } from '../../backgrounds.js';
 import { Color, Field, NumberField, Range } from '../controls.jsx';
 import './visual-language.css';
 
@@ -9,8 +9,8 @@ const SOURCES = [['color', 'Solid'], ['image', 'Image'], ['video', 'Video'], ['p
 function BackgroundPreview({ layer, pattern }) {
   const canvas = useRef(null);
   useEffect(() => {
-    drawProceduralBackground(canvas.current, { ...DEFAULT_PROCEDURAL_BACKGROUND, ...layer, pattern: pattern.id }, 1);
-  }, [layer.color, layer.patternColor, layer.patternScale, layer.patternIntensity, layer.patternSpeed, layer.patternSeed, pattern.id]);
+    drawBackgroundPreview(canvas.current, { ...DEFAULT_PROCEDURAL_BACKGROUND, ...layer, pattern: pattern.id });
+  }, [layer.color, layer.patternColor, layer.patternScale, layer.patternIntensity, layer.patternSpeed, layer.patternSeed, layer.patternVignette, layer.patternGrain, pattern.id]);
   return <canvas ref={canvas} width={144} height={81} aria-hidden="true"/>;
 }
 
@@ -36,6 +36,8 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
       <Range label="Pattern intensity" value={settings.patternIntensity} min={0} max={1} step={0.05} onChange={patternIntensity => onPatch(layer.id, { patternIntensity })}/>
       <Range label="Pattern speed" value={settings.patternSpeed} min={-2} max={2} step={0.05} onChange={patternSpeed => onPatch(layer.id, { patternSpeed })}/>
       <NumberField label="Pattern seed" value={settings.patternSeed} min={0} max={65535} onChange={patternSeed => { if (Number.isInteger(patternSeed)) onPatch(layer.id, { patternSeed }); }}/>
+      <Range label="Vignette" value={settings.patternVignette} min={0} max={1} step={0.05} onChange={patternVignette => onPatch(layer.id, { patternVignette })}/>
+      <Range label="Grain overlay" value={settings.patternGrain} min={0} max={1} step={0.05} onChange={patternGrain => onPatch(layer.id, { patternGrain })}/>
     </>}
     {['image', 'video'].includes(layer.mode) && <>
       <button type="button" className="outline-button" disabled={uploading} onClick={() => onPick(layer.id, layer.mode === 'video' ? 'video/mp4,video/webm' : 'image/png,image/jpeg,image/webp,image/avif')}><UploadSimple size={15}/>{layer.src ? 'Replace media' : `Upload ${layer.mode}`}</button>

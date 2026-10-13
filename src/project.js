@@ -218,7 +218,7 @@ export function validateProject(input) {
       if (!['color', 'image', 'video', 'procedural'].includes(l.mode) || !['cover', 'contain'].includes(l.fit)) fail('Unknown background setting.');
       for (const [field, value] of Object.entries(DEFAULT_PROCEDURAL_BACKGROUND)) if (l[field] === undefined) l[field] = value;
       if (!PROCEDURAL_BACKGROUNDS.some(({ id }) => id === l.pattern)) fail('Unknown background pattern.');
-      color(l.patternColor); finite(l.patternScale, 0.25, 4, 'Pattern scale'); finite(l.patternIntensity, 0, 1, 'Pattern intensity'); finite(l.patternSpeed, -2, 2, 'Pattern speed');
+      color(l.patternColor); finite(l.patternScale, 0.25, 4, 'Pattern scale'); finite(l.patternIntensity, 0, 1, 'Pattern intensity'); finite(l.patternSpeed, -2, 2, 'Pattern speed'); finite(l.patternVignette, 0, 1, 'Vignette'); finite(l.patternGrain, 0, 1, 'Grain overlay');
       if (!Number.isInteger(l.patternSeed)) fail('Pattern seed must be an integer.');
       finite(l.patternSeed, 0, 65535, 'Pattern seed');
       color(l.color); asset(l.src); if (l.src && !(l.mode === 'video' ? /\.(mp4|webm)$/i : l.mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid background asset type.'); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');

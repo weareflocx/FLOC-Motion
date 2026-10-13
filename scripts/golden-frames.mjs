@@ -77,13 +77,14 @@ function cardFitFixtures() {
     return { id: `card-fit-${cardFit}`, times: [0.5, 1.7], project };
   });
 }
-// Twelve full-canvas backgrounds offset into a 4 × 3 grid: in row-major order
+// Fifteen full-canvas backgrounds offset into a 4 × 4 grid: in row-major order
 // each later layer covers the cells at and after its own, so every cell shows
-// exactly one pattern.
+// exactly one pattern. Every third pattern also carries vignette and grain.
 function backgroundFixture() {
   const project = base('Backgrounds and fonts', 'portrait34');
   const backgrounds = PROCEDURAL_BACKGROUNDS.map(({ id }, i) => ({ id: `pattern-${id}`, type: 'background', name: id, ...span, mode: 'procedural', src: '', fit: 'cover', offset: 0, loop: true,
-    color: ['#0b1020', '#1f0b14', '#0b1f14', '#1a1a0b'][i % 4], pattern: id, patternColor: ['#ffffff', '#ff5a36', '#3ad1ff', '#d6ff3a'][i % 4], patternScale: 1, patternIntensity: 0.7, patternSpeed: 0.6, patternSeed: i + 3, x: i % 4 * 25, y: Math.floor(i / 4) * 100 / 3 }));
+    color: ['#0b1020', '#1f0b14', '#0b1f14', '#1a1a0b'][i % 4], pattern: id, patternColor: ['#ffffff', '#ff5a36', '#3ad1ff', '#d6ff3a'][i % 4], patternScale: 1, patternIntensity: 0.7, patternSpeed: 0.6, patternSeed: i + 3,
+    ...(i % 3 === 2 && { patternVignette: 0.6, patternGrain: 0.3 }), x: i % 4 * 25, y: Math.floor(i / 4) * 25 }));
   const styles = FONTS.flatMap(font => font.weights.map(weight => ({ font: font.id, weight })));
   const reveals = ['up', 'none', 'right', 'none', 'down', 'left', 'none'];
   const texts = styles.map(({ font, weight }, i) => text(`text-${font}-${weight}`, { text: `${font} ${weight}\nMotion 0123`, font, weight, x: 4 + i % 2 * 46, y: 4 + i * 13, size: font === 'druk-wide' ? 34 : 44, width: 50,

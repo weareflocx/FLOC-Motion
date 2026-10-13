@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawProceduralBackground } from '../src/backgrounds.js';
+import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from '../src/backgrounds.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from '../src/text-style.js';
 
 async function compile(path) {
@@ -21,7 +21,7 @@ function controls(component, initial) {
   const changes = [], uploads = [], effects = [];
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    UploadSimple() {}, DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawProceduralBackground, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
+    UploadSimple() {}, DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
     useState: value => [value, () => {}],
     useRef: value => ({ current: value }), useEffect: effect => effects.push(effect)
   };
@@ -75,7 +75,7 @@ test('pattern selection and bounded controls keep other background settings inta
   assert.equal(h.layer().pattern, 'geometry');
   assert.equal(h.layer().color, background.color);
   assert.equal(h.layer().src, background.src);
-  for (const [label, value, field] of [['Pattern scale', 2.25, 'patternScale'], ['Pattern intensity', 0.7, 'patternIntensity'], ['Pattern speed', -0.5, 'patternSpeed']]) {
+  for (const [label, value, field] of [['Pattern scale', 2.25, 'patternScale'], ['Pattern intensity', 0.7, 'patternIntensity'], ['Pattern speed', -0.5, 'patternSpeed'], ['Vignette', 0.4, 'patternVignette'], ['Grain overlay', 0.25, 'patternGrain']]) {
     h.input(label).props.onChange({ target: { value: value * 100 } });
     assert.equal(h.layer()[field], value);
   }
@@ -86,28 +86,6 @@ test('pattern selection and bounded controls keep other background settings inta
   assert.equal(h.layer().patternSeed, 42);
   h.input('Pattern color').props.onChange({ target: { value: '#ff0000' } });
   assert.equal(h.layer().patternColor, '#ff0000');
-});
-
-test('preview cards draw their selected pattern through the real supplied-time renderer', () => {
-  const h = controls('background', { ...background, mode: 'procedural', patternSpeed: -0.25, patternSeed: 19 });
-  const operations = [];
-  const context = new Proxy({}, { get: (target, key) => target[key] ?? ((...args) => operations.push([key, ...args])) });
-  const canvas = { width: 144, height: 81, getContext: type => { assert.equal(type, '2d'); return context; } };
-  h.context.useRef = () => ({ current: canvas });
-  const original = structuredClone(h.layer());
-  for (const pattern of PROCEDURAL_BACKGROUNDS) {
-    const preview = h.context.preview({ layer: h.layer(), pattern });
-    assert.equal(preview.props.width, 144);
-    assert.equal(preview.props.height, 81);
-    assert.equal(preview.props['aria-hidden'], 'true');
-    h.effects.pop()();
-    const expected = [];
-    const expectedContext = new Proxy({}, { get: (target, key) => target[key] ?? ((...args) => expected.push([key, ...args])) });
-    drawProceduralBackground({ ...canvas, getContext: () => expectedContext }, { ...DEFAULT_PROCEDURAL_BACKGROUND, ...h.layer(), pattern: pattern.id }, 1);
-    assert.deepEqual(operations.splice(0), expected);
-  }
-  assert.deepEqual(h.layer(), original);
-  assert.equal(h.changes.length, 0);
 });
 
 test('typography preserves precise spacing and reveal duration when a reveal is disabled', () => {

@@ -7,7 +7,7 @@ const record = value => value && typeof value === 'object' && !Array.isArray(val
 
 const COMMON_VISUAL_FIELDS = ['opacity', 'fadeIn', 'fadeOut'];
 const VISUAL_FIELDS = Object.freeze({
-  background: new Set(['color', 'mode', 'fit', 'pattern', 'patternColor', 'patternScale', 'patternIntensity', 'patternSpeed', 'patternSeed']),
+  background: new Set(['color', 'mode', 'fit', 'pattern', 'patternColor', 'patternScale', 'patternIntensity', 'patternSpeed', 'patternSeed', 'patternVignette', 'patternGrain']),
   text: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size', 'color', 'font', 'weight', 'width', 'rise', 'lineHeight', 'letterSpacing', 'textAlign', 'reveal', 'revealDuration']),
   logo: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   media: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
@@ -89,10 +89,10 @@ const shifted = (value, delta, min, max) => {
 
 function curatedPatch(layer, direction) {
   if (layer.type === 'background') return direction === 'Editorial'
-    ? { mode: 'procedural', color: BRAND.colors.black, pattern: 'grid', patternColor: BRAND.colors.white, patternScale: 0.72, patternIntensity: 0.22, patternSpeed: 0.08, patternSeed: (layer.patternSeed + 11) % 65536 }
+    ? { mode: 'procedural', color: BRAND.colors.black, pattern: 'grid', patternColor: BRAND.colors.white, patternScale: 1.4, patternIntensity: 0.22, patternSpeed: 0.08, patternSeed: (layer.patternSeed + 11) % 65536 }
     : direction === 'Bold'
-      ? { mode: 'procedural', color: BRAND.colors.black, pattern: 'rays', patternColor: BRAND.colors.red, patternScale: 1.2, patternIntensity: 0.62, patternSpeed: 0.32, patternSeed: (layer.patternSeed + 23) % 65536 }
-      : { mode: 'procedural', color: BRAND.colors.black, pattern: 'flow', patternColor: BRAND.colors.blue, patternScale: 1.65, patternIntensity: 0.7, patternSpeed: -0.45, patternSeed: (layer.patternSeed + 37) % 65536 };
+      ? { mode: 'procedural', color: BRAND.colors.black, pattern: 'rays', patternColor: BRAND.colors.red, patternScale: 0.85, patternIntensity: 0.62, patternSpeed: 0.32, patternSeed: (layer.patternSeed + 23) % 65536 }
+      : { mode: 'procedural', color: BRAND.colors.black, pattern: 'flow', patternColor: BRAND.colors.blue, patternScale: 0.6, patternIntensity: 0.7, patternSpeed: -0.45, patternSeed: (layer.patternSeed + 37) % 65536 };
   if (layer.type === 'text') return direction === 'Editorial'
     ? { size: shifted(layer.size, -4, 12, 180), font: 'geist', weight: 400, lineHeight: 1.05, letterSpacing: -0.02, textAlign: 'left', reveal: 'up', revealDuration: 0.5 }
     : direction === 'Bold'

@@ -7,7 +7,7 @@ import { FORMATS, SHADERS, escapeHtml, layerAlpha, audioTime, demoProject, carou
 import { constrainPlacement, fitsSafeArea, rotatedTextBounds, safeArea } from './layout.js';
 import { createCarouselEffect } from './carousel-effects.js';
 import { evaluateChoreography } from './choreography.js';
-import { drawProceduralBackground } from './backgrounds.js';
+import { drawProceduralBackground, watchProceduralBackgrounds } from './backgrounds.js';
 import { textTypography, textRevealClip } from './text-style.js';
 import { createEffects } from './effects.js';
 import { createResourceCache, watchContextLoss } from './scene-resources.js';
@@ -548,17 +548,35 @@ export async function createScene(root, project, options = {}) {
   const engines = [];
   let effects = createEffects(root, project, FORMATS, layerAlpha);
   const backgrounds = project.layers.filter(layer => layer.type === 'background' && layer.mode === 'procedural').map(layer => ({ id: layer.id, canvas: root.querySelector(`[id="background-${CSS.escape(layer.id)}"]`) })).filter(background => background.canvas);
+  // Backgrounds share one WebGL context. While it is lost the canvases keep
+  // their last frame: the preview redraws on restore, while an export fails
+  // rather than capture stale frames.
+  let backgroundFailure = null, reportedFailure = false;
+  const failBackgrounds = error => {
+    backgroundFailure = error;
+    if (!options.renderMode && !reportedFailure && !disposed) { reportedFailure = true; options.onMediaError?.(error); }
+  };
   function drawBackgrounds(time) {
     if (disposed) return;
     currentTime = time;
-    backgrounds.forEach(background => {
+    for (const background of backgrounds) {
       const layer = currentProject.layers.find(layer => layer.id === background.id);
-      if (layer) drawProceduralBackground(background.canvas, layer, Math.max(0, time - layer.start));
-    });
+      if (!layer) continue;
+      try {
+        if (!drawProceduralBackground(background.canvas, layer, Math.max(0, time - layer.start), currentProject.fps) && options.renderMode) failBackgrounds(new Error('The procedural background lost its graphics context during export.'));
+      } catch (error) { failBackgrounds(error); return; }
+    }
   }
+  let unwatchBackgrounds = () => {};
+  if (backgrounds.length) try {
+    unwatchBackgrounds = watchProceduralBackgrounds({
+      restored: () => drawBackgrounds(currentTime),
+      failed: () => failBackgrounds(new Error('The procedural background lost its graphics context and could not restore it. Reload the editor to continue.'))
+    });
+  } catch (error) { failBackgrounds(error); }
   try {
     for (const { id, project: value } of engineProjects(project)) engines.push({ id, scene: await createLayerScene(root, value, options) });
-  } catch (error) { engines.forEach(engine => engine.scene.dispose()); effects.dispose(); throw error; }
+  } catch (error) { unwatchBackgrounds(); engines.forEach(engine => engine.scene.dispose()); effects.dispose(); throw error; }
   drawBackgrounds(0);
   return {
     // Applies parameter edits to the live scene. Returns false, leaving the
@@ -577,7 +595,11 @@ export async function createScene(root, project, options = {}) {
       else effects.updateLayers(next.layers);
       return true;
     },
-    seek: (time, playing) => { drawBackgrounds(time); return Promise.all([...engines.map(engine => engine.scene.seek(time, playing)), effects.seek(time)]); },
+    seek: (time, playing) => {
+      drawBackgrounds(time);
+      const ready = Promise.all([...engines.map(engine => engine.scene.seek(time, playing)), effects.seek(time)]);
+      return options.renderMode && backgroundFailure ? Promise.reject(backgroundFailure) : ready;
+    },
     hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,
     setResolution: (w, h) => {
       if (disposed) return;
@@ -590,6 +612,6 @@ export async function createScene(root, project, options = {}) {
     },
     setOrientation: value => engines.forEach(engine => engine.scene.setOrientation(value?.id === engine.id ? value : null)),
     setPlacement: value => engines.forEach(engine => engine.scene.setPlacement(value)),
-    dispose: () => { disposed = true; effects.dispose(); engines.forEach(engine => engine.scene.dispose()); }
+    dispose: () => { disposed = true; unwatchBackgrounds(); effects.dispose(); engines.forEach(engine => engine.scene.dispose()); }
   };
 }
