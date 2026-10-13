@@ -147,7 +147,7 @@ A local HTTP API is also available: `GET /api/catalog` (templates, catalog metad
 
 1. Add its stable ID/name to `TEMPLATES` or `SHADERS` in `src/project.js`.
 2. Implement the layout or GLSL branch in `src/scene.js`. Derive all visual state solely from the supplied time; never accumulate animation deltas. Carousel-wide parameters belong in `applySettings` and per-card values in `cardUniforms`, so in-place preview edits draw exactly what a rebuild draws. A parameter that needs new decoders, meshes or DOM nodes must be listed in `STRUCTURAL` in `src/scene-update.js`.
-3. Add any relevant controls to `src/main.jsx`, and validate new parameters in `src/project.js`.
+3. Add any relevant controls to the inspector components in `src/editor/components/`, and validate new parameters in `src/project.js`.
 4. Run tests and build; verify seeked frames and an MP4. Catalog selectors and WebMCP enum schemas derive from the registry automatically.
 
 Adding implementations is a source-code change, not runtime execution of pasted code.

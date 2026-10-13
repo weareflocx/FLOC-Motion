@@ -1,0 +1,89 @@
+.nudge-dialog {
+  width: min(360px,calc(100vw - 48px));
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.nudge-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nudge-heading h2 {
+  font-size: 18px;
+}
+
+.nudge-dialog .field {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+}
+
+.nudge-dialog .helper {
+  margin-top: 14px;
+}
+
+.renderer-connection {
+  padding: 12px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.renderer-status,
+.renderer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.renderer-actions {
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.renderer-actions a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+.renderer-actions button {
+  padding: 6px 10px;
+}
+
+.renderer-pairing {
+  margin-top: 14px;
+}
+
+.renderer-pairing p {
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+.renderer-code {
+  font-size: 24px;
+  letter-spacing: 2px;
+  font-family: var(--font-data);
+}
+
+.canvas-gesture-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 68px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: #171717e6;
+  color: #ccc;
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+}

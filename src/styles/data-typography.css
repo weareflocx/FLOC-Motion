@@ -1,0 +1,39 @@
+/* UI data uses Mono; names, labels and composition typography stay independent. */
+.app-shell .field output,
+.app-shell input[type=number],
+.app-shell .color-field>span,
+.app-shell .canvas-meta>span,
+.app-shell .timecode,
+.app-shell .tick-label,
+.app-shell .clip-duration,
+.app-shell .timeline-label,
+.app-shell .ruler-track-heading small,
+.app-shell .map-coordinates,
+.app-shell .motion-cycle,
+.app-shell .asset-number,
+.app-shell .version,
+.app-shell .tool-list code,
+.app-shell .tool-list>div>span,
+.app-shell .audit code,
+.app-shell .audit>div>span,
+.app-shell .export-summary>span,
+.app-shell .export-summary>span:first-child small,
+.app-shell select[aria-label="Export resolution"],
+.app-shell .preset-visual-filters .preset-family-list button:first-child span {
+  font-family: var(--font-data);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.app-shell .export-summary small {
+  font-family: var(--font-ui);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.app-shell .brand em {
+  font-family: var(--font-data);
+  font-weight: 500;
+  letter-spacing: 2px;
+}
