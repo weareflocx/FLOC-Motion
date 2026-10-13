@@ -66,6 +66,13 @@ test('HTTP access requires invited accounts; shared compositions and renderer re
   await writeFile(path.join(data, 'renders', exportId, 'video.mp4'), 'Private export');
   assert.equal((await call(`/assets/${asset}`)).status, 401);
   assert.equal((await call(`/exports/${exportId}/video.mp4`)).status, 401);
+  await writeFile(path.join(data, 'renders', exportId, 'video.mov'), 'Private MOV');
+  await writeFile(path.join(data, 'renders', exportId, 'frames.zip'), 'Private frames');
+  for (const [file, type] of [['video.mp4', 'video/mp4'], ['video.mov', 'video/quicktime'], ['frames.zip', 'application/zip']]) {
+    const download = await call(`/exports/${exportId}/${file}`, { cookie });
+    assert.equal(download.status, 200); assert.equal(download.headers.get('content-type'), type);
+  }
+  assert.equal((await call(`/exports/${exportId}/render-input.json`, { cookie })).status, 404, 'only export results are downloadable');
   assert.equal((await call(`/assets/${asset}`, { cookie })).status, 200);
   assert.equal((await call(`/assets/${asset}`, { authorization: `Bearer ${workerToken}` })).status, 200);
   assert.equal((await call('/api/templates', { authorization: `Bearer ${workerToken}` })).status, 401);

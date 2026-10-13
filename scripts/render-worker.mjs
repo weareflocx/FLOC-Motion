@@ -19,6 +19,7 @@ const personal = config.token.includes('.');
 const { startExport, cancelExport } = await import('../server/export.mjs');
 const { isTerminalJobState } = await import('../src/export-jobs.js');
 const { validateProject } = await import('../src/project.js');
+const { exportFormat } = await import('../src/export-settings.js');
 await mkdir(path.join(process.env.FLOC_DATA_DIR, 'assets'), { recursive: true });
 const lock = path.join(root, '.data/render-worker/worker.pid');
 try { const pid = Number(await readFile(lock, 'utf8')); if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, 0); throw new Error('The renderer is already running.'); } catch (cause) { if (cause.code !== 'ESRCH') throw cause; } } await rm(lock, { force: true }); }
@@ -98,7 +99,7 @@ while (!stopping) {
         await copyFile(path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, 'render.log'), path.join(process.env.FLOC_DATA_DIR, 'last-render.log')).catch(error => console.error(`Could not retain render diagnostics: ${error.message}`));
         lease.signal.throwIfAborted();
         if (localJob.state === 'failed') throw new Error(localJob.message);
-        const filename = path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, 'video.mp4');
+        const filename = path.join(process.env.FLOC_DATA_DIR, 'renders', localJob.id, exportFormat(localJob.format).file);
         let send, file;
         if (personal) {
           // Personal exports stay on this computer; the editor only learns where.
@@ -117,9 +118,9 @@ while (!stopping) {
           }
           try { await send(); delivered = true; break; }
           catch (error) {
-            if (error.status === 409) throw file ? new Error(`The MP4 was saved to ${file}, but the export was cancelled in the editor.`) : revokedError();
+            if (error.status === 409) throw file ? new Error(`The export was saved to ${file}, but it was cancelled in the editor.`) : revokedError();
             if (attempt < 2) { await sleep(3000); continue; }
-            throw file ? new Error(`The MP4 was saved to ${file}, but the editor could not be notified: ${error.message}`) : error;
+            throw file ? new Error(`The export was saved to ${file}, but the editor could not be notified: ${error.message}`) : error;
           }
         }
         if (delivered) {

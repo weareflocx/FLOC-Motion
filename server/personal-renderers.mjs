@@ -2,8 +2,9 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { validateProject } from '../src/project.js';
-import { validateExportSettings, exportDimensions } from '../src/export-settings.js';
+import { validateExportSettings, exportDimensions, exportFormat } from '../src/export-settings.js';
 import { readJson, writeJsonAtomic } from './json-store.mjs';
+import { database } from './database.mjs';
 import { isTerminalJobState, CANCELLED_MESSAGE } from '../src/export-jobs.js';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -18,20 +19,21 @@ export function browserRendererKey(cookie = '') {
 
 export function createPersonalRenderers({ data, jobs, version, now = Date.now }) {
   const devices = new Map(), codes = new Map();
-  const directory = path.join(data, 'renderers');
+  const db = database(data);
   const folder = id => path.join(data, 'renders', id);
   const persistJob = job => writeJsonAtomic(path.join(folder(job.id), 'job.json'), job);
   async function persistDevice(device) {
-    const filename = path.join(directory, `${device.id}.json`);
-    await writeJsonAtomic(filename, { id: device.id, name: device.name, browserHash: device.browserHash, engineHash: device.engineHash }, { mode: 0o600, directoryMode: 0o700 });
+    db.prepare('INSERT INTO renderer_devices (id, name, browser_hash, engine_hash) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name, browser_hash = excluded.browser_hash, engine_hash = excluded.engine_hash').run(device.id, device.name ?? null, device.browserHash, device.engineHash ?? null);
   }
   async function authenticate(key, kind) {
     const match = typeof key === 'string' && key.match(/^([a-f0-9-]{36})\.([a-f0-9]{64})$/);
     if (!match) return null;
     let device = devices.get(match[1]);
     if (!device) {
-      try { device = { ...await readJson(path.join(directory, `${match[1]}.json`)), seen: 0, active: null }; devices.set(device.id, device); }
-      catch (cause) { if (cause.code === 'ENOENT') return null; throw cause; }
+      const saved = db.prepare('SELECT id, name, browser_hash, engine_hash FROM renderer_devices WHERE id = ?').get(match[1]);
+      if (!saved) return null;
+      device = { id: saved.id, name: saved.name ?? undefined, browserHash: saved.browser_hash, engineHash: saved.engine_hash ?? undefined, seen: 0, active: null };
+      devices.set(device.id, device);
     }
     const expected = device[`${kind}Hash`];
     return expected && timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(digest(match[2]), 'hex')) ? device : null;
@@ -122,14 +124,16 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
       }
       await persistJob(job); return job;
     },
-    // The renderer verifies and keeps the MP4 on its own computer; the editor stores only the outcome.
+    // The renderer verifies and keeps the export on its own computer; the editor stores only the outcome.
     async complete(device, id, input) {
       await expire(device);
       const lease = device.active;
       if (lease?.id !== id || jobs.get(id)?.state !== 'rendering') throw error('This export is no longer assigned to your renderer.');
       const file = typeof input?.file === 'string' ? input.file.trim() : '';
       const duration = Number(input?.duration);
-      if (!file || file.length > 500 || !/\.mp4$/i.test(file) || /[\u0000-\u001f]/.test(file) || !(duration > 0 && duration <= lease.project.duration + 1)) throw error('Invalid export result.', 400);
+      // The saved file must carry the extension of the format this job asked for.
+      const matchesFormat = file.toLowerCase().endsWith(`.${exportFormat(lease.settings.format).extension}`);
+      if (!file || file.length > 500 || !matchesFormat || /[\u0000-\u001f]/.test(file) || !(duration > 0 && duration <= lease.project.duration + 1)) throw error('Invalid export result.', 400);
       device.seen = now();
       const job = jobs.get(id);
       Object.assign(job, { state: 'done', progress: 100, message: 'Saved on your computer', file, duration });

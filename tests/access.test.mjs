@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { createAuthStore, sessionCookie } from '../server/auth-store.mjs';
 import { createDraftStore } from '../server/draft-store.mjs';
 import { createTemplateStore } from '../server/template-store.mjs';
+import { closeDatabase, database } from '../server/database.mjs';
 import { demoProject, validateProject } from '../src/project.js';
 import { editorSession } from '../src/editor/project-session.js';
 
@@ -27,8 +28,9 @@ test('invited accounts, hashes, sessions and logout survive restarts without pub
   assert.equal(accepted.user.email, 'first@example.com');
   assert.deepEqual(Object.keys(accepted.user).sort(), ['email', 'id']);
   await assert.rejects(auth.accept({ token: invitation.token, email: invitation.email, password }, 'test'), /invalid or expired/);
-  const persisted = await readFile(path.join(data, 'access/auth.json'), 'utf8');
+  const db = database(data), persisted = JSON.stringify(['users', 'sessions', 'invitations'].map(table => db.prepare(`SELECT * FROM ${table}`).all()));
   assert(!persisted.includes(password)); assert(!persisted.includes(accepted.token)); assert(!persisted.includes(invitation.token));
+  closeDatabase(data);
   const restarted = createAuthStore(data), cookie = sessionCookie(accepted.token, true);
   assert(cookie.includes('HttpOnly; SameSite=Strict')); assert(cookie.endsWith('; Secure'));
   assert.deepEqual(await restarted.user(cookie), accepted.user);
@@ -69,6 +71,15 @@ test('login throttles accounts and clients independently without proxy-wide lock
   for (let index = 0; index < 25; index++) await assert.rejects(second.login({ email: `unknown-${index}@example.com`, password: 'wrong' }, 'shared-client'), /incorrect/);
   await assert.rejects(second.login({ email: 'second@example.com', password }, 'shared-client'), error => error.status === 429);
   assert.deepEqual((await second.login({ email: 'second@example.com', password }, 'different-client')).user.email, 'second@example.com');
+});
+
+test('each account keeps its 20 newest sessions and older ones are revoked', async t => {
+  const auth = createAuthStore(await folder(t));
+  const invitation = await auth.bootstrap('many@example.com');
+  const sessions = [await auth.accept({ ...invitation, password }, 'setup')];
+  for (let index = 0; index < 20; index++) sessions.push(await auth.login({ email: invitation.email, password }, 'setup'));
+  assert.equal(await auth.user(sessionCookie(sessions[0].token, false)), null);
+  for (const session of sessions.slice(1)) assert.equal((await auth.user(sessionCookie(session.token, false)))?.email, invitation.email);
 });
 
 test('different compositions and drafts save independently; stale saves to the same resource conflict', async t => {

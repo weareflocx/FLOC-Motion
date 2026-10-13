@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { createWorkspaceBackup, restoreWorkspaceBackup, verifyWorkspaceBackup } from '../scripts/workspace-backup-lib.mjs';
+import { createTemplateStore } from '../server/template-store.mjs';
+import { demoProject } from '../src/project.js';
 
 const folder = async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'floc-backup-'));
@@ -21,6 +24,8 @@ async function workspace(t) {
   const root = await folder(t);
   const data = path.join(root, 'workspace');
   await mkdir(data);
+  // The database exists before the legacy JSON fixtures, so they stay unimported files.
+  await createTemplateStore(data).create({ name: 'Backed up', tags: ['Brand'], project: demoProject() });
   await put(data, 'project.json', '{"project":true}\n');
   await put(data, 'project-migration.json', '{"migrated":true}\n');
   await put(data, 'access/auth.json', '{"users":[]}\n');
@@ -55,17 +60,37 @@ test('backup and restore round trip authoritative data only', async t => {
   assert.deepEqual(created.files.map(file => file.path), [...created.files.map(file => file.path)].sort((a, b) => a.localeCompare(b)));
   assert.ok(created.files.every(file => /^[a-f0-9]{64}$/.test(file.sha256)));
   assert.deepEqual(created.files.map(file => file.path), [
-    'access/auth.json', 'assets/a.png', 'drafts/draft.json', 'project-migration.json', 'project.json',
+    'access/auth.json', 'assets/a.png', 'drafts/draft.json', 'floc.db', 'project-migration.json', 'project.json',
     'renderers/renderers.json', 'renders/job-1/job.json', 'renders/job-1/render-input.json', 'renders/job-1/render.log', 'templates/template.json',
   ].sort((a, b) => a.localeCompare(b)));
+  assert.equal(created.version, 2); assert.equal(created.database.path, 'floc.db'); assert.ok(created.database.schemaVersion >= 1);
   const verified = await verifyWorkspaceBackup(backup);
-  assert.equal(verified.files, 10);
+  assert.equal(verified.files, 11);
+  assert.deepEqual((await readdir(path.join(backup, 'files'))).filter(name => name.startsWith('floc.db')), ['floc.db'], 'the snapshot is self-contained');
   await mkdir(restored);
   await restoreWorkspaceBackup(backup, restored);
-  await assertSameIncludedFiles(data, restored, created.files.map(file => file.path));
-  assert.rejects(readFile(path.join(restored, 'renders/job-1/video.mp4')), { code: 'ENOENT' });
+  await assertSameIncludedFiles(data, restored, created.files.map(file => file.path).filter(name => name !== 'floc.db'));
+  const [entry] = await createTemplateStore(restored).list();
+  assert.deepEqual(entry, (await createTemplateStore(data).list())[0]);
+  assert.deepEqual(entry.tags, ['Brand']);
+  assert.equal((await createTemplateStore(restored).versions(entry.id)).length, 1);
+  await assert.rejects(readFile(path.join(restored, 'renders/job-1/video.mp4')), { code: 'ENOENT' });
   await assert.rejects(readFile(path.join(restored, 'assets/stale.upload')), { code: 'ENOENT' });
   await assert.rejects(readFile(path.join(restored, 'access/auth.json.tmp-123')), { code: 'ENOENT' });
+});
+
+test('verification and restore reject a database snapshot that fails SQLite integrity checks', async t => {
+  const { root, data } = await workspace(t);
+  const backup = path.join(root, 'backup');
+  await createWorkspaceBackup(data, backup);
+  const garbage = Buffer.from('SQLite format 3\0'.padEnd(4096, 'x'));
+  await writeFile(path.join(backup, 'files', 'floc.db'), garbage);
+  const value = await manifest(backup), file = value.files.find(item => item.path === 'floc.db');
+  Object.assign(file, { size: garbage.length, sha256: createHash('sha256').update(garbage).digest('hex') });
+  await writeFile(path.join(backup, 'manifest.json'), JSON.stringify(value));
+  await assert.rejects(verifyWorkspaceBackup(backup), /database|malformed|not a database/i);
+  await assert.rejects(restoreWorkspaceBackup(backup, path.join(root, 'target')), /database|malformed|not a database/i);
+  await assert.rejects(readdir(path.join(root, 'target')), { code: 'ENOENT' });
 });
 
 test('verification rejects corrupt, missing, and extra payload files', async t => {

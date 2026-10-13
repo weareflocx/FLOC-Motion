@@ -35,9 +35,12 @@ export function createRenderWorker({ data, jobs, token, now = Date.now }) {
     },
     async enqueue(input, options) {
       await expire();
+      const settings = validateExportSettings(options);
+      // The streaming upload protocol carries a single MP4.
+      if (settings.format !== 'mp4') throw failure('The render Mac exports MP4 only. Connect a personal renderer for MOV or PNG sequences.', 400);
       if (!seen || now() - seen > 15000) throw failure('The render Mac is offline. Open FLOC Motion on the Mac and reconnect its renderer.', 503);
       if (pending.size) throw failure('Another export is running. Wait until it finishes.');
-      const project = validateProject(input), settings = validateExportSettings(options);
+      const project = validateProject(input);
       if (!project.layers.some(layer => layer.visible && layer.type !== 'music')) throw failure('Add a visible visual layer before exporting.', 400);
       const [width, height] = exportDimensions(project.format, settings.resolution);
       const job = { id: randomUUID(), state: 'queued', progress: 0, message: 'Waiting for the Mac', name: project.name, ...settings, width, height, fps: project.fps, createdAt: new Date(now()).toISOString() };

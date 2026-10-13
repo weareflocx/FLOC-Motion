@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createTemplateStore } from '../server/template-store.mjs';
+import { createTemplateStore, VERSION_COALESCE_MS, VERSION_LIMIT } from '../server/template-store.mjs';
+import { createAuthStore } from '../server/auth-store.mjs';
 import { demoProject, validateProject } from '../src/project.js';
 
 test('saved templates persist complete independent snapshots, metadata and media through restart', async () => {
@@ -51,4 +52,43 @@ test('composition updates persist edits and reject stale copies without changing
     await assert.rejects(store.update(entry.id, { project: entry.project, updatedAt: entry.updatedAt }), error => error.status === 409);
     assert.equal((await createTemplateStore(data).list())[0].project.duration, 15);
   } finally { await rm(data, { recursive: true, force: true }); }
+});
+
+test('saves record attributed versions; restore adds a new current version and respects revisions', async t => {
+  const data = await mkdtemp(path.join(tmpdir(), 'floc-versions-'));
+  t.after(() => rm(data, { recursive: true, force: true }));
+  const auth = createAuthStore(data), invitation = await auth.bootstrap('author@example.com');
+  const { user } = await auth.accept({ ...invitation, password: 'A long test password' }, 'test');
+  const store = createTemplateStore(data), author = { userId: user.id };
+  const created = await store.create({ name: 'Loop', tags: [], project: demoProject() }, author);
+  const edited = await store.update(created.id, { name: 'Loop', project: { ...created.project, duration: 15 }, updatedAt: created.updatedAt }, author);
+  const tagged = await store.update(created.id, { name: 'Loop', tags: ['Brand'], updatedAt: edited.updatedAt }, author);
+  const unchanged = await store.update(created.id, { name: 'Loop', project: tagged.project, updatedAt: tagged.updatedAt }, author);
+  const versions = await store.versions(created.id);
+  assert.deepEqual(versions.map(item => [item.version, item.name, item.author?.email]), [[2, 'Loop', 'author@example.com'], [1, 'Loop', 'author@example.com']], 'tag-only and identical saves add no version');
+  assert.equal((await store.version(created.id, 1)).project.duration, created.project.duration);
+  await assert.rejects(store.restore(created.id, 1, { updatedAt: created.updatedAt }, author), error => error.status === 409);
+  await assert.rejects(store.restore(created.id, 1, {}, author), error => error.status === 400);
+  await assert.rejects(store.restore(created.id, 9, { updatedAt: unchanged.updatedAt }, author), error => error.status === 404);
+  const restored = await store.restore(created.id, 1, { updatedAt: unchanged.updatedAt }, author);
+  assert.equal(restored.project.duration, created.project.duration); assert.deepEqual(restored.tags, ['Brand']);
+  assert.deepEqual((await store.read(created.id)).project, restored.project);
+  const [latest] = await store.versions(created.id);
+  assert.deepEqual([latest.version, latest.restoredFrom], [3, 1]);
+  assert.equal((await store.version(created.id, 2)).project.duration, 15, 'restoring keeps the replaced version');
+  await store.remove(created.id);
+  await assert.rejects(store.versions(created.id), error => error.status === 404);
+});
+
+test(`only the newest ${VERSION_LIMIT} versions of a composition are retained`, async t => {
+  const data = await mkdtemp(path.join(tmpdir(), 'floc-versions-'));
+  t.after(() => rm(data, { recursive: true, force: true }));
+  let clock = Date.now();
+  const store = createTemplateStore(data, { now: () => clock });
+  let entry = await store.create({ name: 'Loop', tags: [], project: demoProject() });
+  for (let index = 1; index <= VERSION_LIMIT + 4; index++) { clock += VERSION_COALESCE_MS; entry = await store.update(entry.id, { name: `Loop ${index}`, updatedAt: entry.updatedAt }); }
+  const versions = await store.versions(entry.id);
+  assert.equal(versions.length, VERSION_LIMIT);
+  assert.deepEqual([versions[0].version, versions.at(-1).version, versions[0].name], [VERSION_LIMIT + 5, 6, `Loop ${VERSION_LIMIT + 4}`]);
+  await assert.rejects(store.version(entry.id, 5), error => error.status === 404);
 });

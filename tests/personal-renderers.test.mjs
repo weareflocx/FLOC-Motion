@@ -7,6 +7,7 @@ import { createPersonalRenderers, rendererCookie } from '../server/personal-rend
 import { recoverInterruptedJobs } from '../server/export.mjs';
 import { demoProject } from '../src/project.js';
 import { trustedOrigin, browserCandidates } from '../scripts/renderer-runtime.mjs';
+import { database } from '../server/database.mjs';
 
 test('personal renderers isolate parallel jobs, credentials, progress and downloads', async () => {
   const data = await mkdtemp(path.join(os.tmpdir(), 'floc-personal-'));
@@ -51,7 +52,8 @@ test('personal renderers isolate parallel jobs, credentials, progress and downlo
     assert.equal('url' in completed, false);
     await assert.rejects(access(path.join(data, 'renders', ja.id, 'video.mp4')), { code: 'ENOENT' });
     await assert.rejects(service.complete(b.engine, ja.id, { file: 'Videos/FLOC Motion/Test.mp4', duration: 1 }), /no longer assigned/);
-    const persisted = await readFile(path.join(data, 'renderers', `${a.browser.id}.json`), 'utf8');
+    const persisted = JSON.stringify(database(data).prepare('SELECT * FROM renderer_devices WHERE id = ?').get(a.browser.id));
+    assert.ok(persisted.includes(a.browser.id));
     assert.ok(!persisted.includes(a.credentials.token.split('.')[1]));
     assert.ok(!persisted.includes(a.pairing.key.split('.')[1]));
     await recoverInterruptedJobs(data);
@@ -105,6 +107,29 @@ test('only the owning browser cancels a renderer export, and its stale result is
     await assert.rejects(service.cancel(a.browser, job.id), error => error.status === 409);
     const next = await service.enqueue(a.browser, project, {});
     assert.equal((await service.claim(a.engine, { version })).id, next.id, 'the renderer can take the next export');
+  } finally { await rm(data, { recursive: true, force: true }); }
+});
+
+test('a renderer result must carry the extension of the format the job asked for', async () => {
+  const data = await mkdtemp(path.join(os.tmpdir(), 'floc-personal-format-'));
+  const jobs = new Map(), version = 'current';
+  const service = createPersonalRenderers({ data, jobs, version, now: () => 100000 });
+  try {
+    const pairing = await service.startPairing();
+    const credentials = await service.finishPairing({ code: pairing.code, name: 'Mac', version });
+    const engine = await service.engine(`Bearer ${credentials.token}`), browser = await service.browser(rendererCookie(pairing.key, false));
+    await service.claim(engine, { version });
+    const project = demoProject(); project.duration = 1; for (const layer of project.layers) { layer.end = 1; layer.fadeIn = 0; layer.fadeOut = 0; }
+    await assert.rejects(service.enqueue(browser, project, { format: 'mp4', transparent: true }), /require MOV or PNG/);
+    for (const [format, wrong, right] of [['mov', 'Movies/FLOC Motion/Clip.mp4', 'Movies/FLOC Motion/Clip.mov'], ['png', 'Movies/FLOC Motion/Clip.mov', 'Movies/FLOC Motion/Clip.zip'], ['mp4', 'Movies/FLOC Motion/Clip.zip', 'Movies/FLOC Motion/Clip.MP4']]) {
+      const job = await service.enqueue(browser, project, { format, transparent: format !== 'mp4' });
+      assert.equal(job.format, format);
+      assert.equal((await service.claim(engine, { version })).settings.format, format);
+      await assert.rejects(service.complete(engine, job.id, { file: wrong, duration: 1 }), error => error.status === 400);
+      assert.equal(job.state, 'rendering');
+      await service.complete(engine, job.id, { file: right, duration: 1 });
+      assert.equal(job.state, 'done'); assert.equal(job.file, right);
+    }
   } finally { await rm(data, { recursive: true, force: true }); }
 });
 

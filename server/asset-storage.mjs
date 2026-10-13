@@ -1,6 +1,7 @@
 import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { acceptAssetUpload } from './asset-upload.mjs';
+import { database } from './database.mjs';
 
 export const ASSET_QUOTA_BYTES = 1.5e9;
 export const ORPHAN_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -17,10 +18,13 @@ function collectReferences(value, output) {
 
 export function createAssetStorage({ data, quotaBytes = ASSET_QUOTA_BYTES, graceMs = ORPHAN_GRACE_MS, now = Date.now }) {
   const directory = path.join(data, 'assets');
+  const db = database(data);
   let queue = Promise.resolve();
   const serial = action => { const result = queue.catch(() => {}).then(action); queue = result; return result; };
+  // Drafts, compositions and every retained version are indexed in the database; render jobs
+  // and the pre-library project.json remain files.
   async function references() {
-    const output = new Set(), badJson = [];
+    const output = new Set(db.prepare('SELECT DISTINCT asset FROM asset_references').all().map(row => row.asset)), badJson = [];
     async function scanDirectory(folder) {
       let entries;
       try { entries = await readdir(folder, { withFileTypes: true }); }
@@ -34,7 +38,7 @@ export function createAssetStorage({ data, quotaBytes = ASSET_QUOTA_BYTES, grace
         }
       }
     }
-    for (const name of ['templates', 'drafts', 'renders']) await scanDirectory(path.join(data, name));
+    await scanDirectory(path.join(data, 'renders'));
     try { collectReferences(JSON.parse(await readFile(path.join(data, 'project.json'), 'utf8')), output); }
     catch (error) { if (error.code !== 'ENOENT') badJson.push({ filename: path.join(data, 'project.json'), error }); }
     if (badJson.length) throw Object.assign(new Error(`Storage cleanup stopped because ${badJson.length} persisted JSON file is unreadable.`), { status: 500, files: badJson.map(item => item.filename) });
