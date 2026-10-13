@@ -49,7 +49,8 @@ function carousel(templateId, index, x) {
     shader: SHADERS[index % SHADERS.length].id, intensity: 0.6, layerEffect: CAROUSEL_EFFECTS[index % CAROUSEL_EFFECTS.length].id,
     cornerRadius: index % 3 ? 12 : 0, cardShape: index % 2 ? 'squircle' : 'rounded' };
 }
-const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'twist'], ['window-push', 'wheel']];
+// Slot 14 (Monochrome) belonged to the retired Twist; a second Circular keeps that shader covered.
+const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'circular'], ['window-push', 'wheel']];
 
 function carouselFixtures() {
   return CAROUSEL_GROUPS.map((group, g) => {

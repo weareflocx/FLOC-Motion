@@ -9,7 +9,6 @@ export const MOTION_VARIANTS = {
   spinner: [['rotor', 'Axis rotor'], ['hinge', 'Hinged rotor'], ['fan', 'Radial fan']],
   stack: [['deck', 'Cycling deck'], ['stairs', 'Staircase'], ['spread', 'Splayed deck'], ['radial', 'Rosette'], ['infinite', 'Depth queue']],
   stickers: [['peel', 'Peeling posters'], ['scatter', 'Sticker field']],
-  twist: [['single', 'Single torsion'], ['ribbon', 'Torsion ribbon']],
   wheel: [['rock', 'Rocking arc'], ['ring', 'Radial wheel']],
   flip: [['step', 'Step and turn']],
   'zoom-through': [],
@@ -174,11 +173,6 @@ export function carouselCard(layer, index, count, time) {
       state.scale = index === 0 ? 1 : 0.55 * (0.6 + 0.4 * envelope);
       state.torsion = (1 - envelope) * 0.7;
     }
-  } else if (layer.template === 'twist') {
-    state.position = variant === 'single' ? [0, 0, -Math.abs(d) * 0.15] : [0, d * (size / (layer.cardAspect || 1 / 1.14) + gap), -Math.abs(d) * 0.15];
-    state.opacity = fadeEdge(d, Math.min(count / 2, variant === 'single' ? 1 : 2.5));
-    state.torsion = Math.sin(angle * count + index / count * TAU) * 1.2;
-    state.rotation[1] = Math.sin(angle * count) * 0.35;
   } else if (layer.template === 'wheel') {
     const rock = variant === 'rock';
     const r = layer.radius > 0 ? radius : Math.max(2.2, count * (size + gap) / TAU);

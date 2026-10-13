@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 4;
+export const CURRENT_PROJECT_VERSION = 5;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -82,8 +82,20 @@ function v3ToV4(project) {
   return project;
 }
 
+// v4 retired Twist. A single torsion panel becomes Flip (one card changing through a turn);
+// the torsion ribbon becomes a Horizontal strip. Frozen here so a v4 file always migrates alike.
+function v4ToV5(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'carousel' || layer.template !== 'twist') continue;
+    const ribbon = layer.motionVariant === 'ribbon';
+    layer.template = ribbon ? 'horizontal' : 'flip';
+    layer.motionVariant = ribbon ? 'strip' : 'default';
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

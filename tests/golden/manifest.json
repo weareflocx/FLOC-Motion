@@ -42,12 +42,12 @@
         "carousels-stack-shuffle-sphere-spinner-1.70s.png"
       ]
     },
-    "carousels-stack-stickers-twist": {
-      "hash": "6347fd5fc6f420e5",
+    "carousels-stack-stickers-circular": {
+      "hash": "f66579566d669e33",
       "format": "landscape",
       "frames": [
-        "carousels-stack-stickers-twist-0.50s.png",
-        "carousels-stack-stickers-twist-1.70s.png"
+        "carousels-stack-stickers-circular-0.50s.png",
+        "carousels-stack-stickers-circular-1.70s.png"
       ]
     },
     "carousels-window-push-wheel": {

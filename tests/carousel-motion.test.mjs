@@ -76,7 +76,8 @@ test('new settings migrate without mutating old projects and reject malformed or
 });
 test('recycling cards is invisible at loop boundaries and native families differ', () => {
   const fingerprints = new Set();
-  for (const template of ['circular','horizontal','showcase','sphere','spinner','stack','stickers','twist','wheel']) {
+  const families = ['circular','horizontal','showcase','sphere','spinner','stack','stickers','wheel'];
+  for (const template of families) {
     const l = { ...base(), template };
     fingerprints.add(JSON.stringify(carouselCard(l, 1, 12, 0.7)));
     for (let i=0;i<12;i++) {
@@ -87,7 +88,7 @@ test('recycling cards is invisible at loop boundaries and native families differ
       a.rotation.forEach((v,j)=>assert(Math.abs(Math.sin(v)-Math.sin(b.rotation[j]))<1e-4,`${template} rotation seam`));
     }
   }
-  assert.equal(fingerprints.size,9);
+  assert.equal(fingerprints.size, families.length);
 });
 test('agents apply real family controls through the same validated project model', async () => {
   const {createTools}=await import('../src/webmcp.js');
