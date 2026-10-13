@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useCanvasInteraction } from './useCanvasInteraction.jsx';
 import { FORMATS } from '../project.js';
 import { createScene, stageMarkup } from '../scene.js';
-import { updateTextPreview } from './text-preview.js';
-import { updatePlacementPreview } from './placement-preview.js';
+import { createResourceCache } from '../scene-resources.js';
 import { createPreviewSession } from './preview-session.js';
 import { PlacementGuides } from './PlacementGuides.jsx';
 import { DEFAULT_LAYOUT } from '../layout.js';
@@ -56,6 +55,8 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
       active.scene.seek(now.time, now.playing);
     };
     fitRef.current = fit;
+    // Rebuilds within this session reuse decoded card media and parsed models.
+    const resources = createResourceCache();
     const manager = createPreviewSession({
       async prepare(project) {
         const node = document.createElement('div');
@@ -64,11 +65,11 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
         const grid = document.createElement('div');
         grid.className = 'position-grid-overlay'; grid.hidden = true; grid.setAttribute('aria-hidden', 'true');
         grid.append(document.createElement('i')); node.append(grid);
-        const scene = await createScene(node, project, { onMediaError: error => callbacks.current.onError(error.message) });
+        const scene = await createScene(node, project, { resources, onMediaError: error => callbacks.current.onError(error.message) });
         return { node, scene, project };
       },
       update(current, project) {
-        if (!updateTextPreview(current, project) && !updatePlacementPreview(current, project)) return false;
+        if (!current.scene.update(project)) return false;
         setActiveProject(project);
         return true;
       },

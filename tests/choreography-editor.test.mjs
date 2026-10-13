@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { choreographyPatch } from '../src/editor/choreography-edit.js';
-import { updatePlacementPreview } from '../src/editor/placement-preview.js';
+import { sceneUpdatePlan } from '../src/scene-update.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { demoProject, patchLayer, validateProject } from '../src/project.js';
 
@@ -42,10 +42,7 @@ test('editing an existing state preserves its ID and transition, and static edit
 test('state changes preserve decoded assets and live preview resources', () => {
   const project = animatedProject(), layer = project.layers.find(item => item.id === 'headline');
   const next = patchLayer(project, layer.id, choreographyPatch(layer, { x: 45, opacity: 0.6 }, 1, project.fps));
-  let updated;
-  const scene = { updateLayers(layers) { updated = layers; } };
-  assert.equal(updatePlacementPreview({ project, scene }, next), true);
-  assert.equal(updated, next.layers);
-  const resourceChange = patchLayer(next, 'carousel', { shader: 'wave' });
-  assert.equal(updatePlacementPreview({ project: next, scene }, resourceChange), false);
+  assert.deepEqual(sceneUpdatePlan(project, next), { effects: false });
+  const resourceChange = patchLayer(next, 'carousel', { template: 'stack' });
+  assert.equal(sceneUpdatePlan(next, resourceChange), null);
 });

@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { demoProject, linkFormats, switchFormat, patchLayer, validateProject } from '../src/project.js';
 import { createTools } from '../src/webmcp.js';
-import { updatePlacementPreview } from '../src/editor/placement-preview.js';
-import { updateTextPreview } from '../src/editor/text-preview.js';
+import { sceneUpdatePlan } from '../src/scene-update.js';
 import { createTemplateStore } from '../server/template-store.mjs';
 import { prepareComposition } from '../server/export.mjs';
 
@@ -35,19 +34,11 @@ test('agent output switching restores linked framing while sharing content and t
 
 test('linked placement and text edits retain preview resources but format changes do not', () => {
   const project = linkFormats(demoProject());
-  const headline = project.layers.find(layer => layer.id === 'headline');
-  const textNode = { dataset: { flocLayer: headline.id }, textContent: headline.text };
-  let updates = 0;
-  const current = { project, scene: { updateLayers() { updates++; } }, node: { querySelectorAll: () => [textNode] } };
-  const moved = patchLayer(project, headline.id, { x: 15, size: 56 });
-  assert.equal(updatePlacementPreview(current, moved), true);
-  assert.equal(updates, 1);
-  current.project = moved;
-  const typed = patchLayer(moved, headline.id, { text: 'Linked title' });
-  assert.equal(updateTextPreview(current, typed), true);
-  assert.equal(textNode.textContent, 'Linked title');
-  assert.equal(updatePlacementPreview(current, switchFormat(typed, 'portrait')), false);
-  assert.equal(updates, 2);
+  const moved = patchLayer(project, 'headline', { x: 15, size: 56 });
+  assert.deepEqual(sceneUpdatePlan(project, moved), { effects: false });
+  const typed = patchLayer(moved, 'headline', { text: 'Linked title' });
+  assert.deepEqual(sceneUpdatePlan(moved, typed), { effects: false });
+  assert.equal(sceneUpdatePlan(typed, switchFormat(typed, 'portrait')), null);
 });
 
 test('saved compositions retain all linked corrections and export the active version', async () => {
