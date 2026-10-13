@@ -39,9 +39,9 @@ test('reverse, pause, nonzero layer start and legacy positions retain their sema
   const horizontal = carouselCard({ ...base(), template: 'horizontal', loopDuration: 0, speed: 35 }, 1, 6, 1);
   assert.deepEqual(horizontal.position, [0, 0, -0]);
 });
-test('108 recipes use nine real families and 24 variants with observed composition settings', () => {
+test('catalog recipes use nine real families and 22 variants with observed composition settings', () => {
   assert.equal(new Set(CATALOG.map(p => p.carouselPatch.template)).size, 9);
-  assert.equal(new Set(CATALOG.map(p => `${p.carouselPatch.template}/${p.carouselPatch.motionVariant}`)).size, 24);
+  assert.equal(new Set(CATALOG.map(p => `${p.carouselPatch.template}/${p.carouselPatch.motionVariant}`)).size, 22);
   for (const p of CATALOG) {
     const next = patchLayer(demoProject(), 'carousel', p.carouselPatch);
     assert(next.layers[1].loopDuration > 0);

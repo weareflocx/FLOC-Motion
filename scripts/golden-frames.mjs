@@ -37,25 +37,26 @@ const base = (name, format) => ({ version: 1, name, format, duration: DURATION, 
 const span = { visible: true, start: 0, end: DURATION };
 const colorBackground = color => ({ id: 'background', type: 'background', name: 'Background', ...span, color, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true });
 const text = (id, values) => ({ id, type: 'text', name: id, ...span, x: 6, y: 6, size: 48, color: '#ffffff', font: 'geist', weight: 700, width: 80, fadeIn: 0, fadeOut: 0, rise: false, ...values });
-const PLANAR = ['nested-rise', 'zoom-through', 'sweep-reveal', 'window-push'];
-// Carousel N gets SHADERS[N % 6] and CAROUSEL_EFFECTS[N % 4], so every shader
-// and post effect renders on at least one template.
+const PLANAR = ['zoom-through', 'sweep-reveal', 'window-push'];
+// The carousel in slot N (group × 3 + column) gets SHADERS[N % 6] and
+// CAROUSEL_EFFECTS[N % 4], so every shader and post effect renders on at least
+// one template and a smaller group never reshuffles the groups after it.
 function carousel(templateId, index, x) {
   const template = TEMPLATES.find(item => item.id === templateId);
   const layer = { ...demoProject().layers.find(l => l.type === 'carousel'), id: `carousel-${templateId}`, name: template.name, template: templateId, ...template.defaults };
   return { ...layer, ...span, x, y: 50, cardCount: template.defaults?.cardCount ?? 6, speed: template.defaults?.speed ?? 30, loopDuration: template.defaults?.loopDuration ?? 0,
-    size: PLANAR.includes(templateId) ? 0.5 : templateId === 'stack-shuffle' ? 0.58 : 1, tilt: ['arc', 'flip'].includes(templateId) ? 0 : -12, roll: 0,
+    size: PLANAR.includes(templateId) ? 0.5 : templateId === 'stack-shuffle' ? 0.58 : 1, tilt: templateId === 'flip' ? 0 : -12, roll: 0,
     shader: SHADERS[index % SHADERS.length].id, intensity: 0.6, layerEffect: CAROUSEL_EFFECTS[index % CAROUSEL_EFFECTS.length].id,
     cornerRadius: index % 3 ? 12 : 0, cardShape: index % 2 ? 'squircle' : 'rounded' };
 }
-const CAROUSEL_GROUPS = [['circular', 'depth', 'arc'], ['horizontal', 'flip', 'showcase'], ['nested-rise', 'zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'twist'], ['window-push', 'wheel']];
+const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'twist'], ['window-push', 'wheel']];
 
 function carouselFixtures() {
-  let index = 0;
-  return CAROUSEL_GROUPS.map(group => {
+  return CAROUSEL_GROUPS.map((group, g) => {
     const project = base(`Carousels ${group.join(' ')}`, 'landscape');
-    const columns = group.length === 3 ? [22, 50, 78] : [50, 72];
-    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => carousel(id, index++, columns[i]))];
+    // Window Push fills the canvas, so its partner sits beside the window.
+    const columns = group.length === 3 ? [22, 50, 78] : group.length === 1 ? [50] : group.includes('window-push') ? [50, 72] : [28, 72];
+    project.layers = [colorBackground('#16181d'), ...group.map((id, i) => carousel(id, g * 3 + i, columns[i]))];
     return { id: `carousels-${group.join('-')}`, times: [0.5, 1.7], project };
   });
 }

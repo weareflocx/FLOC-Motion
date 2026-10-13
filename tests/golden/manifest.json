@@ -10,12 +10,12 @@
     "ratio": 0.005
   },
   "fixtures": {
-    "carousels-circular-depth-arc": {
-      "hash": "e554912967f208ad",
+    "carousels-circular": {
+      "hash": "294cdd35740a3f2f",
       "format": "landscape",
       "frames": [
-        "carousels-circular-depth-arc-0.50s.png",
-        "carousels-circular-depth-arc-1.70s.png"
+        "carousels-circular-0.50s.png",
+        "carousels-circular-1.70s.png"
       ]
     },
     "carousels-horizontal-flip-showcase": {
@@ -26,12 +26,12 @@
         "carousels-horizontal-flip-showcase-1.70s.png"
       ]
     },
-    "carousels-nested-rise-zoom-through-sweep-reveal": {
-      "hash": "ecd8239201ae9529",
+    "carousels-zoom-through-sweep-reveal": {
+      "hash": "84ded75a2933228b",
       "format": "landscape",
       "frames": [
-        "carousels-nested-rise-zoom-through-sweep-reveal-0.50s.png",
-        "carousels-nested-rise-zoom-through-sweep-reveal-1.70s.png"
+        "carousels-zoom-through-sweep-reveal-0.50s.png",
+        "carousels-zoom-through-sweep-reveal-1.70s.png"
       ]
     },
     "carousels-stack-shuffle-sphere-spinner": {

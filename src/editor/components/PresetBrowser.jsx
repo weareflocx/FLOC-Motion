@@ -6,7 +6,7 @@ import { DEFAULT_MOTION, motionBaseline } from '../../motion-timing.js';
 import { MotionPreview } from './MotionPreview.jsx';
 import { IconButton, Modal } from '../controls.jsx';
 
-const templateFamilies = { circular: 'Orbit', depth: 'Stack', arc: 'Stack', horizontal: 'Sliders', flip: 'Sliders' };
+const templateFamilies = { circular: 'Orbit', horizontal: 'Sliders', flip: 'Sliders' };
 const movements = [
   ...TEMPLATES.map(item => ({ ...item, collection: 'templates', family: templateFamilies[item.id] || item.name })),
   ...CATALOG.map(item => ({ ...item, collection: 'catalog' }))
@@ -25,7 +25,7 @@ export function PresetBrowser({ layer, onApply, onSelect, onClose, error }) {
   const [family, setFamily] = useState('');
   const items = useMemo(() => movements.filter(item => !family || item.family === family), [family]);
   function apply(item) {
-    const patch = item.collection === 'catalog' ? item.carouselPatch : { template: item.id, motion: { ...DEFAULT_MOTION }, ...item.defaults, motionBaseline: motionBaseline({ ...layer, motion: DEFAULT_MOTION, ...item.defaults }, item.name), ...(['arc', 'flip'].includes(item.id) ? { tilt: 0, yaw: 0, roll: 0 } : {}) };
+    const patch = item.collection === 'catalog' ? item.carouselPatch : { template: item.id, motion: { ...DEFAULT_MOTION }, ...item.defaults, motionBaseline: motionBaseline({ ...layer, motion: DEFAULT_MOTION, ...item.defaults }, item.name), ...(item.id === 'flip' ? { tilt: 0, yaw: 0, roll: 0 } : {}) };
     if (onSelect) onSelect(patch, item);
     else { onApply(patch); onClose(); }
   }

@@ -356,7 +356,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     const position = placed ? { ...sampled, ...placed } : sampled;
     group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, 0);
     // Planar carousels size their largest card as a fraction of the canvas.
-    const planar = ['nested-rise', 'zoom-through', 'sweep-reveal'].includes(layer.template);
+    const planar = ['zoom-through', 'sweep-reveal'].includes(layer.template);
     const shuffle = layer.template === 'stack-shuffle';
     const windowPush = layer.template === 'window-push';
     const canvasSize = windowPush ? viewHeight * width / height : planar ? Math.min(viewHeight * width / height, viewHeight * sampled.cardAspect) : shuffle ? viewHeight : 1;

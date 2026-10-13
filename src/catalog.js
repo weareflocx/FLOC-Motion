@@ -14,8 +14,8 @@ const modelVariant = {
   perspective_linear_queue: 'queue', linear_slider: 'strip', linear_slider_with_scale_field: 'focus',
   spherical_point_cloud_billboards: 'billboard', spherical_tangential_panels: 'tangent', multi_axis_spherical_cloud: 'cloud',
   axis_rotor: 'rotor', hinged_axis_rotor: 'hinge', fan_axis_rotor: 'fan',
-  cycling_deck: 'deck', stair_deck: 'stairs', arc_deck: 'spread', radial_deck: 'radial', recycled_depth_queue: 'infinite',
-  layered_peeling_posters: 'peel', curling_stickers: 'scatter', single_torsion_panel: 'single', torsion_panel_carousel: 'ribbon',
+  stair_deck: 'stairs', arc_deck: 'spread', radial_deck: 'radial', recycled_depth_queue: 'infinite',
+  layered_peeling_posters: 'peel', curling_stickers: 'scatter', torsion_panel_carousel: 'ribbon',
   large_radius_radial_arc: 'rock', planar_circle_or_ellipse: 'ring'
 };
 const aspectValue = entry => {
@@ -178,14 +178,14 @@ export function getCatalogEntry(id) {
   return entry;
 }
 
-export function listCatalog({ query = '', family = '', limit = 108 } = {}) {
+export function listCatalog({ query = '', family = '', limit = CATALOG.length } = {}) {
   const normalizedQuery = String(query).trim().toLowerCase();
   const normalizedFamily = String(family).trim().toLowerCase();
   const matches = CATALOG.filter(entry => {
     const searchable = `${entry.id} ${entry.name} ${entry.family} ${entry.group} ${entry.description}`.toLowerCase();
     return (!normalizedQuery || searchable.includes(normalizedQuery)) && (!normalizedFamily || entry.family.toLowerCase() === normalizedFamily);
   });
-  return matches.slice(0, clamp(Number(limit) || 108, 1, 108));
+  return matches.slice(0, clamp(Number(limit) || CATALOG.length, 1, CATALOG.length));
 }
 
 export function catalogSummary() {

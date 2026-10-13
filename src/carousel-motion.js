@@ -12,7 +12,7 @@ export const MOTION_VARIANTS = {
   twist: [['single', 'Single torsion'], ['ribbon', 'Torsion ribbon']],
   wheel: [['rock', 'Rocking arc'], ['ring', 'Radial wheel']],
   flip: [['step', 'Step and turn']],
-  depth: [], arc: [], 'nested-rise': [], 'zoom-through': [],
+  'zoom-through': [],
   'stack-shuffle': [['down', 'Down'], ['up', 'Up'], ['left', 'Left'], ['right', 'Right']],
   'sweep-reveal': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']],
   'window-push': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']]
@@ -41,23 +41,16 @@ export function carouselCard(layer, index, count, time) {
     if (variant === 'bloom') state.rotation[1] = Math.sin(theta) * 0.65;
     state.depth = 0.65 + (Math.cos(theta) + 1) * 0.175;
     state.opacity = 1 - (layer.fade || 0) * (1 - Math.cos(theta)) / 2;
-  } else if (layer.template === 'horizontal' || layer.template === 'depth' || layer.template === 'arc') {
+  } else if (layer.template === 'horizontal') {
     // Preserve legacy speed semantics unless an explicit loop duration is set.
     const advance = clock.advance;
     const timed = layer.loopDuration > 0 || clock.stepped;
     const offset = mod(index - advance + count / 2, count) - count / 2;
-    if (layer.template === 'arc') {
-      const a = offset * (0.34 + gap * 0.2);
-      state.position = [Math.sin(a) * 3.6, Math.cos(a) * 3.6 - 2.1, -Math.abs(offset) * 0.06];
-      state.rotation[2] = -a;
-      state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 1.7 / (0.34 + gap * 0.2))) : Math.abs(a) < 1.7 ? 1 : 0;
-    } else {
-      state.position = layer.template === 'depth' ? [offset * (0.65 + gap), offset * 0.18, -Math.abs(offset) * 0.85] : [offset * (size + gap), 0, -Math.abs(offset) * 0.35];
-      state.rotation[1] = offset * (layer.template === 'depth' ? 0.2 : -0.18);
-      state.depth = Math.max(0.45, 1 - Math.abs(offset) * 0.14);
-      state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 3.2)) : Math.abs(offset) < 3.2 ? 1 : 0;
-      if (variant === 'focus') state.scale = 0.65 + 0.55 * Math.exp(-offset * offset * 1.2);
-    }
+    state.position = [offset * (size + gap), 0, -Math.abs(offset) * 0.35];
+    state.rotation[1] = offset * -0.18;
+    state.depth = Math.max(0.45, 1 - Math.abs(offset) * 0.14);
+    state.opacity = timed ? fadeEdge(offset, Math.min(count / 2, 3.2)) : Math.abs(offset) < 3.2 ? 1 : 0;
+    if (variant === 'focus') state.scale = 0.65 + 0.55 * Math.exp(-offset * offset * 1.2);
   } else if (layer.template === 'flip') {
     const step = phase * count;
     const progress = (step % 1 - 0.6) / 0.4;
@@ -96,14 +89,12 @@ export function carouselCard(layer, index, count, time) {
       state.rotation[0] = -theta;
       if (variant === 'hinge') { state.position[0] = Math.sin(theta) * size * 0.5; state.rotation[1] = Math.sin(theta) * 0.6; }
     }
-  } else if (['nested-rise', 'zoom-through'].includes(layer.template)) {
-    const centered = layer.template === 'zoom-through';
-    const age = mod(phase * count - index + (centered ? 0.5 : 0), count);
+  } else if (layer.template === 'zoom-through') {
+    const age = mod(phase * count - index + 0.5, count);
     // Older cards reach full size behind the next card before being recycled.
-    const progress = clamp(age / Math.max(1, Math.min(centered ? 2.4 : 3, count - 1)));
+    const progress = clamp(age / Math.max(1, Math.min(2.4, count - 1)));
     state.scale = Math.max(1e-6, motionEase(progress, motion, 1 - (1 - progress) ** 3));
-    if (centered) state.rotation[2] = (layer.zoomRotation ?? 0) * Math.PI / 180 * (1 - clamp(state.scale));
-    else state.position[1] = (state.scale - 1) * size / (2 * layer.cardAspect);
+    state.rotation[2] = (layer.zoomRotation ?? 0) * Math.PI / 180 * (1 - clamp(state.scale));
     state.renderOrder = count - age;
     if (count === 1) state.opacity = clamp((1 - age) * 8);
   } else if (layer.template === 'window-push') {

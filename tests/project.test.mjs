@@ -37,15 +37,14 @@ test('switching a media background to color preserves its source without renderi
   assert.throws(() => patchLayer(demoProject(), 'background', { src: '/assets/12345678-1234-1234-1234-123456789012.mp3' }), /background asset type/);
 });
 test('local catalog normalizes all source recipes into safe FLOC patches', () => {
-  assert.equal(CATALOG.length, 108);
-  assert.equal(new Set(CATALOG.map(entry => entry.id)).size, 108);
+  assert.equal(new Set(CATALOG.map(entry => entry.id)).size, CATALOG.length);
   const orbit = getCatalogEntry('orbit-pure-01');
   assert.equal(orbit.carouselPatch.template, 'circular');
   assert.equal(orbit.carouselPatch.shader, 'none');
   assert.equal(orbit.support.kind, 'reconstructed_recipe');
   assert(orbit.thumbnail.startsWith('/catalog/visuals/'));
-  assert.equal(listCatalog({ family: 'Orbit', limit: 200 }).length, 24);
-  assert.equal(listCatalog({ query: 'lightroom' }).length, 8);
+  assert.equal(listCatalog({ family: 'Orbit', limit: 200 }).length, 11);
+  assert.equal(listCatalog({ query: 'lightroom' }).length, 3);
 });
 test('reject external, traversal and executable asset sources', () => {
   for (const src of ['https://example.com/a.png', '/assets/../../secret', 'javascript:alert(1)', '/demo/unknown.svg']) { const p = demoProject(); p.images[0].src = src; assert.throws(() => validateProject(p)); }

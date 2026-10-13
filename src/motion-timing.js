@@ -38,9 +38,9 @@ export function motionClock(layer, count, time) {
   } else {
     cycle = layer.loopDuration > 0 ? (layer.speed === 0 ? 0 : local / layer.loopDuration * Math.sign(layer.speed)) : local * layer.speed / 360;
     // These families historically measure speed in card advances, not degrees.
-    if (!layer.loopDuration && ['horizontal', 'depth', 'arc'].includes(layer.template)) cycle = local * layer.speed / (layer.template === 'arc' ? 60 : 35) / count;
+    if (!layer.loopDuration && layer.template === 'horizontal') cycle = local * layer.speed / 35 / count;
     // These families shape each card's transition rather than the whole clock.
-    if (!['flip', 'stickers', 'nested-rise', 'zoom-through', 'stack-shuffle', 'sweep-reveal', 'window-push'].includes(layer.template) && motion.curve !== 'native' && motion.intensity > 0) {
+    if (!['flip', 'stickers', 'zoom-through', 'stack-shuffle', 'sweep-reveal', 'window-push'].includes(layer.template) && motion.curve !== 'native' && motion.intensity > 0) {
       const advance = Math.abs(cycle * count);
       cycle = (Math.floor(advance) + motionEase(advance % 1, motion)) * Math.sign(cycle) / count;
     }

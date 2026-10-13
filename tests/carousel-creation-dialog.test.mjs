@@ -51,7 +51,7 @@ test('carousel selection, photo order and removal stay private until one validat
   const h = harness({ project: validateProject(demoProject()) });
   const original = structuredClone(h.project);
   assert(h.library());
-  h.select('depth');
+  h.select('showcase');
   assert.equal(h.button('Create carousel').props.disabled, true);
   await h.submit();
   assert.equal(h.creations.length, 0);
@@ -64,7 +64,7 @@ test('carousel selection, photo order and removal stay private until one validat
   assert.deepEqual(h.project, original);
   await h.submit();
   assert.equal(h.creations.length, 1);
-  assert.equal(h.creations[0].template, 'depth');
+  assert.equal(h.creations[0].template, 'showcase');
   assert.deepEqual(Array.from(h.creations[0].images, image => image.name), ['two.svg', 'one.PNG']);
   assert.equal(h.closes(), 1);
   assert.deepEqual(h.project, original);
@@ -208,12 +208,12 @@ test('confirmed carousel is appended with its preset and photos as one edit usin
   const context = { useCallback: fn => fn, crypto: { randomUUID: () => 'new-carousel' }, demoProject, PROJECT_LIMITS };
   vm.createContext(context); vm.runInContext(actionsCompiled + '\nthis.actions = useCompositionActions;', context);
   const actions = context.actions({ project: original, projectRef, change(next) { projectRef.current = validateProject(next); edits++; return projectRef.current; }, setSelected(id) { selected = id; }, setLeftTab(value) { tab = value; } });
-  const chosen = { ...original.layers.find(layer => layer.type === 'carousel'), template: 'depth', images: [original.images[1], original.images[0]], id: 'carousel-draft' };
+  const chosen = { ...original.layers.find(layer => layer.type === 'carousel'), template: 'showcase', images: [original.images[1], original.images[0]], id: 'carousel-draft' };
   assert.equal(actions.addLayer('carousel', chosen), true);
   const added = projectRef.current.layers.at(-1);
   assert.equal(edits, 1);
   assert.equal(selected, 'new-carousel'); assert.equal(tab, 'layers');
-  assert.equal(added.template, 'depth');
+  assert.equal(added.template, 'showcase');
   assert.deepEqual(added.images, chosen.images);
   assert.deepEqual(projectRef.current.layers.slice(0, -1), original.layers);
   projectRef.current.layers = Array(PROJECT_LIMITS.maxLayers).fill(original.layers[0]);

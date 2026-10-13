@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 3;
+export const CURRENT_PROJECT_VERSION = 4;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -63,8 +63,27 @@ function v2ToV3(project) {
   return project;
 }
 
+// v3 retired the Depth, Arc and Nested Rise carousels. Each maps to its closest
+// remaining family; a variant the target family lacks falls back to its default.
+// Targets and their variants are frozen here so a v3 file always migrates alike.
+const V3_RETIRED_CAROUSELS = {
+  depth: { template: 'showcase', variants: ['queue'] },
+  arc: { template: 'wheel', variants: ['rock', 'ring'], motionVariant: 'rock' },
+  'nested-rise': { template: 'zoom-through', variants: [] }
+};
+function v3ToV4(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'carousel' || !Object.hasOwn(V3_RETIRED_CAROUSELS, layer.template)) continue;
+    const { template, variants, motionVariant } = V3_RETIRED_CAROUSELS[layer.template];
+    layer.template = template;
+    if (motionVariant) layer.motionVariant = motionVariant;
+    else if (layer.motionVariant !== undefined && !variants.includes(layer.motionVariant)) layer.motionVariant = 'default';
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

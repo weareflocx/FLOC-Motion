@@ -105,7 +105,7 @@ test('catalog rhythm and curve defaults are applied and reset without reverting 
     assert.deepEqual(preset.carouselPatch.motionBaseline.motion, settings);
     assert.doesNotThrow(() => patchLayer(demoProject(), 'carousel', preset.carouselPatch));
   }
-  let p = patchLayer(demoProject(), 'carousel', CATALOG.find(preset => preset.id === 'stack-stack-01').carouselPatch);
+  let p = patchLayer(demoProject(), 'carousel', CATALOG.find(preset => preset.id === 'stack-stairs-01').carouselPatch);
   const baseline = structuredClone(p.layers[1].motionBaseline);
   p = patchLayer(p, 'carousel', { motion: motion({ mode: 'steps', curve: 'elastic', action: .4, pause: .7 }), size: 2, roll: 33, fadeIn: .3 });
   p = patchLayer(p, 'carousel', { motion: baseline.motion, speed: baseline.speed, loopDuration: baseline.loopDuration });
