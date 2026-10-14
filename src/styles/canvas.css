@@ -68,6 +68,7 @@
   left: 50%;
   transform-origin: center;
   overflow: hidden;
+  background: #fff;
   box-shadow: 0 24px 60px #09090955;
   font-family: Geist,Arial,sans-serif;
 }
