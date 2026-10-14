@@ -63,15 +63,18 @@ export function validateEffects(effects) {
   }
 }
 
+function opticalWarpFactor(effect, along) {
+  const distance = along - effect.center;
+  const edge = Math.min(1, Math.abs(distance) / (distance < 0 ? effect.center : 1 - effect.center));
+  return 1 / (1 + 2 * effect.amount * edge ** 4) - 1;
+}
+
 // Inverse sampling stretches the sides while leaving the center at its native
 // scale. Coordinates are relative to the layer, including transparent padding.
 export function opticalWarpOffset(effect, x, y) {
   const along = effect.axis === 'horizontal' ? x : y;
   const across = effect.axis === 'horizontal' ? y : x;
-  const distance = along - effect.center;
-  const edge = Math.min(1, Math.abs(distance) / (distance < 0 ? effect.center : 1 - effect.center));
-  const stretch = 1 + 2 * effect.amount * edge ** 4;
-  const offset = (across - 0.5) * (1 / stretch - 1);
+  const offset = (across - 0.5) * opticalWarpFactor(effect, along);
   return effect.axis === 'horizontal' ? [0, offset] : [offset, 0];
 }
 
@@ -97,36 +100,46 @@ function decodable(texture) {
   return texture;
 }
 
-// Displacement range of a warp map, as a multiple of the layer's across size.
-// Padded coordinates reach one layer beyond each side, at most 1.5 layers from
-// the center line, and move by up to 1.5 × (1 - 1 / (1 + 2 × amount)) either
-// way; 127 channel steps on each side of the neutral 128 cover that exactly.
-//
-// Precision limit: one 8-bit step displaces by range / 255 of the layer, e.g.
-// about 0.8 % (3 px on a 400 px layer) at amount 1 and 0.6 % at 0.5. Edges
-// curving across the stretch therefore still move in small steps on large
-// layers; the 0.35 px blur below only softens them. Every layer uses this map
-// so stack ordering and output are identical across layer types.
-export const opticalWarpMapScale = amount => 1.5 * (1 - 1 / (1 + 2 * amount)) * 255 / 127;
-function opticalWarpMap(effect) {
-  const scale = opticalWarpMapScale(effect.amount);
-  return decodable(cachedTexture(`warp:${effect.axis}:${effect.amount}:${effect.center}:${scale}`, () => {
-    const horizontal = effect.axis === 'horizontal';
-    const canvas = document.createElement('canvas');
-    canvas.width = horizontal ? 256 : 768;
-    canvas.height = horizontal ? 768 : 256;
-    const context = canvas.getContext('2d');
-    const pixels = context.createImageData(canvas.width, canvas.height);
-    for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
-      const [dx, dy] = opticalWarpOffset(effect, horizontal ? x / (canvas.width - 1) : -1 + 3 * x / (canvas.width - 1), horizontal ? -1 + 3 * y / (canvas.height - 1) : y / (canvas.height - 1));
-      const index = (y * canvas.width + x) * 4;
-      pixels.data[index] = 128 + Math.round(dx / scale * 255);
-      pixels.data[index + 1] = 128 + Math.round(dy / scale * 255);
-      pixels.data[index + 2] = 0; pixels.data[index + 3] = 255;
+// Large translations belong in feOffset, not an 8-bit displacement channel.
+// Small residual ranges avoid layer-sized quantization. The same filter graph
+// works on every visual layer, without blurring away the displaced detail.
+function opticalWarpMaps(effect, width, height, clipped) {
+  return cachedTexture(`warp:${effect.axis}:${effect.amount}:${effect.center}:${width}:${height}:${clipped}`, () => {
+    const horizontal = effect.axis === 'horizontal', alongSize = horizontal ? width : height, acrossSize = horizontal ? height : width;
+    const offset = (along, across) => (across - acrossSize / 2) * opticalWarpFactor(effect, along / alongSize);
+    const tiles = [];
+    function split(a, b, w, h) {
+      const points = [a, a + w], center = effect.center * alongSize;
+      if (a < center && center < a + w) points.push(center);
+      const top = points.map(x => offset(x, b)), bottom = points.map(x => offset(x, b + h));
+      const base = Math.round(offset(a + w / 2, b + h / 2));
+      const range = Math.max(...top.concat(bottom).map(value => Math.abs(value - base)));
+      if (range > 31 && (w > 1 || h > 1)) {
+        const along = Math.max(Math.max(...top) - Math.min(...top), Math.max(...bottom) - Math.min(...bottom));
+        const across = Math.max(...top.map((value, i) => Math.abs(value - bottom[i])));
+        if (w > 1 && (along >= across || h <= 1)) {
+          const half = Math.floor(w / 2); split(a, b, half, h); split(a + half, b, w - half, h);
+        } else {
+          const half = Math.floor(h / 2); split(a, b, w, half); split(a, b + half, w, h - half);
+        }
+        return;
+      }
+      const scale = Math.max(1, range * 2), canvas = document.createElement('canvas');
+      canvas.width = Math.min(horizontal ? w : h, 64); canvas.height = Math.min(horizontal ? h : w, 64);
+      const context = canvas.getContext('2d'), pixels = context.createImageData(canvas.width, canvas.height);
+      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+        const along = a + (horizontal ? (x + .5) / canvas.width : (y + .5) / canvas.height) * w;
+        const across = b + (horizontal ? (y + .5) / canvas.height : (x + .5) / canvas.width) * h;
+        const index = (y * canvas.width + x) * 4;
+        pixels.data[index] = 128 + Math.round((offset(along, across) - base) / scale * 254);
+        pixels.data[index + 1] = 0; pixels.data[index + 2] = 0; pixels.data[index + 3] = 255;
+      }
+      context.putImageData(pixels, 0, 0);
+      tiles.push({ ...decodable({ canvas }), base, scale, x: horizontal ? a : b, y: horizontal ? b : a, width: horizontal ? w : h, height: horizontal ? h : w });
     }
-    context.putImageData(pixels, 0, 0);
-    return { canvas };
-  }));
+    split(0, clipped ? 0 : -acrossSize, alongSize, acrossSize * (clipped ? 1 : 3));
+    return { tiles, ready: Promise.all(tiles.map(tile => tile.ready)) };
+  });
 }
 
 function sample(seed, index) {
@@ -383,17 +396,10 @@ export function createEffects(root, project, formats, layerAlpha) {
         const horizontal = effect.axis === 'horizontal';
         const bounds = { x: horizontal ? 0 : -1, y: horizontal ? -1 : 0, width: horizontal ? 1 : 3, height: horizontal ? 3 : 1 };
         const filter = element('filter', { id, ...bounds, filterUnits: 'objectBoundingBox', primitiveUnits: 'userSpaceOnUse', 'color-interpolation-filters': 'sRGB' });
-        const map = opticalWarpMap(effect);
-        const image = element('feImage', { href: map.url, preserveAspectRatio: 'none', result: 'warpMap' });
-        // PNG channels use 128 as neutral. Correct it to exactly 0.5 to avoid
-        // translating the untouched axis or the center of the layer. Offset
-        // the source rather than rounding the map again in a color transfer.
-        const sourceOffset = element('feOffset', { in: 'SourceGraphic', result: 'centeredSource' });
-        const displacement = element('feDisplacementMap', { in: 'centeredSource', in2: 'warpMap', xChannelSelector: 'R', yChannelSelector: 'G' });
-        // Antialias the displacement's pixel sampling at curved edges.
-        filter.append(image, sourceOffset, displacement, element('feGaussianBlur', { stdDeviation: 0.35 })); defs.append(filter);
-        imagesReady.push(map.ready);
-        filters.push({ effect, index, url: `url(#${id})`, displacement, image, sourceOffset, amount: effect.amount });
+        defs.append(filter);
+        const pointwise = effect => !effect.enabled || ['monochrome', 'duotone'].includes(effect.type);
+        const pointwiseTail = (layer.effects ?? []).slice(index + 1).every(pointwise) && project.layers.slice(layerIndex + 1).every(layer => layer.type !== 'effect' || layer.effectScope !== 'below' || layer.effects.every(pointwise));
+        filters.push({ effect, index, url: `url(#${id})`, filterNode: filter, patches: [], pointwiseTail });
         return;
       }
       if (SVG_EFFECTS.has(effect.type)) {
@@ -461,31 +467,53 @@ export function createEffects(root, project, formats, layerAlpha) {
       const strength = target.adjustment ? layerAlpha(layer, time) : 1;
       const live = evaluateChoreography(layer, time).effects ?? [];
       const filters = target.filters.flatMap(filter => {
-        const { effect, index, url, alpha, blurs, displacement, image, sourceOffset, fades, update } = filter;
+        const { effect, index, url, alpha, blurs, fades, update } = filter;
         const value = live[index] ?? effect;
         if (!effect.enabled || strength <= 0) return [];
         if (effect.type === 'optical-warp') {
-          // Animated amounts reuse cached maps in hundredths.
-          const amount = value.amount === effect.amount ? effect.amount : Math.round(value.amount * 100) / 100;
+          const amount = value.amount;
           if (!amount) return [];
           const width = target.nodes[0].offsetWidth, height = target.nodes[0].offsetHeight;
           if (!width || !height) return [];
-          if (filter.amount !== amount) {
-            const map = opticalWarpMap({ ...effect, amount });
-            image.setAttribute('href', map.url);
+          const node = target.nodes[0], horizontal = effect.axis === 'horizontal';
+          // A final full-stage lens cannot expose its off-stage padding. Keep
+          // padding for smaller/transformed layers and later spatial filters.
+          const clipped = filter.pointwiseTail && width === root.offsetWidth && height === root.offsetHeight && node.offsetLeft === 0 && node.offsetTop === 0 && (!node.style.transform || node.style.transform === 'none');
+          const geometry = `${width}:${height}:${amount}:${clipped}`;
+          if (filter.geometry !== geometry) {
+            const map = opticalWarpMaps({ ...effect, amount }, width, height, clipped);
+            const bounds = { x: !clipped && !horizontal ? -1 : 0, y: !clipped && horizontal ? -1 : 0, width: !clipped && !horizontal ? 3 : 1, height: !clipped && horizontal ? 3 : 1 };
+            for (const [key, value] of Object.entries(bounds)) filter.filterNode.setAttribute(key, value);
             pending.push(map.ready);
-            filter.amount = amount;
+            for (const child of [...filter.filterNode.childNodes]) child.remove();
+            // Materialize one unchanged RGBA source before translated views.
+            // Direct WebGL-backed SourceGraphic branches corrupt large GPU tiles.
+            filter.filterNode.append(element('feConvolveMatrix', { in: 'SourceGraphic', order: 3, kernelMatrix: '0 0 0 0 1 0 0 0 0', preserveAlpha: true, edgeMode: 'none', result: 'warpSource' }));
+            const merge = element('feMerge');
+            // Alpha 254 makes neutral RGB exactly 127/254 after premultiplying.
+            // This prevents rounding/dithering from moving the untouched axis.
+            const varying = `${255 / 254} 0 0 0 ${.5 - 128 / 254}`, neutral = '0 0 0 0 .5';
+            const matrix = `${horizontal ? neutral : varying} ${horizontal ? varying : neutral} 0 0 0 0 0 0 0 0 0 ${254 / 255}`;
+            filter.patches = map.tiles.map((tile, i) => {
+              const { x, y, width, height, scale } = tile, bounds = { x, y, width, height }, padding = Math.ceil(scale / 2) + 2;
+              const image = element('feImage', { href: tile.url, ...bounds, preserveAspectRatio: 'none', result: `raw${i}` });
+              const channels = element('feColorMatrix', { in: `raw${i}`, ...bounds, values: matrix, result: `map${i}` });
+              const source = element('feOffset', { in: 'warpSource', x: x - padding, y: y - padding, width: width + padding * 2, height: height + padding * 2, result: `source${i}` });
+              const displacement = element('feDisplacementMap', { in: `source${i}`, in2: `map${i}`, ...bounds, xChannelSelector: 'R', yChannelSelector: 'G', result: `tile${i}` });
+              filter.filterNode.append(image, channels, source, displacement);
+              merge.append(element('feMergeNode', { in: `tile${i}` }));
+              return { tile, source, displacement };
+            });
+            filter.filterNode.append(merge);
+            filter.geometry = geometry; filter.strength = undefined;
           }
-          const key = `${width}:${height}:${strength}:${amount}`;
-          if (filter.key !== key) {
-            const horizontal = effect.axis === 'horizontal';
-            const bounds = { x: horizontal ? 0 : -width, y: horizontal ? -height : 0, width: horizontal ? width : width * 3, height: horizontal ? height * 3 : height };
-            for (const node of [image, sourceOffset, displacement]) for (const [key, value] of Object.entries(bounds)) node.setAttribute(key, value);
-            const scale = opticalWarpMapScale(amount) * (horizontal ? height : width) * strength;
-            displacement.setAttribute('scale', scale);
-            sourceOffset.setAttribute('dx', scale * 0.5 / 255);
-            sourceOffset.setAttribute('dy', scale * 0.5 / 255);
-            filter.key = key;
+          if (filter.strength !== strength) {
+            for (const { tile, source, displacement } of filter.patches) {
+              displacement.setAttribute('scale', tile.scale * strength);
+              source.setAttribute('dx', horizontal ? 0 : -tile.base * strength);
+              source.setAttribute('dy', horizontal ? -tile.base * strength : 0);
+            }
+            filter.strength = strength;
           }
           return [url];
         }

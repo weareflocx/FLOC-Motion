@@ -17,7 +17,7 @@ if [[ -x "$RENDERER_DIR/runtime/bin/node" && -f "$RENDERER_DIR/scripts/renderer-
   "$RENDERER_DIR/runtime/bin/node" "$RENDERER_DIR/scripts/renderer-autostart.mjs" --stop
 fi
 for item in src server scripts public package.json package-lock.json; do
-  rm -rf -- "$RENDERER_DIR/$item"
+  rm -rf -- "${RENDERER_DIR:?}/$item"
   cp -R "$SOURCE_DIR/$item" "$RENDERER_DIR/$item"
 done
 cp "$SOURCE_DIR/Start-Mac.command" "$RENDERER_DIR/Start-Mac.command"
@@ -32,11 +32,12 @@ curl --fail --location --proto '=https' --tlsv1.2 "https://nodejs.org/dist/$NODE
 EXPECTED="$(awk -v name="$ARCHIVE" '$2 == name {print $1}' "$DOWNLOAD_DIR/SHASUMS256.txt")"
 ACTUAL="$(shasum -a 256 "$DOWNLOAD_DIR/$ARCHIVE" | awk '{print $1}')"
 if [[ -z "$EXPECTED" || "$EXPECTED" != "$ACTUAL" ]]; then echo "Runtime download verification failed."; exit 1; fi
-mkdir -p "$RENDERER_DIR/runtime"
-tar -xzf "$DOWNLOAD_DIR/$ARCHIVE" -C "$RENDERER_DIR/runtime" --strip-components=1
+tar -xzf "$DOWNLOAD_DIR/$ARCHIVE" -C "$DOWNLOAD_DIR"
+rm -rf -- "$RENDERER_DIR/runtime"
+mv "$DOWNLOAD_DIR/node-$NODE_VERSION-darwin-$NODE_ARCH" "$RENDERER_DIR/runtime"
 export PATH="$RENDERER_DIR/runtime/bin:$PATH"
 cd "$RENDERER_DIR"
-npm ci --omit=dev --no-audit --no-fund
-node scripts/renderer-setup.mjs "$@"
+"$RENDERER_DIR/runtime/bin/node" "$RENDERER_DIR/runtime/lib/node_modules/npm/bin/npm-cli.js" ci --omit=dev --no-audit --no-fund
+"$RENDERER_DIR/runtime/bin/node" scripts/renderer-setup.mjs "$@"
 echo "Ready. Return to FLOC Motion and choose Render MP4."
 if [[ -t 0 ]]; then read -r -p "Press Enter to close."; fi

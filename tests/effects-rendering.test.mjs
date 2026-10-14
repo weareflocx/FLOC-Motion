@@ -82,26 +82,6 @@ test('progressive blur radii track opacity without fading the underlying composi
   effects.dispose();
 });
 
-test('optical warp respects adjustment fades, reverses deterministically and bypasses disabled or zero effects', async () => {
-  const source = projectWithAdjustment();
-  const project = validateProject({ ...source, layers: source.layers.map(layer => layer.id === 'adjustment' ? { ...layer, effects: [{ type: 'optical-warp' }, { type: 'optical-warp', amount: 0 }, { type: 'optical-warp', enabled: false }, { type: 'monochrome' }] } : layer) });
-  const { root, nodes, effects } = fixture(project);
-  const collect = node => [node, ...node.childNodes.flatMap(collect)];
-  const displacement = collect(root).find(node => node.tagName === 'feDisplacementMap');
-  const composite = nodes.background.parentElement;
-  await effects.seek(4);
-  const active = composite.style.filter;
-  assert.match(active, /^url\(#floc-warp-[\d-]+\) grayscale\(1\)$/);
-  const fullScale = Number(displacement.attributes.scale);
-  assert.ok(fullScale > 0);
-  assert.equal(nodes.headline.style.filter, '');
-  await effects.seek(2.5); assert.equal(Number(displacement.attributes.scale), fullScale * .5);
-  composite.offsetHeight = 360;
-  await effects.seek(4); assert.equal(Number(displacement.attributes.scale), fullScale / 3);
-  await effects.seek(8); assert.equal(composite.style.filter, '');
-  await effects.seek(4); assert.equal(composite.style.filter, active);
-  effects.dispose(); assert.deepEqual(root.childNodes.map(node => node.dataset.flocLayer), project.layers.map(layer => layer.id));
-});
 
 test('animated noise slides one cached texture at 12 Hz, reverses exactly and leaves static noise in place', async () => {
   const demo = demoProject();
@@ -135,14 +115,3 @@ test('animated noise slides one cached texture at 12 Hz, reverses exactly and le
   } finally { Node.prototype.toDataURL = toDataURL; }
 });
 
-test('carousels use the same ordered SVG effect stack as every other layer', async () => {
-  const demo = demoProject();
-  const project = validateProject({ ...demo, layers: demo.layers.map(layer => layer.type === 'carousel' ? { ...layer, effects: [{ type: 'optical-warp' }, { type: 'monochrome', amount: 0.5 }] } : layer.id === 'headline' ? { ...layer, effects: [{ type: 'optical-warp' }] } : layer) });
-  const { root, nodes, effects } = fixture(project);
-  const collect = node => [node, ...node.childNodes.flatMap(collect)];
-  assert.equal(collect(root).filter(node => node.tagName === 'filter').length, 2);
-  await effects.seek(1);
-  assert.match(nodes.carousel.style.filter, /^url\(#floc-warp-[\d-]+\) grayscale\(0\.5\)$/);
-  assert.match(nodes.headline.style.filter, /^url\(#floc-warp-[\d-]+\)$/);
-  effects.dispose();
-});

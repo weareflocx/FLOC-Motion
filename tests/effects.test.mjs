@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_NOISE, EFFECTS, MAX_EFFECTS, NOISE_TILE, effectLayer, noiseOffset, noisePixels, newEffect, opticalWarpMapScale, opticalWarpOffset } from '../src/effects.js';
+import { DEFAULT_NOISE, EFFECTS, MAX_EFFECTS, NOISE_TILE, effectLayer, noiseOffset, noisePixels, newEffect, opticalWarpOffset } from '../src/effects.js';
 import { demoProject, validateProject, patchLayer, duplicateLayer, reorderLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
 import { fileLayer } from '../src/project.js';
 import { createTools } from '../src/webmcp.js';
@@ -117,17 +117,3 @@ test('optical warp validates on every visual layer and remains independent of ca
   for (const patch of [{ amount: -1 }, { amount: 1.01 }, { axis: 'diagonal' }, { center: 0 }, { center: 1 }, { center: NaN }, { center: '0.5' }, { enabled: 1 }, { code: 'shader' }]) assert.throws(() => patchLayer(project, 'headline', { effects: [{ ...newEffect('optical-warp'), ...patch }] }), /Invalid/);
 });
 
-test('optical warp maps span exactly the largest padded displacement of their amount', () => {
-  for (const amount of [0.01, 0.25, 0.5, 0.8, 1]) for (const axis of ['horizontal', 'vertical']) for (const center of [0.1, 0.5, 0.9]) {
-    const effect = { ...newEffect('optical-warp'), amount, axis, center };
-    let largest = 0;
-    for (let along = 0; along <= 1; along += 1 / 64) for (const across of [-1, 2]) {
-      const offset = opticalWarpOffset(effect, axis === 'horizontal' ? along : across, axis === 'horizontal' ? across : along);
-      largest = Math.max(largest, ...offset.map(Math.abs));
-    }
-    const steps = largest / opticalWarpMapScale(amount) * 255;
-    assert.ok(steps <= 127 + 1e-9 && steps > 126.9, `${amount} ${axis} ${center}: ${steps}`);
-  }
-  // Smaller amounts get finer steps than the previous fixed range of 2.01 layers.
-  assert.ok(opticalWarpMapScale(0.5) < 1.51 && opticalWarpMapScale(1) < 2.01);
-});
