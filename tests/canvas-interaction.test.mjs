@@ -6,7 +6,8 @@ import { transform } from 'esbuild';
 import { demoProject, FORMATS } from '../src/project.js';
 import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../src/editor-controls.js';
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../src/layout.js';
-import { dragOrientation, wrapDegrees } from '../src/orientation.js';
+import { dragModelOrientation, dragOrientation, wrapDegrees } from '../src/orientation.js';
+import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
 import { nudgeAmount } from '../src/editor/nudge.js';
@@ -30,7 +31,7 @@ function editor() {
     removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
-    gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
+    gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragModelOrientation, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
     layerPosition, measureLayerBounds, visualRect, modelCanvasGeometry, transformableLayers, groupPositions, selectionBounds,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
@@ -183,20 +184,31 @@ test('rotation handle previews one text edit, commits on release and cancels wit
   }
 });
 
-test('Shift-drag orients carousel and model X/Y without moving them', () => {
+// Equal orientations, whichever Euler angles express them.
+const orientation = ({ tilt, yaw, roll }) => new Quaternion().setFromEuler(new Euler(...[tilt, yaw, roll].map(MathUtils.degToRad), 'XYZ'));
+const screenTurn = (axis, degrees) => new Quaternion().setFromAxisAngle(new Vector3(...axis), MathUtils.degToRad(degrees));
+const sameOrientation = (a, b) => Math.abs(Math.abs(orientation(a).dot(b)) - 1) < 1e-9;
+
+test('Shift-drag orients carousels by angle and models about the screen axes, without moving them', () => {
   for (const type of ['carousel', 'model']) for (const cancelled of [false, true]) {
     const h = editor();
-    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: type === 'model' ? 100 : 10, yaw: 170, roll: 20 });
+    const initial = { tilt: type === 'model' ? 100 : 10, yaw: 170, roll: 20 };
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, ...initial });
     h.node.focus = () => {};
     const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
     const event = { button: 0, pointerId: 1, clientX: 500, clientY: 500, shiftKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
     const { handlers } = h.render({ engine: { current: { hitTest: () => true } } });
     handlers.onPointerDown(event);
     handlers.onPointerMove({ ...event, clientX: 600, clientY: 600 });
-    assert.equal(h.previews.at(-1).tilt, type === 'model' ? 118 : 28);
-    assert.equal(h.previews.at(-1).yaw, -172);
-    assert.equal(h.previews.at(-1).roll, 20);
-    assert.equal(h.previews.at(-1).x, undefined);
+    if (type === 'carousel') {
+      assert.equal(h.previews.at(-1).tilt, 28);
+      assert.equal(h.previews.at(-1).yaw, -172);
+      assert.equal(h.previews.at(-1).roll, 20);
+    } else {
+      // A drag of 10% of the frame turns 18° about the screen's vertical and horizontal axes.
+      const expected = orientation(initial).premultiply(screenTurn([1, 0, 0], 18)).premultiply(screenTurn([0, 1, 0], 18));
+      assert.ok(sameOrientation(h.previews.at(-1), expected), JSON.stringify(h.previews.at(-1)));
+    }
     if (cancelled) handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
     handlers.onPointerUp(event);
     assert.equal(h.patches.length, cancelled ? 0 : 1);
@@ -204,7 +216,7 @@ test('Shift-drag orients carousel and model X/Y without moving them', () => {
   }
 });
 
-test('Shift+Alt-drag rotates only Z across spatial and flat layers', () => {
+test('Shift+Alt-drag rotates only Z across spatial and flat layers; models roll about the view direction', () => {
   for (const type of ['carousel', 'model', 'text', 'logo', 'media']) {
     const h = editor();
     Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: 10, yaw: 20, roll: 170 });
@@ -216,12 +228,14 @@ test('Shift+Alt-drag rotates only Z across spatial and flat layers', () => {
     handlers.onPointerMove({ ...event, clientX: 600, clientY: 650 });
     handlers.onPointerUp(event);
     assert.equal(h.patches.length, 1, type);
-    assert.equal(h.patches[0].roll, -172, type);
+    if (type !== 'model') assert.equal(h.patches[0].roll, -172, type);
     assert.equal(h.patches[0].x, undefined, type);
     assert.equal(h.patches[0].size, undefined, type);
-    if (['carousel', 'model'].includes(type)) {
+    if (type === 'carousel') {
       assert.equal(h.patches[0].tilt, 10);
       assert.equal(h.patches[0].yaw, 20);
+    } else if (type === 'model') {
+      assert.ok(sameOrientation(h.patches[0], orientation({ tilt: 10, yaw: 20, roll: 170 }).premultiply(screenTurn([0, 0, 1], 18))), JSON.stringify(h.patches[0]));
     } else {
       assert.equal(h.patches[0].tilt, undefined);
       assert.equal(h.patches[0].yaw, undefined);

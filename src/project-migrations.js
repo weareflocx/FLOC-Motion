@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 11;
+export const CURRENT_PROJECT_VERSION = 12;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -248,8 +248,19 @@ function v10ToV11(project) {
   return project;
 }
 
+// v11 automatic motion added its angles to the pose's XYZ Euler angles: X turned
+// about the screen, Z about the model and Y in between. Frozen here.
+function v11ToV12(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'model') continue;
+    const style = layer.modelStyle;
+    if (style === undefined || (record(style) && [Object.prototype, null].includes(Object.getPrototypeOf(style)))) layer.modelStyle = { motionSpace: 'euler', ...style };
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

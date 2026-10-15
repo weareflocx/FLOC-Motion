@@ -43,7 +43,7 @@ function inspector(initial = {}, component = 'model') {
   const text = node => (node.children || []).flat(Infinity).map(child => typeof child === 'object' && child !== null ? text(child) : child ?? '').join('');
   const button = label => render().find(node => node.type === 'button' && text(node) === label);
   return {
-    find, render, patches, button,
+    find, render, patches, button, text,
     click(label) { const node = button(label); assert.ok(node, label); assert.equal(node.blocked, false, label); node.props.onClick(); },
     get layer() { return layer; },
     setLayer(patch) { layer = { ...layer, ...patch }; },
@@ -76,17 +76,42 @@ test('material and shader transitions gate effective overrides without erasing p
   assert.equal(Object.keys(h.patches.at(-1).modelStyle).length, Object.keys(modelStyle.DEFAULT_MODEL_STYLE).length);
 });
 
-test('preset changes preserve independent motion and clip settings and Original restores legacy light rig', () => {
-  const h = inspector({ modelStyle: { motion: 'rock', motionSpeed: -2, animationClip: 2, animationSpeed: .5, fillIntensity: 5 } });
+test('material presets change only the surface; lighting presets change only the environment and rig', () => {
+  const h = inspector({ modelStyle: { motion: 'rock', motionSpeed: -2, animationClip: 2, animationSpeed: .5, fillIntensity: 5, environment: 'studio', environmentIntensity: 2 } });
+  assert.equal(h.find('Lighting preset').props.value, 'custom');
   h.change('Material preset', 'chrome');
-  assert.equal(h.layer.modelStyle.environment, 'studio');
+  assert.equal(h.layer.modelStyle.metalness, 1);
+  assert.equal(h.layer.modelStyle.fillIntensity, 5, 'material presets keep custom lights');
+  assert.equal(h.layer.modelStyle.environmentIntensity, 2);
   assert.equal(h.layer.modelStyle.motionSpeed, -2);
   assert.equal(h.layer.modelStyle.animationClip, 2);
   h.change('Material preset', 'original');
   assert.equal(h.layer.modelStyle.mode, 'original');
+  assert.equal(h.layer.modelStyle.fillIntensity, 5);
+  h.change('Lighting preset', 'original');
   assert.equal(h.layer.modelStyle.environment, 'none');
   assert.equal(h.layer.modelStyle.fillIntensity, 0);
+  assert.equal(h.layer.modelStyle.mode, 'original', 'lighting presets keep the surface');
+  assert.equal(h.find('Lighting preset').props.value, 'original');
+  h.change('Material preset', 'chrome');
+  assert.ok(h.render().some(node => node.type === 'p' && h.text(node).includes('Metal reflects its surroundings')), 'metal without an environment explains how to see reflections');
+  h.change('Lighting preset', 'studio');
+  assert.equal(h.layer.modelStyle.environment, 'studio');
+  assert.equal(h.layer.modelStyle.metalness, 1);
+  assert.ok(!h.render().some(node => node.type === 'p' && h.text(node).includes('Metal reflects its surroundings')));
   assert.equal(h.layer.modelStyle.animationSpeed, .5);
+});
+
+test('motion axis space offers Screen and Object, and Legacy only to projects that use it', () => {
+  const h = inspector({ modelStyle: { motion: 'spin' } }, 'animation');
+  const spaces = () => h.find('Motion axis space').children.flat().map(option => option.props.value);
+  assert.deepEqual(spaces(), ['screen', 'object']);
+  h.change('Motion axis space', 'object');
+  assert.equal(h.layer.modelStyle.motionSpace, 'object');
+  const legacy = inspector({ modelStyle: { motion: 'spin', motionSpace: 'euler' } }, 'animation');
+  assert.deepEqual(legacy.find('Motion axis space').children.flat().map(option => option.props.value), ['screen', 'object', 'euler']);
+  legacy.change('Motion axis space', 'screen');
+  assert.deepEqual(legacy.find('Motion axis space').children.flat().map(option => option.props.value), ['screen', 'object']);
 });
 
 test('metadata distinguishes loading, static, missing clips and source changes without silently selecting a clip', () => {

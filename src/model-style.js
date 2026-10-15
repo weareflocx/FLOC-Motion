@@ -7,7 +7,7 @@ export const DEFAULT_MODEL_STYLE = Object.freeze({
   environment: 'none', environmentIntensity: 1, environmentRotation: 0,
   ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0,
   motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
-  motionAxis: 'auto', motionSteps: 4, motionTiming: DEFAULT_MOTION,
+  motionAxis: 'auto', motionSpace: 'screen', motionSteps: 4, motionTiming: DEFAULT_MOTION,
   animationClip: 0, animationSpeed: 1,
   framing: 'fit', zoom: 1, perspective: 38
 });
@@ -15,6 +15,9 @@ export const MODEL_MATERIAL_MODES = Object.freeze(['original', 'tint', 'replace'
 export const MODEL_SHADERS = Object.freeze(['standard', 'toon', 'fresnel', 'wireframe']);
 export const MODEL_MOTIONS = Object.freeze(['none', 'spin', 'rock', 'float', 'pulse']);
 export const MODEL_MOTION_AXES = Object.freeze(['auto', 'x', 'y', 'z']);
+// Screen turns and moves about the view's axes; object about the model's own
+// posed axes; euler is the pre-v12 sum of motion and pose angles.
+export const MODEL_MOTION_SPACES = Object.freeze(['screen', 'object', 'euler']);
 // Fit keeps the whole motion envelope in the layer; fixed is the pre-v11 camera.
 export const MODEL_FRAMINGS = Object.freeze(['fit', 'fixed']);
 // Pulse scales by up to 12% and Float moves by up to 0.2 normalized units at full amplitude.
@@ -28,21 +31,27 @@ export const MODEL_STYLE_RANGES = Object.freeze({
   zoom: [.25, 4], perspective: [15, 75]
 });
 const paintDefaults = Object.fromEntries(['mode', 'color', 'roughness', 'metalness', 'clearcoat', 'iridescence', 'emissive', 'emissiveIntensity'].map(key => [key, DEFAULT_MODEL_STYLE[key]]));
-const paint = (color, roughness, metalness, clearcoat = 0, iridescence = 0) => Object.freeze({ ...paintDefaults, mode: 'replace', color, roughness, metalness, clearcoat, iridescence, shader: 'standard', environment: 'studio' });
+// Material presets set the surface only; lighting presets set the environment and rig.
+const paint = (color, roughness, metalness, clearcoat = 0, iridescence = 0) => Object.freeze({ ...paintDefaults, mode: 'replace', color, roughness, metalness, clearcoat, iridescence, shader: 'standard' });
 export const MODEL_MATERIAL_PRESETS = Object.freeze([
-  { id: 'original', name: 'Original', settings: Object.freeze({ ...paintDefaults, shader: 'standard', environment: 'none', ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0 }) },
+  { id: 'original', name: 'Original', settings: Object.freeze({ ...paintDefaults, shader: 'standard' }) },
   { id: 'matte', name: 'Matte', settings: paint('#ffffff', .9, 0) },
   { id: 'plastic', name: 'Plastic', settings: paint('#ffffff', .3, 0, .7) },
   { id: 'satin', name: 'Satin metal', settings: paint('#b8b8c0', .4, 1) },
   { id: 'chrome', name: 'Chrome', settings: paint('#e5e5e5', .08, 1) },
   { id: 'iridescent', name: 'Iridescent', settings: paint('#7f91a7', .2, 1, 0, 1) }
 ]);
+const rig = Object.freeze({ environmentIntensity: 1, environmentRotation: 0, ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0 });
+export const MODEL_LIGHTING_PRESETS = Object.freeze([
+  { id: 'original', name: 'Original', settings: Object.freeze({ ...rig, environment: 'none' }) },
+  { id: 'studio', name: 'Studio reflections', settings: Object.freeze({ ...rig, environment: 'studio' }) }
+]);
 export function normalizeModelStyle(input) {
   const prototype = input && typeof input === 'object' ? Object.getPrototypeOf(input) : null;
   const plain = prototype === null || (Object.getPrototypeOf(prototype) === null && Object.hasOwn(prototype, 'constructor') && typeof prototype.constructor === 'function' && Function.prototype.toString.call(prototype.constructor) === Function.prototype.toString.call(Object));
   if (input !== undefined && (!input || typeof input !== 'object' || Array.isArray(input) || !plain || Object.getOwnPropertySymbols(input).length || Object.keys(input).some(key => !Object.hasOwn(DEFAULT_MODEL_STYLE, key)))) throw new Error('Invalid 3D model settings.');
   const value = { ...DEFAULT_MODEL_STYLE, ...input };
-  if (!MODEL_MATERIAL_MODES.includes(value.mode) || !MODEL_SHADERS.includes(value.shader) || !MODEL_MOTIONS.includes(value.motion) || !MODEL_MOTION_AXES.includes(value.motionAxis) || !['none', 'studio'].includes(value.environment) || !MODEL_FRAMINGS.includes(value.framing)) throw new Error('Unknown 3D material, shader, environment, motion or framing.');
+  if (!MODEL_MATERIAL_MODES.includes(value.mode) || !MODEL_SHADERS.includes(value.shader) || !MODEL_MOTIONS.includes(value.motion) || !MODEL_MOTION_AXES.includes(value.motionAxis) || !MODEL_MOTION_SPACES.includes(value.motionSpace) || !['none', 'studio'].includes(value.environment) || !MODEL_FRAMINGS.includes(value.framing)) throw new Error('Unknown 3D material, shader, environment, motion or framing.');
   for (const key of ['color', 'emissive', 'fresnelColor']) if (typeof value[key] !== 'string' || !/^#[0-9a-f]{6}$/i.test(value[key])) throw new Error('Invalid 3D model color.');
   for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
     if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || value[key] < min || value[key] > max || (['toonSteps', 'motionSteps', 'animationClip'].includes(key) && !Number.isInteger(value[key]))) throw new Error(`Invalid 3D model ${key}.`);
@@ -51,15 +60,21 @@ export function normalizeModelStyle(input) {
   catch (error) { throw new Error(`Invalid 3D model motion timing: ${error.message}`); }
   return value;
 }
-export function applyModelPreset(style, id) {
-  const preset = MODEL_MATERIAL_PRESETS.find(item => item.id === id);
-  if (!preset) throw new Error('Unknown 3D material preset.');
+function applyPreset(presets, style, id, kind) {
+  const preset = presets.find(item => item.id === id);
+  if (!preset) throw new Error(`Unknown 3D ${kind} preset.`);
   return normalizeModelStyle({ ...normalizeModelStyle(style), ...preset.settings });
 }
+export const applyModelPreset = (style, id) => applyPreset(MODEL_MATERIAL_PRESETS, style, id, 'material');
+export const applyLightingPreset = (style, id) => applyPreset(MODEL_LIGHTING_PRESETS, style, id, 'lighting');
 export function selectedModelPreset(style) {
   const value = normalizeModelStyle(style);
   if (value.mode === 'original') return 'original';
   return MODEL_MATERIAL_PRESETS.find(preset => Object.keys(paintDefaults).every(key => value[key] === preset.settings[key]))?.id ?? 'custom';
+}
+export function selectedLightingPreset(style) {
+  const value = normalizeModelStyle(style);
+  return MODEL_LIGHTING_PRESETS.find(preset => Object.entries(preset.settings).every(([key, setting]) => value[key] === setting))?.id ?? 'custom';
 }
 export function resetModelMotion(style) {
   return normalizeModelStyle({

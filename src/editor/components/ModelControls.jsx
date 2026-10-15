@@ -1,6 +1,6 @@
 import React, { useCallback, useSyncExternalStore } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
-import { MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, normalizeModelStyle, applyModelPreset, selectedModelPreset } from '../../model-style.js';
+import { MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
 import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.js';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
@@ -22,6 +22,7 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
   const clipActive = metadata !== null && clips.some(clip => clip.index === style.animationClip);
   const replacement = style.mode === 'replace';
   const pbr = replacement && ['standard', 'fresnel'].includes(style.shader);
+  const lighting = selectedLightingPreset(style);
 
   return <>
     {rightTab === 'composition' ? <>
@@ -29,7 +30,14 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
       <button type="button" className="outline-button" disabled={uploading} onClick={() => onPick(layer.id)}><UploadSimple size={15}/>Replace file</button>
       <p className="helper">Select OBJ with its declared MTL and textures for one 3D layer. GLB is preserved.</p>
     </Section>
-    <Section title="Camera">
+    <Section title="Transform">
+      <Range label="Position X" value={layer.x} min={Math.min(-100, layer.x)} max={Math.max(100, layer.x)} onChange={x => onPatch(layer.id, { x })}/>
+      <Range label="Position Y" value={layer.y} min={Math.min(-100, layer.y)} max={Math.max(100, layer.y)} onChange={y => onPatch(layer.id, { y })}/>
+      <Range label="Size" value={layer.size} min={2} max={500} suffix="%" onChange={size => onPatch(layer.id, { size })}/>
+      <OrientationControl key={layer.id} layer={layer} open onCommit={fields => onPatch(layer.id, fields)}/>
+      <p className="helper">Shift-drag turns the model about the screen; the rotation handle rolls it toward you.</p>
+    </Section>
+    <Section title="Camera" collapsible detail={`${style.framing === 'fit' ? 'Fit motion' : 'Fixed'} · ${Math.round(style.zoom * 100)}%`}>
       <Field label="Framing"><select aria-label="Framing" value={style.framing} onChange={event => patchStyle({ framing: event.target.value })}><option value="fit">Fit motion</option><option value="fixed">Fixed</option></select></Field>
       {range('zoom', 'Zoom')}
       {range('perspective', 'Perspective', { step: 1, scale: 1, suffix: '°' })}
@@ -63,8 +71,13 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
         {range('fresnelPower', 'Fresnel power', { step: 1, scale: 1 })}
       </>}
       {metadata?.unlit && <p className="helper">This source includes unlit materials. Original or Tint with Standard preserves their unlit appearance; surface shaders may adapt them to a lit material.</p>}
+      {replacement && pbr && style.metalness >= .5 && style.environment === 'none' && <p className="helper">Metal reflects its surroundings. Choose Studio reflections in Lighting to see it.</p>}
     </Section>
-    <Section title="Lighting">
+    <Section title="Lighting" collapsible defaultOpen={false} detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
+      <Field label="Lighting preset"><select aria-label="Lighting preset" value={lighting} onChange={event => onPatch(layer.id, { modelStyle: applyLightingPreset(style, event.target.value) })}>
+        <option value="custom" disabled>Custom</option>
+        {MODEL_LIGHTING_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+      </select></Field>
       <Field label="Reflection environment"><select aria-label="Reflection environment" value={style.environment} onChange={event => patchStyle({ environment: event.target.value })}><option value="none">None</option><option value="studio">Generated studio</option></select></Field>
       <fieldset className="layer-properties" disabled={style.environment === 'none' || ['toon', 'wireframe'].includes(style.shader)}>
         {range('environmentIntensity', 'Environment intensity')}
@@ -79,12 +92,6 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
         {range('rimIntensity', 'Rim intensity')}
         {range('lightRotation', 'Light rig rotation', { step: 1, scale: 1, suffix: '°' })}
       </fieldset>
-    </Section>
-    <Section title="Movement">
-      <Range label="Position X" value={layer.x} min={Math.min(-100, layer.x)} max={Math.max(100, layer.x)} onChange={x => onPatch(layer.id, { x })}/>
-      <Range label="Position Y" value={layer.y} min={Math.min(-100, layer.y)} max={Math.max(100, layer.y)} onChange={y => onPatch(layer.id, { y })}/>
-      <Range label="Size" value={layer.size} min={2} max={500} suffix="%" onChange={size => onPatch(layer.id, { size })}/>
-      <OrientationControl key={layer.id} layer={layer} onCommit={fields => onPatch(layer.id, fields)}/>
     </Section>
     </> : <>
     <ModelMotionControls style={style} onChange={modelStyle => onPatch(layer.id, { modelStyle })}/>

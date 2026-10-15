@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
-import { normalizeModelStyle, applyModelPreset, selectedModelPreset, automaticModelMotion, resetModelMotion } from '../src/model-style.js';
+import { normalizeModelStyle, applyModelPreset, applyLightingPreset, selectedModelPreset, selectedLightingPreset, automaticModelMotion, resetModelMotion } from '../src/model-style.js';
 import { getModelMetadata, registerModelMetadata, subscribeModelMetadata } from '../src/model-metadata.js';
 import { DEFAULT_MOTION, MOTION_CURVES, motionEase } from '../src/motion-timing.js';
 
@@ -29,20 +29,27 @@ test('automatic model motion loops, reverses and freezes without accumulating po
   }
 });
 
-test('material restoration preserves independent motion and embedded clip clocks', () => {
-  const original = normalizeModelStyle({ motion: 'spin', motionDuration: 8, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .4, pause: .7, curve: 'spring', intensity: .9 }, animationClip: 3, animationSpeed: 2 });
+test('material presets keep lighting, motion and embedded clip clocks; lighting presets keep the surface', () => {
+  const original = normalizeModelStyle({ motion: 'spin', motionDuration: 8, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .4, pause: .7, curve: 'spring', intensity: .9 }, animationClip: 3, animationSpeed: 2, keyIntensity: 6 });
   const chrome = applyModelPreset(original, 'chrome');
   assert.equal(chrome.mode, 'replace');
   assert.equal(chrome.metalness, 1);
-  assert.equal(chrome.environment, 'studio');
+  assert.equal(chrome.environment, 'none');
+  assert.equal(chrome.keyIntensity, 6);
   assert.equal(selectedModelPreset(chrome), 'chrome');
   assert.equal(selectedModelPreset({ ...chrome, color: '#ff0040' }), 'custom');
-  const restored = applyModelPreset({ ...chrome, shader: 'wireframe', keyIntensity: 8 }, 'original');
+  const restored = applyModelPreset({ ...chrome, shader: 'wireframe', environment: 'studio' }, 'original');
   assert.equal(restored.mode, 'original');
   assert.equal(restored.shader, 'standard');
-  assert.equal(restored.environment, 'none');
+  assert.equal(restored.environment, 'studio');
   assert.deepEqual([restored.motion, restored.motionDuration, restored.animationClip, restored.animationSpeed], ['spin', 8, 3, 2]);
   for (const key of ['motionAxis', 'motionSteps', 'motionTiming']) assert.deepEqual(restored[key], original[key]);
+  assert.equal(selectedLightingPreset(restored), 'custom');
+  const studio = applyLightingPreset(restored, 'studio');
+  assert.deepEqual([studio.environment, studio.keyIntensity, studio.mode, studio.shader], ['studio', 3, 'original', 'standard']);
+  assert.equal(selectedLightingPreset(studio), 'studio');
+  assert.equal(selectedLightingPreset(applyLightingPreset(studio, 'original')), 'original');
+  assert.throws(() => applyLightingPreset(studio, 'hdr'), /lighting preset/);
 });
 
 test('model settings reject code, remote resources, invalid clocks and invalid clip selectors', () => {

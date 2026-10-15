@@ -17,7 +17,7 @@ test('shared model renderer produces real material, reflection, shader and deter
     import { createModelScene } from './model-scene.js';
     import { modelCanvasGeometry } from './model-canvas.js';
     import { createResourceCache } from './scene-resources.js';
-    import { DEFAULT_MODEL_STYLE, MODEL_MATERIAL_PRESETS, applyModelPreset } from './model-style.js';
+    import { DEFAULT_MODEL_STYLE, MODEL_MATERIAL_PRESETS, applyLightingPreset, applyModelPreset } from './model-style.js';
     import { getModelMetadata } from './model-metadata.js';
     // Every model shares one renderer, so captures are keyed by the layer being drawn.
     const captures = new Map();
@@ -47,10 +47,10 @@ test('shared model renderer produces real material, reflection, shader and deter
       const url = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' })); urls.push(url);
       return url;
     }
-    // Material and motion checks use the fixed pre-v11 camera; framing is checked separately.
+    // Material and motion checks use the pre-v11 camera and pre-v12 Euler motion; framing and axis spaces are checked separately.
     async function mount(id, src, modelStyle = undefined, { size = 100, compositionWidth = 192, framing = 'fixed' } = {}) {
       scenes.get(id)?.dispose();
-      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, size, tilt: 13, yaw: 22, roll: 0, modelStyle: { ...DEFAULT_MODEL_STYLE, ...modelStyle, framing } };
+      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, size, tilt: 13, yaw: 22, roll: 0, modelStyle: { ...DEFAULT_MODEL_STYLE, motionSpace: 'euler', ...modelStyle, framing } };
       const instance = await createModelScene(canvas(id), layer, { compositionWidth, resources, renderMode: true, onError: error => errors.push(error.message) });
       layers.set(id, layer); scenes.set(id, instance); drawing = id; instance.draw(0); return instance;
     }
@@ -100,7 +100,7 @@ test('shared model renderer produces real material, reflection, shader and deter
         style('a', applyModelPreset(layers.get('a').modelStyle, preset.id));
         result.presets.push({ id: preset.id, pixels: Array.from(frame('a', .4)), visible: opaque(frame('a', .4)) });
       }
-      style('a', applyModelPreset(layers.get('a').modelStyle, 'chrome')); const studio = frame('a', .4);
+      style('a', applyLightingPreset(applyModelPreset(layers.get('a').modelStyle, 'chrome'), 'studio')); const studio = frame('a', .4);
       const environment = captures.get('a').scene.environment;
       style('a', { environmentRotation: 90 }); result.environmentRotation = difference(studio, frame('a', .4));
       style('a', { environmentIntensity: 0 }); result.environmentIntensity = difference(studio, frame('a', .4));
@@ -163,6 +163,23 @@ test('shared model renderer produces real material, reflection, shader and deter
       result.actionHold = [.6, 1, 1.249, 1.25].map(time => difference(endpoint, frame('a', time)).total);
       const expectedQuarter = frame('a', 1.25, { tilt: 5, yaw: 35, roll: 7 });
       style('a', { motion: 'none' }); result.axisAdditivePose = difference(expectedQuarter, frame('a', 1.25, { tilt: 95, yaw: 35, roll: 7 })).total;
+      // A held quarter turn equals the static pose turned about the screen (premultiplied) or the model's own axis (postmultiplied).
+      const quarterPose = { tilt: 30, yaw: 20, roll: 10 };
+      const composed = (space, axis) => {
+        const pose = new THREE.Quaternion().setFromEuler(new THREE.Euler(...[30, 20, 10].map(THREE.MathUtils.degToRad), 'XYZ')), turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...axis), Math.PI / 2);
+        if (space === 'screen') pose.premultiply(turn); else pose.multiply(turn);
+        const euler = new THREE.Euler().setFromQuaternion(pose, 'XYZ');
+        return { tilt: THREE.MathUtils.radToDeg(euler.x), yaw: THREE.MathUtils.radToDeg(euler.y), roll: THREE.MathUtils.radToDeg(euler.z) };
+      };
+      result.spaces = []; const turned = {};
+      for (const motionSpace of ['screen', 'object']) for (const [motionAxis, axis] of [['x', [1, 0, 0]], ['y', [0, 1, 0]], ['z', [0, 0, 1]]]) {
+        style('a', { motion: 'spin', motionAxis, motionSpace });
+        const moving = turned[motionSpace + motionAxis] = frame('a', 1.25, quarterPose);
+        style('a', { motion: 'none' });
+        result.spaces.push({ motionSpace, motionAxis, delta: difference(moving, frame('a', 1.25, composed(motionSpace, axis))).total });
+      }
+      result.spaceContrast = ['x', 'y', 'z'].map(axis => difference(turned['screen' + axis], turned['object' + axis]));
+      style('a', { motionSpace: 'euler', motionAxis: 'x' });
       style('a', { motion: 'spin' });
       const linearAction = frame('a', .15);
       style('a', { motionTiming: { mode: 'steps', action: .5, pause: .75, curve: 'spring', intensity: 1 } }); result.actionCurve = difference(linearAction, frame('a', .15));
@@ -308,5 +325,7 @@ test('shared model renderer produces real material, reflection, shader and deter
   assert.ok(result.zoomCoverage > normal * 1.4 && result.zoomCoverage < 192 * 192, `zoom 125% magnifies the framed model by about 1.56× in area: ${result.zoomCoverage} vs ${normal}`);
   assert.ok(result.clipEnvelope[0] < result.clipEnvelope[1] * .5, `fit framing reserves room for the embedded clip: ${result.clipEnvelope}`);
   assert.ok(result.manyVisible > 500 && result.manyFirstAfter > 500, `twenty models stay visible together: ${result.manyVisible}, ${result.manyFirstAfter}`);
+  for (const space of result.spaces) assert.ok(space.delta < 20, `${space.motionSpace} ${space.motionAxis} spin turns about the ${space.motionSpace === 'screen' ? 'view' : 'model'} axis: ${space.delta}`);
+  for (const contrast of result.spaceContrast) visible(contrast, 'Screen and Object axes on a posed model');
   assert.equal(result.sharedRenderers, 1);
 });

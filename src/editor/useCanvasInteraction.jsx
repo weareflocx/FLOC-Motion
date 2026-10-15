@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../editor-controls.js';
 import { FORMATS } from '../project.js';
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../layout.js';
-import { dragOrientation, wrapDegrees } from '../orientation.js';
+import { dragModelOrientation, dragOrientation, wrapDegrees } from '../orientation.js';
 import { evaluateChoreography } from '../choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from './canvas-resize.js';
 import { layerPosition, measureLayerBounds, visualRect } from './layer-bounds.js';
@@ -178,7 +178,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       const angle = Math.atan2(event.clientY - g.center.y, event.clientX - g.center.x);
       g.delta += wrapDegrees((angle - g.angle) * 180 / Math.PI); g.angle = angle;
       const rollDelta = g.ring ? g.delta : g.rollDrag ? dx / g.box.width * 180 : null;
-      g.latest = g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta, g.layer.type === 'model' ? 180 : 65) : { roll: wrapDegrees(g.initial.roll + rollDelta) };
+      g.latest = g.layer.type === 'model' ? dragModelOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : { roll: wrapDegrees(g.initial.roll + rollDelta) };
     } else if (g.layer.type === 'background') {
       g.latest = { x: Math.max(-100, Math.min(100, g.initial.x + dx / g.box.width * 100)), y: Math.max(-100, Math.min(100, g.initial.y + dy / g.box.height * 100)) };
     } else if (g.layer.type === 'carousel') {
@@ -252,7 +252,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       const bounds = layerResizeBounds(l, root.current);
       if (bounds) onPatch(l.id, centeredResize(l, size, bounds));
     } else if (l.type !== 'carousel' && l.type !== 'music' && (event.altKey || event.target.closest('[data-canvas-ring]'))) {
-      onPatch(l.id, { roll: wrapDegrees((l.roll ?? 0) + (dx || dy) * (event.shiftKey ? 5 : 1)) });
+      const delta = (dx || dy) * (event.shiftKey ? 5 : 1);
+      onPatch(l.id, l.type === 'model' ? dragModelOrientation({ tilt: l.tilt, yaw: l.yaw, roll: l.roll }, 0, 0, delta) : { roll: wrapDegrees((l.roll ?? 0) + delta) });
     } else if (l.type === 'background') {
       const [w, h] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
       onPatch(l.id, { x: Math.max(-100, Math.min(100, l.x + dx * step / w * 100)), y: Math.max(-100, Math.min(100, l.y + dy * step / h * 100)) });

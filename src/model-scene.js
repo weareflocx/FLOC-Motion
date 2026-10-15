@@ -64,7 +64,11 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   const key = new THREE.DirectionalLight(0xffffff, 3); key.position.set(3, 4, 5); rig.add(key);
   const fill = new THREE.DirectionalLight(0xffffff, 0); fill.position.set(-4, 2, 2); rig.add(fill);
   const rim = new THREE.DirectionalLight(0xffffff, 0); rim.position.set(2, 3, -4); rig.add(rim);
-  const group = new THREE.Group(); scene.add(group);
+  // screen › posed › object › normalizer: automatic motion is applied in the view's
+  // frame (screen), the model's posed frame (object), or summed into the pose (euler).
+  const screen = new THREE.Group(), posed = new THREE.Group(), object = new THREE.Group();
+  scene.add(screen); screen.add(posed); posed.add(object);
+  const motionGroups = [screen, posed, object];
   const environment = createModelEnvironment(shared.renderer, scene);
   const handle = resources.acquire(`model\n${layer.src}`, () => loadModel(layer.src), disposeModel);
   const motion = { phase: 0, advance: 0, stepped: false, rotationX: 0, rotationY: 0, rotationZ: 0, offsetX: 0, offsetY: 0, offsetZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }, skeletons = new Set();
@@ -112,11 +116,11 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     let measured = reaches.get(source);
     if (!measured) reaches.set(source, measured = new Map());
     if (!measured.has(key)) {
-      group.rotation.set(0, 0, 0); group.position.set(0, 0, 0); group.scale.set(1, 1, 1);
+      for (const node of motionGroups) { node.rotation.set(0, 0, 0); node.position.set(0, 0, 0); node.scale.set(1, 1, 1); }
       let radius = 0;
       for (let i = 0; i <= (action ? CLIP_SAMPLES : 0); i++) {
         if (action) { action.reset().play(); mixer.setTime(clip.duration * i / CLIP_SAMPLES); }
-        group.updateMatrixWorld(true);
+        screen.updateMatrixWorld(true);
         radius = Math.max(radius, poseRadius());
       }
       measured.set(key, radius || 1);
@@ -178,13 +182,14 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     }
     const state = evaluateChoreography(layer, time);
     automaticModelMotion(style, elapsed, motion);
-    group.rotation.set(
-      THREE.MathUtils.degToRad(draft?.tilt ?? state.tilt) + motion.rotationX,
-      THREE.MathUtils.degToRad(draft?.yaw ?? state.yaw) + motion.rotationY,
-      THREE.MathUtils.degToRad(draft?.roll ?? state.roll) + motion.rotationZ
-    );
-    group.position.set(motion.offsetX, motion.offsetY, motion.offsetZ);
-    group.scale.set(motion.scaleX, motion.scaleY, motion.scaleZ);
+    const tilt = THREE.MathUtils.degToRad(draft?.tilt ?? state.tilt), yaw = THREE.MathUtils.degToRad(draft?.yaw ?? state.yaw), roll = THREE.MathUtils.degToRad(draft?.roll ?? state.roll);
+    for (const node of motionGroups) { node.rotation.set(0, 0, 0); node.position.set(0, 0, 0); node.scale.set(1, 1, 1); }
+    // Only one motion angle is nonzero, so the Euler order of the motion group is irrelevant.
+    const target = style.motionSpace === 'screen' ? screen : style.motionSpace === 'object' ? object : posed;
+    if (style.motionSpace === 'euler') posed.rotation.set(tilt + motion.rotationX, yaw + motion.rotationY, roll + motion.rotationZ);
+    else { posed.rotation.set(tilt, yaw, roll); target.rotation.set(motion.rotationX, motion.rotationY, motion.rotationZ); }
+    target.position.set(motion.offsetX, motion.offsetY, motion.offsetZ);
+    target.scale.set(motion.scaleX, motion.scaleY, motion.scaleZ);
     drawnBounds = undefined;
   }
   function draw(time, draft) {
@@ -245,7 +250,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     if (!Number.isFinite(extent) || extent <= 0) throw new Error('Model has no visible geometry.');
     const normalizer = new THREE.Group();
     model.position.sub(box.getCenter(new THREE.Vector3()));
-    normalizer.add(model); normalizer.scale.setScalar(2 / extent); group.add(normalizer);
+    normalizer.add(model); normalizer.scale.setScalar(2 / extent); object.add(normalizer);
     mixer = new THREE.AnimationMixer(model);
     clips = source.animations;
     applyStyle(style);

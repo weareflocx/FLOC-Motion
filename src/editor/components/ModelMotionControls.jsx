@@ -1,10 +1,16 @@
 import React from 'react';
-import { MODEL_MOTIONS, MODEL_MOTION_AXES, MODEL_STYLE_RANGES, resetModelMotion } from '../../model-style.js';
+import { MODEL_MOTIONS, MODEL_MOTION_AXES, MODEL_MOTION_SPACES, MODEL_STYLE_RANGES, resetModelMotion } from '../../model-style.js';
 import { Field, NumberField, Range, Section } from '../controls.jsx';
 import { RhythmControls, CharacterControls } from './MotionTimingControls.jsx';
 
 const motionNames = { none: 'None', spin: 'Spin', rock: 'Rock', float: 'Float', pulse: 'Pulse' };
 const autoAxes = { spin: 'Y', rock: 'Z', float: 'Y', pulse: 'X / Y / Z' };
+const spaceNames = { screen: 'Screen', object: 'Object', euler: 'Legacy' };
+const spaceHelp = {
+  screen: 'Axes follow the screen: X is horizontal, Y vertical and Z points toward you, whatever the model’s orientation.',
+  object: 'Axes follow the model’s own orientation: a tilted model spins about its own tilted axis.',
+  euler: 'Earlier projects add motion to the orientation angles: X follows the screen, Z the model and Y lies in between. Choose Screen or Object for consistent axes.'
+};
 
 export function ModelMotionControls({ style, onChange }) {
   const motion = style.motionTiming;
@@ -22,7 +28,8 @@ export function ModelMotionControls({ style, onChange }) {
       <Field label="Automatic motion"><select aria-label="Automatic motion" value={style.motion} onChange={event => onChange({ ...style, motion: event.target.value })}>{MODEL_MOTIONS.map(value => <option key={value} value={value}>{motionNames[value]}</option>)}</select></Field>
       {style.motion !== 'none' && <>
         <Field label="Axis"><select aria-label="Motion axis" value={style.motionAxis} onChange={event => onChange({ ...style, motionAxis: event.target.value })}>{MODEL_MOTION_AXES.map(axis => <option key={axis} value={axis}>{axis === 'auto' ? `Auto · ${autoAxes[style.motion]}` : axis.toUpperCase()}</option>)}</select></Field>
-        <p className="helper">X tilts or moves horizontally, Y turns or moves vertically, and Z rolls or moves in depth. Pulse scales the selected axis; Auto scales all three.</p>
+        <Field label="Axis space"><select aria-label="Motion axis space" value={style.motionSpace} onChange={event => onChange({ ...style, motionSpace: event.target.value })}>{MODEL_MOTION_SPACES.filter(space => space !== 'euler' || style.motionSpace === 'euler').map(space => <option key={space} value={space}>{spaceNames[space]}</option>)}</select></Field>
+        <p className="helper">{spaceHelp[style.motionSpace]} Pulse scales the selected axis; Auto scales all three.</p>
         {!spin && <Range label="Motion amplitude" value={style.motionAmplitude} min={MODEL_STYLE_RANGES.motionAmplitude[0]} max={MODEL_STYLE_RANGES.motionAmplitude[1]} step={0.01} scale={100} onChange={motionAmplitude => onChange({ ...style, motionAmplitude })}/>}
       </>}
       <p className="helper">Automatic motion adds to the authored pose independently of embedded clips.</p>
