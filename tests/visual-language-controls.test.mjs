@@ -24,7 +24,7 @@ function controls(component, initial) {
     UploadSimple() {}, DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
     useState: value => [value, () => {}],
     useRef: value => ({ current: value }), useEffect: effect => effects.push(effect),
-    createContext: value => ({ value }), useContext: context => context.value
+    createContext: value => ({ value }), useContext: context => context.value, useSyncExternalStore: (subscribe, snapshot) => snapshot()
   };
   vm.createContext(context);
   vm.runInContext(primitives + backgrounds + typography + '\nthis.background = BackgroundControls; this.typography = TypographyControls; this.reveal = TextRevealControls; this.preview = BackgroundPreview;', context);

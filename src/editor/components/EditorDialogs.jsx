@@ -17,7 +17,7 @@ import { useCompositionContent } from '../useCompositionContent.js';
 // Every editor dialog, rendered from `useEditorDialogs` state. `commands` builds the palette entries on demand.
 export function EditorDialogs({ user, onSignOut, session, playback, setSelected, view, dialogs, files, actions, exportJob, agent, alternatives, commands }) {
   const { project, composition, canvasEditing, save, saveCopy, change, updateCompositionMetadata, detachComposition } = session;
-  const { nudge, setNudge } = view;
+  const { nudge, setNudge, setLeftTab } = view;
   const content = useCompositionContent({ session, setTime: playback.setTime, setPlaying: playback.setPlaying, setSelected, view, dialogs });
   const {
     nudgeOpen, setNudgeOpen, newOpen, setNewOpen, saveOpen, setSaveOpen, templatesOpen, setTemplatesOpen, versionsOpen, setVersionsOpen, accountOpen, setAccountOpen,
@@ -30,7 +30,7 @@ export function EditorDialogs({ user, onSignOut, session, playback, setSelected,
     {templatesOpen && <SavedTemplates project={project} onMetadata={updateCompositionMetadata} onRemove={detachComposition} onUseTemplate={content.startFromTemplate} onSaveCurrent={() => { setTemplatesOpen(false); setSaveOpen(true); }} onClose={() => setTemplatesOpen(false)} onApply={content.applyTemplate}/>}
     {versionsOpen && composition && <VersionHistoryDialog compositionId={composition.id} onClose={() => setVersionsOpen(false)} onRestore={version => restoreCompositionVersion(version, { save, change, updateCompositionMetadata })}/>}
     {accountOpen && <AccountDialog user={user} onClose={() => setAccountOpen(false)} onSignOut={async () => { await save(); await onSignOut(); }}/>}
-    {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={files.uploading} onClose={() => setAddTarget(null)} onPick={files.pick} onAddText={actions.addText} onAddLayer={actions.addLayer}/>}
+    {addTarget !== null && <AddLayerDialog project={project} initialTarget={addTarget} uploading={files.uploading} onClose={() => setAddTarget(null)} onPick={files.pick} onAddText={actions.addText} onAddLayer={actions.addLayer} onOpenMedia={() => setLeftTab('media')}/>}
     {contentTarget && <TemplateContentDialog project={contentTarget.project} copy={contentTarget.copy} name={contentTarget.name} onClose={() => setContentTarget(null)} onSubmit={content.applyContent} onBatch={() => { setBatchTemplate(contentTarget.project); setContentTarget(null); }}/>}
     {batchTemplate && <BatchVariantsDialog project={batchTemplate} exportSettings={exportJob.settings} onClose={() => setBatchTemplate(null)}/>}
     {alternatives.proposal && <VisualAlternativesDialog proposal={alternatives.proposal} stale={project !== alternatives.proposal.base || canvasEditing} onClose={alternatives.close} onApply={alternatives.apply}/>}
