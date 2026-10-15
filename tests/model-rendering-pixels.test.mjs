@@ -1,0 +1,261 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { build } from 'esbuild';
+import puppeteer from 'puppeteer-core';
+import { browserCandidates } from '../scripts/renderer-runtime.mjs';
+
+const executablePath = [process.env.HYPERFRAMES_BROWSER_PATH, ...browserCandidates()].find(file => file && existsSync(file));
+
+test('shared model renderer produces real material, reflection, shader and deterministic animation pixels', { skip: !executablePath && 'Chrome or Edge is required for model pixel verification', timeout: 120000 }, async t => {
+  const bundle = await build({ stdin: { resolveDir: path.resolve('src'), contents: `
+    import * as THREE from 'three';
+    import { createModelRenderingFixture } from '../tests/fixtures/model-rendering-fixture.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { clone } from 'three/addons/utils/SkeletonUtils.js';
+    import { createModelScene } from './model-scene.js';
+    import { createResourceCache } from './scene-resources.js';
+    import { DEFAULT_MODEL_STYLE, MODEL_MATERIAL_PRESETS, applyModelPreset } from './model-style.js';
+    import { getModelMetadata } from './model-metadata.js';
+    const captures = new Map();
+    const beforeRender = THREE.Scene.prototype.onBeforeRender;
+    THREE.Scene.prototype.onBeforeRender = function(renderer, scene, camera, ...rest) {
+      if (this.children.some(child => child.isHemisphereLight)) captures.set(renderer.domElement, { scene: this, renderer });
+      return beforeRender?.call(this, renderer, scene, camera, ...rest);
+    };
+    const disposal = { materials: [], textures: [], geometry: [], targets: [] };
+    for (const [kind, Type] of [['materials', THREE.Material], ['textures', THREE.Texture], ['geometry', THREE.BufferGeometry], ['targets', THREE.WebGLRenderTarget]]) {
+      const original = Type.prototype.dispose;
+      Type.prototype.dispose = function() { disposal[kind].push(kind === 'targets' ? this.texture.uuid : this.uuid); original.call(this); };
+    }
+    const resources = createResourceCache(), layers = new Map(), scenes = new Map(), urls = [];
+    const errors = [];
+    function canvas(id) { let node = document.getElementById(id); if (!node) { node = document.createElement('canvas'); node.id = id; document.body.append(node); } return node; }
+    function pixels(id) {
+      const node = canvas(id), copy = document.createElement('canvas'); copy.width = node.width; copy.height = node.height;
+      const context = copy.getContext('2d'); context.drawImage(node, 0, 0); return context.getImageData(0, 0, copy.width, copy.height).data;
+    }
+    function difference(a, b) { let changed = 0, total = 0; for (let i = 0; i < a.length; i += 4) { let d = 0; for (let j = 0; j < 4; j++) d += Math.abs(a[i + j] - b[i + j]); if (d > 0) changed++; total += d; } return { changed, total }; }
+    function opaque(p) { let count = 0; for (let i = 3; i < p.length; i += 4) if (p[i] > 127) count++; return count; }
+    function mesh(id) { let result; captures.get(canvas(id)).scene.traverse(node => { if (node.isMesh && !result) result = node; }); return result; }
+    async function fixture(unlit = false, options = {}) {
+      const buffer = await createModelRenderingFixture({ unlit, ...options });
+      const url = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' })); urls.push(url);
+      return url;
+    }
+    async function mount(id, src, modelStyle = undefined) {
+      scenes.get(id)?.dispose();
+      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, tilt: 13, yaw: 22, roll: 0, modelStyle };
+      const instance = await createModelScene(canvas(id), layer, 192, 192, { resources, renderMode: true, onError: error => errors.push(error.message) });
+      layers.set(id, layer); scenes.set(id, instance); instance.draw(0); return instance;
+    }
+    function style(id, patch) { const layer = { ...layers.get(id), modelStyle: { ...DEFAULT_MODEL_STYLE, ...layers.get(id).modelStyle, ...patch } }; scenes.get(id).updateLayer(layer); layers.set(id, layer); }
+    function frame(id, time = 0, draft) { scenes.get(id).draw(time, draft); return pixels(id); }
+    async function legacy(src) {
+      const renderer = new THREE.WebGLRenderer({ canvas: canvas('legacy'), alpha: true, antialias: true, preserveDrawingBuffer: true }); renderer.setSize(192, 192, false); renderer.outputColorSpace = THREE.SRGBColorSpace;
+      const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(38, 1, .01, 100); camera.position.z = 4.5;
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 3)); const light = new THREE.DirectionalLight(0xffffff, 3); light.position.set(3, 4, 5); scene.add(light);
+      const group = new THREE.Group(); scene.add(group);
+      const gltf = await new GLTFLoader().loadAsync(src), model = clone(gltf.scene), box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
+      const normalizer = new THREE.Group(); model.position.sub(box.getCenter(new THREE.Vector3())); normalizer.add(model); normalizer.scale.setScalar(2 / Math.max(size.x, size.y, size.z)); group.add(normalizer);
+      const mixer = new THREE.AnimationMixer(model), clip = gltf.animations[0], action = mixer.clipAction(clip); action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true;
+      return { frame(time, style = DEFAULT_MODEL_STYLE) {
+        action.reset().play(); mixer.setTime(time % clip.duration);
+        const phase = Math.max(0, time) * style.motionSpeed / style.motionDuration % 1, wave = Math.sin(phase * Math.PI * 2);
+        group.rotation.set(THREE.MathUtils.degToRad(13), THREE.MathUtils.degToRad(22) + (style.motion === 'spin' ? phase * Math.PI * 2 : 0), style.motion === 'rock' ? wave * style.motionAmplitude * Math.PI / 9 : 0);
+        group.position.y = style.motion === 'float' ? wave * style.motionAmplitude * .2 : 0;
+        group.scale.setScalar(style.motion === 'pulse' ? 1 + wave * style.motionAmplitude * .12 : 1);
+        renderer.render(scene, camera); return pixels('legacy');
+      }, dispose() { mixer.stopAllAction(); scene.traverse(node => { node.geometry?.dispose(); node.material?.map?.dispose(); node.material?.dispose(); }); renderer.dispose(); renderer.forceContextLoss(); } };
+    }
+    window.exerciseModels = async () => {
+      const result = {}, src = await fixture(), unlitSrc = await fixture(true);
+      await mount('a', src); const baseline = await legacy(src);
+      result.parity = [0, .4, 1.75, .4].map(time => difference(frame('a', time), baseline.frame(time)).total);
+      result.v9MotionParity = [];
+      for (const motion of ['spin', 'rock', 'float', 'pulse']) for (const speed of [-1.5, 0, 1.5]) {
+        style('a', { motion, motionSpeed: speed });
+        for (const time of [0, .4, 1.75, .4]) result.v9MotionParity.push(difference(frame('a', time), baseline.frame(time, layers.get('a').modelStyle)).total);
+      }
+      style('a', { motion: 'none', motionSpeed: 1 }); baseline.dispose();
+      const original = frame('a', .4), originalMaterial = mesh('a').material, sourceMap = originalMaterial.map;
+      await mount('b', src, { ...DEFAULT_MODEL_STYLE, mode: 'replace', color: '#ff3322' }); const neighbor = frame('b', .4);
+      result.sharedGeometry = mesh('a').geometry === mesh('b').geometry;
+      result.sharedMaterial = mesh('a').material === mesh('b').material;
+      style('a', { mode: 'tint', color: '#44ff88' }); const tinted = frame('a', .4);
+      result.tint = difference(original, tinted); result.tintMapPreserved = mesh('a').material.map === sourceMap;
+      result.neighbor = difference(neighbor, frame('b', .4)).total;
+      style('a', { mode: 'replace', color: '#44ff88' }); const replaced = frame('a', .4);
+      result.replace = difference(tinted, replaced); result.replaceMapDropped = mesh('a').material.map === null;
+      result.presets = [];
+      for (const preset of MODEL_MATERIAL_PRESETS.filter(item => item.id !== 'original')) {
+        style('a', applyModelPreset(layers.get('a').modelStyle, preset.id));
+        result.presets.push({ id: preset.id, pixels: Array.from(frame('a', .4)), visible: opaque(frame('a', .4)) });
+      }
+      style('a', applyModelPreset(layers.get('a').modelStyle, 'chrome')); const studio = frame('a', .4);
+      const environment = captures.get(canvas('a')).scene.environment;
+      style('a', { environmentRotation: 90 }); result.environmentRotation = difference(studio, frame('a', .4));
+      style('a', { environmentIntensity: 0 }); result.environmentIntensity = difference(studio, frame('a', .4));
+      style('a', { environment: 'none', ambientIntensity: 0, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0 }); const keyOnly = frame('a', .4);
+      style('a', { fillIntensity: 3, rimIntensity: 2, lightRotation: 70 }); result.lightRig = difference(keyOnly, frame('a', .4));
+      style('a', { mode: 'replace', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, shader: 'standard' }); const standard = frame('a', .4);
+      result.shaders = [];
+      for (const shader of ['toon', 'fresnel', 'wireframe']) {
+        style('a', { shader, fresnelColor: '#ff0000', fresnelIntensity: 2 }); const output = frame('a', .4);
+        result.shaders.push({ shader, delta: difference(standard, output), coverage: opaque(output) });
+      }
+      result.standardCoverage = opaque(standard);
+      style('a', { shader: 'toon', toonSteps: 2 }); const twoSteps = frame('a', .4); style('a', { toonSteps: 8 }); result.toonSteps = difference(twoSteps, frame('a', .4));
+      style('a', { shader: 'fresnel', fresnelIntensity: 0 }); const noRim = frame('a', .4); style('a', { fresnelIntensity: 2 }); const rim = frame('a', .4);
+      result.fresnel = difference(noRim, rim);
+      let edgeGain = 0, centerGain = 0, edgeCount = 0, centerCount = 0;
+      for (let y = 60; y < 125; y++) for (let x = 35; x < 140; x++) {
+        const i = (y * 192 + x) * 4; if (noRim[i + 3] < 250) continue;
+        const gain = rim[i] - noRim[i];
+        if (x < 49 || x > 119) { edgeGain += gain; edgeCount++; } else if (x > 70 && x < 95) { centerGain += gain; centerCount++; }
+      }
+      result.fresnelAngle = { edge: edgeGain / Math.max(1, edgeCount), center: centerGain / Math.max(1, centerCount) };
+      style('a', { mode: 'original', shader: 'standard', environment: 'none', ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0 });
+      result.restoration = difference(original, frame('a', .4)).total;
+      result.originalMaterialRestored = mesh('a').material === originalMaterial;
+      result.originalMapIntact = sourceMap === mesh('a').material.map && !disposal.textures.includes(sourceMap.uuid);
+      result.loop = difference(frame('a', .25), frame('a', 2.25)).total;
+      const forward = frame('a', .7); frame('a', 1.8); result.reverseSeek = difference(forward, frame('a', .7)).total;
+      layers.set('a', { ...layers.get('a'), loop: false }); scenes.get('a').updateLayer(layers.get('a'));
+      result.clamp = difference(frame('a', 2), frame('a', 9)).total;
+      frame('a', 9); result.clampReverse = difference(forward, frame('a', .7)).total;
+      layers.set('a', { ...layers.get('a'), loop: true }); scenes.get('a').updateLayer(layers.get('a'));
+      result.clipSwitch = difference(frame('a', 1), (() => { style('a', { animationClip: 1 }); return frame('a', 1); })());
+      const stretch = frame('a', 1); style('a', { animationSpeed: 2 }); result.clipSpeed = difference(stretch, frame('a', .5)).total;
+      style('a', { animationSpeed: 0 }); result.clipFreeze = difference(frame('a', .3), frame('a', 1.5)).total;
+      style('a', { animationClip: -1 }); const staticFrame = frame('a', 1);
+      result.clipDisabled = difference(staticFrame, frame('a', .2)).total;
+      result.motions = [];
+      for (const motion of ['spin', 'rock', 'float', 'pulse']) {
+        style('a', { motion, motionDuration: 2, motionSpeed: 1, motionAmplitude: 1 }); const moving = frame('a', .5);
+        const repeated = frame('a', 2.5); frame('a', 1.4); const reversedSeek = frame('a', .5);
+        style('a', { motionSpeed: -1 }); const reverse = frame('a', 1.5);
+        style('a', { motionSpeed: 0 }); const frozen = difference(frame('a', .5), frame('a', 1.5)).total;
+        result.motions.push({ motion, visible: difference(staticFrame, moving), loop: difference(moving, repeated).total, seek: difference(moving, reversedSeek).total, reverse: difference(moving, reverse).total, frozen });
+      }
+      style('a', { motion: 'rock', motionSpeed: 1 }); const additive = frame('a', .5, { tilt: 5, yaw: 35, roll: 7 });
+      style('a', { motion: 'none' }); result.additivePose = difference(additive, frame('a', .5, { tilt: 5, yaw: 35, roll: 27 })).total;
+      style('a', { motion: 'rock', motionAmplitude: 0 }); result.zeroAmplitude = difference(staticFrame, frame('a', .5)).total;
+      result.axes = [];
+      for (const motion of ['spin', 'rock', 'float', 'pulse']) {
+        const frames = [];
+        for (const motionAxis of ['x', 'y', 'z']) {
+          style('a', { motion, motionAxis, motionDuration: 4, motionAmplitude: 1, motionSpeed: 1 });
+          frames.push(frame('a', 1));
+        }
+        result.axes.push({ motion, xy: difference(frames[0], frames[1]), yz: difference(frames[1], frames[2]), zx: difference(frames[2], frames[0]) });
+      }
+      style('a', { motion: 'spin', motionAxis: 'x', motionSteps: 4, motionTiming: { mode: 'steps', action: .5, pause: .75, curve: 'linear', intensity: .5 } });
+      const endpoint = frame('a', .5);
+      result.actionHold = [.6, 1, 1.249, 1.25].map(time => difference(endpoint, frame('a', time)).total);
+      const expectedQuarter = frame('a', 1.25, { tilt: 5, yaw: 35, roll: 7 });
+      style('a', { motion: 'none' }); result.axisAdditivePose = difference(expectedQuarter, frame('a', 1.25, { tilt: 95, yaw: 35, roll: 7 })).total;
+      style('a', { motion: 'spin' });
+      const linearAction = frame('a', .15);
+      style('a', { motionTiming: { mode: 'steps', action: .5, pause: .75, curve: 'spring', intensity: 1 } }); result.actionCurve = difference(linearAction, frame('a', .15));
+      const springEndpoint = frame('a', .5); result.springHold = difference(springEndpoint, frame('a', 1)).total;
+      style('a', { motion: 'none', motionAxis: 'auto', motionDuration: 2, motionTiming: DEFAULT_MODEL_STYLE.motionTiming }); result.axisReset = difference(staticFrame, frame('a', .5)).total;
+      const stableRenderer = captures.get(canvas('a')).renderer, programCount = stableRenderer.info.programs.length, materialVersion = mesh('a').material.version;
+      for (const time of [.2, 1.9, .2, 2.4, .6]) frame('a', time);
+      result.stablePrograms = stableRenderer.info.programs.length === programCount && mesh('a').material.version === materialVersion;
+      style('a', { motionAmplitude: 1 });
+      style('a', { motion: 'float', motionSpeed: 1, animationClip: 1, animationSpeed: 1 }); frame('a', .75); const movingScale = mesh('a').scale.toArray();
+      style('a', { motion: 'none' }); frame('a', .75); result.motionClipIndependent = JSON.stringify(movingScale) === JSON.stringify(mesh('a').scale.toArray());
+      style('a', { motion: 'float', animationClip: 0, animationSpeed: 3 }); frame('a', .75); const floatPose = captures.get(canvas('a')).scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup)).position.y;
+      style('a', { animationClip: 1, animationSpeed: .5 }); frame('a', .75); result.clipMotionIndependent = floatPose === captures.get(canvas('a')).scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup)).position.y;
+      style('a', { motion: 'spin', motionAxis: 'z', animationClip: 1, animationSpeed: 1, motionTiming: { mode: 'steps', action: .5, pause: 1, curve: 'bounce', intensity: 1 } });
+      const holdA = frame('a', .6), clipA = mesh('a').scale.toArray();
+      const automaticGroup = captures.get(canvas('a')).scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup));
+      const groupA = automaticGroup.rotation.toArray();
+      const holdB = frame('a', 1.1), clipB = mesh('a').scale.toArray();
+      result.clipDuringActionHold = difference(holdA, holdB);
+      result.actionGroupHeld = JSON.stringify(groupA) === JSON.stringify(automaticGroup.rotation.toArray());
+      result.clipAdvancedDuringHold = JSON.stringify(clipA) !== JSON.stringify(clipB);
+      style('a', { motionAxis: 'x', motionTiming: { mode: 'continuous', action: 1, pause: 0, curve: 'spring', intensity: 1 } }); frame('a', 1.1);
+      result.timingClipIndependent = JSON.stringify(clipB) === JSON.stringify(mesh('a').scale.toArray());
+      try { style('a', { animationClip: 7 }); } catch (error) { result.invalidClip = error.message; }
+      result.metadata = getModelMetadata(src);
+      style('a', { animationClip: -1, motion: 'none', environment: 'studio', environmentIntensity: 1, mode: 'replace', shader: 'standard' }); const beforeRestore = frame('a', 0);
+      const gl = canvas('a').getContext('webgl2'), extension = gl.getExtension('WEBGL_lose_context');
+      if (!extension) throw new Error('Browser does not expose WEBGL_lose_context for recovery verification.');
+      const lost = new Promise(resolve => canvas('a').addEventListener('webglcontextlost', resolve, { once: true })); extension.loseContext(); await lost;
+      const restored = new Promise(resolve => canvas('a').addEventListener('webglcontextrestored', () => requestAnimationFrame(resolve), { once: true })); await new Promise(resolve => setTimeout(resolve, 100)); extension.restoreContext(); await restored;
+      result.contextRestore = difference(beforeRestore, frame('a', 0)).total;
+      result.environmentRecovered = captures.get(canvas('a')).scene.environment !== environment;
+      const held = resources.acquire('model\\n' + src, () => { throw new Error('Shared decoded source must not reload.'); }); const source = await held.value;
+      let sourceMaterial; source.scene.traverse(node => { if (node.isMesh && !sourceMaterial) sourceMaterial = node.material; });
+      const ownedMaterial = mesh('a').material, targetTexture = captures.get(canvas('a')).scene.environment;
+      scenes.get('a').dispose(); scenes.delete('a');
+      result.ownedDisposed = disposal.materials.includes(ownedMaterial.uuid) && disposal.targets.includes(targetTexture.uuid);
+      result.sourceSurvives = !disposal.materials.includes(sourceMaterial.uuid) && !disposal.textures.includes(sourceMap.uuid);
+      result.neighborAfterDispose = difference(neighbor, frame('b', .4)).total;
+      scenes.get('b').dispose(); scenes.delete('b'); held.release(); await Promise.resolve();
+      result.metadataReleased = getModelMetadata(src) === null;
+      const coloredSrc = await fixture(false, { vertexColors: true, opacity: .35 });
+      await mount('colored', coloredSrc); const coloredOriginal = frame('colored', .4);
+      style('colored', { mode: 'replace', color: '#ff0000' }); const solidRed = frame('colored', .4);
+      let redPixels = 0;
+      for (let i = 0; i < solidRed.length; i += 4) if (solidRed[i] > 200 && solidRed[i + 1] < 50 && solidRed[i + 2] < 50 && solidRed[i + 3] > 250) redPixels++;
+      result.uniformReplacementPixels = redPixels;
+      style('colored', { mode: 'original' }); result.coloredRestoration = difference(coloredOriginal, frame('colored', .4)).total;
+      await mount('unlit', unlitSrc); result.unlitMetadata = getModelMetadata(unlitSrc).unlit;
+      const unlit = frame('unlit', .4); style('unlit', { shader: 'fresnel', fresnelIntensity: 2 }); result.unlitSurface = difference(unlit, frame('unlit', .4));
+      for (const instance of scenes.values()) instance.dispose(); await Promise.resolve(); urls.forEach(url => URL.revokeObjectURL(url));
+      result.errors = errors; result.resourcesReleased = resources.size === 0;
+      return result;
+    };
+  ` }, bundle: true, write: false, format: 'iife' });
+  const angle = process.platform === 'darwin' ? 'metal' : process.platform === 'win32' ? 'd3d11' : 'gl-egl';
+  const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', `--use-angle=${angle}`, '--force-color-profile=srgb'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const failures = [];
+  page.on('pageerror', error => failures.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') failures.push(message.text()); });
+  await page.setRequestInterception(true);
+  page.on('request', request => { if (/^https?:/.test(request.url())) { failures.push(`Unexpected external request: ${request.url()}`); request.abort(); } else request.continue(); });
+  await page.setContent('<!doctype html><body></body>');
+  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const result = await page.evaluate(() => window.exerciseModels());
+  const visible = (delta, label) => assert.ok(delta.changed > 30 && delta.total > 500, `${label} must visibly affect actual geometry pixels: ${JSON.stringify(delta)}`);
+  assert.deepEqual(failures, [], 'no shader compilation errors or external assets');
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.parity, [0, 0, 0, 0], 'default mode must match the pre-controls renderer exactly');
+  assert.ok(result.v9MotionParity.every(delta => delta === 0), 'native continuous auto must preserve every v9 motion pixel');
+  assert.equal(result.sharedGeometry, true); assert.equal(result.sharedMaterial, false);
+  visible(result.tint, 'Tint'); visible(result.replace, 'Replacement');
+  assert.equal(result.tintMapPreserved, true); assert.equal(result.replaceMapDropped, true);
+  assert.equal(result.neighbor, 0); assert.equal(result.neighborAfterDispose, 0);
+  for (const preset of result.presets) assert.ok(preset.visible > 1000, `${preset.id} must draw actual geometry`);
+  for (let i = 1; i < result.presets.length; i++) assert.notDeepEqual(result.presets[i].pixels, result.presets[i - 1].pixels, 'adjacent presets must have distinct visible surfaces');
+  visible(result.environmentRotation, 'Environment rotation'); visible(result.environmentIntensity, 'Environment intensity'); visible(result.lightRig, 'Lighting rig');
+  for (const shader of result.shaders) visible(shader.delta, shader.shader);
+  assert.ok(result.shaders.find(item => item.shader === 'wireframe').coverage < result.standardCoverage * .8, 'wireframe shows triangle edges, not a recolored filled surface');
+  visible(result.toonSteps, 'Toon steps'); visible(result.fresnel, 'Fresnel intensity');
+  assert.ok(result.fresnelAngle.edge > result.fresnelAngle.center, `rim depends on view angle: ${JSON.stringify(result.fresnelAngle)}`);
+  assert.equal(result.restoration, 0); assert.equal(result.originalMaterialRestored, true); assert.equal(result.originalMapIntact, true);
+  assert.equal(result.loop, 0); assert.equal(result.reverseSeek, 0); visible(result.clipSwitch, 'Clip selection');
+  assert.equal(result.clipSpeed, 0); assert.equal(result.clipFreeze, 0); assert.equal(result.clipDisabled, 0);
+  assert.equal(result.clamp, 0); assert.equal(result.clampReverse, 0);
+  for (const motion of result.motions) { visible(motion.visible, motion.motion); for (const key of ['loop', 'seek', 'reverse', 'frozen']) assert.equal(motion[key], 0, `${motion.motion} ${key} must be deterministic`); }
+  assert.ok(result.additivePose < 20, 'automatic motion adds to draft/authored pose instead of replacing it'); assert.equal(result.zeroAmplitude, 0); assert.equal(result.stablePrograms, true);
+  for (const axis of result.axes) for (const pair of ['xy', 'yz', 'zx']) visible(axis[pair], axis.motion + ' axes ' + pair);
+  assert.deepEqual(result.actionHold, [0, 0, 0, 0], 'Actions holds the completed X quarter turn');
+  assert.ok(result.axisAdditivePose < 20, 'X motion adds to draft tilt');
+  visible(result.actionCurve, 'Spring character in Actions');
+  assert.equal(result.springHold, 0); assert.equal(result.axisReset, 0);
+  assert.equal(result.motionClipIndependent, true); assert.equal(result.clipMotionIndependent, true); assert.match(result.invalidClip, /clip 7 does not exist/);
+  visible(result.clipDuringActionHold, 'Embedded clip during automatic action hold');
+  assert.equal(result.actionGroupHeld, true); assert.equal(result.clipAdvancedDuringHold, true); assert.equal(result.timingClipIndependent, true);
+  assert.deepEqual(result.metadata.clips.map(clip => clip.name), ['Turn', 'Stretch']); assert.equal(result.metadata.unlit, false); assert.equal(result.unlitMetadata, true); visible(result.unlitSurface, 'Adapted unlit surface');
+  assert.equal(result.contextRestore, 0); assert.equal(result.environmentRecovered, true); assert.equal(result.ownedDisposed, true); assert.equal(result.sourceSurvives, true);
+  assert.ok(result.uniformReplacementPixels > 1500, 'Replace produces an opaque chosen color instead of multiplying imported vertex colors/alpha');
+  assert.equal(result.coloredRestoration, 0, 'Original restores imported vertex color and transparency');
+  assert.equal(result.metadataReleased, true); assert.equal(result.resourcesReleased, true);
+});

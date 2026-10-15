@@ -2,7 +2,7 @@ import { CARD_FITS, MOTION_VARIANTS } from './carousel-motion.js';
 import { BRAND } from './brand.js';
 import { textFontValid } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
-import { DEFAULT_MOTION, MOTION_CURVES, motionBaseline } from './motion-timing.js';
+import { DEFAULT_MOTION, motionBaseline, validateMotion } from './motion-timing.js';
 import { choreographyFields, optionalChoreographyFields, evaluateChoreography } from './choreography.js';
 import { isEasing } from './easing.js';
 import { CONTENT_PROPERTIES, normalizeContentField } from './template-content.js';
@@ -12,6 +12,7 @@ import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
 import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
 import { PROJECT_LIMITS } from './project-limits.js';
+import { normalizeModelStyle } from './model-style.js';
 export { PROJECT_LIMITS } from './project-limits.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
@@ -43,11 +44,6 @@ export function demoProject() {
 const fail = message => { throw new Error(message); };
 const finite = (v, min, max, label) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max || fail(`${label} must be between ${min} and ${max}.`);
 const str = (v, max, label) => typeof v === 'string' && v.length <= max || fail(`Invalid ${label}.`);
-function validateMotion(motion) {
-  if (!motion || typeof motion !== 'object' || Array.isArray(motion) || Object.keys(motion).some(key => !Object.hasOwn(DEFAULT_MOTION, key))) fail('Invalid motion settings.');
-  if (!['continuous', 'steps'].includes(motion.mode) || !MOTION_CURVES.some(([id]) => id === motion.curve)) fail('Unknown rhythm or curve.');
-  finite(motion.action, 0.05, 30, 'Action duration'); finite(motion.pause, 0, 30, 'Pause duration'); finite(motion.intensity, 0, 1, 'Curve strength');
-}
 const FADE_LAYERS = ['text', 'logo', 'carousel', 'media', 'model', 'effect'];
 function validateChoreography(layer) {
   const fields = choreographyFields(layer), optional = optionalChoreographyFields(layer);
@@ -89,7 +85,7 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   text: ['text', 'x', 'y', 'size', 'width', 'color', 'font', 'weight', 'roll', 'rise', ...Object.keys(DEFAULT_TEXT_STYLE)],
   logo: ['src', 'x', 'y', 'size', 'roll'],
   media: ['src', 'x', 'y', 'size', 'roll', 'offset', 'loop'],
-  model: ['src', 'x', 'y', 'size', 'yaw', 'tilt', 'roll', 'offset', 'loop'],
+  model: ['src', 'x', 'y', 'size', 'yaw', 'tilt', 'roll', 'offset', 'loop', 'modelStyle'],
   carousel: ['images', 'template', 'speed', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
     'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'stretch',
     'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing'],
@@ -104,14 +100,25 @@ function closeShape(p) {
   keepKeys(p, PROJECT_KEYS);
   const layers = Array.isArray(p.layers) ? p.layers.filter(record) : [];
   for (const images of [p.images, ...layers.filter(l => l.type === 'carousel').map(l => l.images)]) if (Array.isArray(images)) images.forEach(img => keepKeys(img, IMAGE_KEYS));
-  for (const l of layers) if (Object.hasOwn(LAYER_KEYS, l.type)) keepKeys(l, LAYER_KEYS[l.type]);
+  for (const l of layers) {
+    if (l.type !== 'model' && Object.hasOwn(l, 'modelStyle')) fail('Only model layers accept model settings.');
+    if (Object.hasOwn(LAYER_KEYS, l.type)) keepKeys(l, LAYER_KEYS[l.type]);
+  }
   return p;
 }
 // Every caller gets migration: the result always carries CURRENT_PROJECT_VERSION.
 export function validateProject(input) {
-  const p = closeShape(migrateProject(input));
+  if (!record(input)) fail('Invalid project.');
   // Check the original objects before structuredClone can erase their prototypes.
   if (Object.hasOwn(input, 'linkedFormats')) assertLinkedFormatInput(input.linkedFormats);
+  for (const layer of Array.isArray(input.layers) ? input.layers : []) {
+    if (layer?.type === 'model') normalizeModelStyle(layer.modelStyle);
+    // Legacy curve names are migrated later; inspect only record identity here.
+    if (layer?.type === 'carousel') for (const motion of [layer.motion, layer.motionBaseline?.motion]) {
+      if (motion && typeof motion === 'object' && (![Object.prototype, null].includes(Object.getPrototypeOf(motion)) || Object.getOwnPropertySymbols(motion).length)) validateMotion(motion);
+    }
+  }
+  const p = closeShape(migrateProject(input));
   str(p.name, 100, 'project name');
   if (!Object.hasOwn(FORMATS, p.format)) fail('Unknown output format.');
   finite(p.duration, PROJECT_LIMITS.minDuration, PROJECT_LIMITS.maxDuration, 'Duration');
@@ -211,7 +218,10 @@ export function validateProject(input) {
       if (!l.src || !(l.type === 'model' ? /\.glb$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid layer asset type.');
       finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Size');
       finite(l.offset, 0, 3600, 'Source offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
-      if (l.type === 'model') { finite(l.yaw, -180, 180, 'Model yaw'); finite(l.tilt, -180, 180, 'Model tilt'); finite(l.roll, -180, 180, 'Model roll'); }
+      if (l.type === 'model') {
+        finite(l.yaw, -180, 180, 'Model yaw'); finite(l.tilt, -180, 180, 'Model tilt'); finite(l.roll, -180, 180, 'Model roll');
+        l.modelStyle = normalizeModelStyle(l.modelStyle);
+      }
     } else if (l.type === 'music') { asset(l.src); if (l.src && !/\.(mp3|wav|m4a|ogg)$/i.test(l.src)) fail('Music requires an audio file.'); finite(l.volume, 0, 1, 'Volume'); finite(l.offset, 0, 3600, 'Audio offset'); finite(l.fade, 0, 5, 'Audio fade'); if (typeof l.loop !== 'boolean') fail('Invalid audio loop.');
     } else if (l.type === 'effect') {
       if (!l.effects?.length) fail('An effect layer needs at least one effect.');
@@ -315,13 +325,14 @@ export function patchLayer(project, id, patch) {
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'cardFit', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'stretch'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'modelStyle' && layer.type === 'model') && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'cardFit', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'stretch'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {
     if (l.id !== id) return l;
     const changedFamily = patch.template && patch.template !== l.template;
     const next = { ...l, ...(changedFamily ? { motionVariant: 'default', motion: { ...DEFAULT_MOTION }, ...TEMPLATES.find(template => template.id === patch.template)?.defaults } : {}), ...patch };
+    if (l.type === 'model' && Object.hasOwn(patch, 'src') && patch.src !== l.src) next.modelStyle = { ...normalizeModelStyle(next.modelStyle), animationClip: 0 };
     // Capture the pre-edit rhythm for legacy in-memory projects as well as saved ones.
     if (l.type === 'carousel' && !Object.hasOwn(patch, 'motionBaseline') && (changedFamily || !l.motionBaseline)) next.motionBaseline = motionBaseline(changedFamily ? next : l);
     return next;
@@ -380,7 +391,7 @@ export function fileLayer(asset, duration, id) {
   const common = { id, name: asset.name.slice(0, 100), visible: true, locked: false, start: 0, end: duration, src: asset.src };
   if (/\.(mp3|wav|m4a|ogg)$/i.test(asset.src)) return { ...common, type: 'music', volume: 0.6, offset: 0, fade: 0.5, loop: false };
   const model = /\.glb$/i.test(asset.src);
-  return { ...common, type: model ? 'model' : 'media', x: 25, y: 25, size: 50, offset: 0, loop: true, fadeIn: 0, fadeOut: 0, ...(model ? { yaw: 0, tilt: 0, roll: 0 } : {}) };
+  return { ...common, type: model ? 'model' : 'media', x: 25, y: 25, size: 50, offset: 0, loop: true, fadeIn: 0, fadeOut: 0, ...(model ? { yaw: 0, tilt: 0, roll: 0, modelStyle: normalizeModelStyle() } : {}) };
 }
 
 export const carouselImages = (project, layer) => layer?.images ?? (layer ? project.images : []);

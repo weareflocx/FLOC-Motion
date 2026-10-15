@@ -111,6 +111,28 @@ Regenerate the committed 480×270 MP4 clips and JPEG posters with `npm run previ
 
 ## Files and privacy
 
+### 3D model imports
+
+**Add layer → Import media layers**, **New composition → Add files**, and a model's **Replace file** accept GLB and OBJ. Select an OBJ together with its declared `.mtl` files and local PNG, JPEG, WebP or AVIF textures. Each OBJ bundle becomes one 3D layer; referenced companions do not become extra media layers. Replacement requires exactly one model.
+
+OBJ is converted in the browser into an embedded binary GLB before uploading. Geometry, normals, UVs, vertex colors and material groups are retained; MTL colors, opacity and supported texture channels are adapted to glTF's PBR materials. The layer keeps the original OBJ display name. Preview and export use the same shared model renderer. GLB uploads retain their original bytes, materials and animations; embedded clip playback is independent of automatic pose motion.
+
+Each input file, an OBJ's referenced bundle and the converted GLB must fit within 75 MB. Textures are limited to 4096 px per edge and 20 megapixels. Missing, ambiguous or remote resources, invalid geometry and unsupported MTL channels/options fail explicitly instead of silently losing materials. Relative texture paths resolve only against the files selected by the user, never the filesystem or network. GLB requirements are unchanged: GLB 2.0 with embedded buffers/textures; Draco, Meshopt and KTX2/Basis compression are not supported.
+
+#### Material, lighting and movement
+
+Models use the same **Composition / Animation** inspector tabs as carousels. Composition keeps source replacement, authored framing, materials and lights; Animation contains automatic movement, shared rhythm/character controls and embedded clip playback. **Material** offers Original, Matte, Plastic, Satin metal, Chrome and Iridescent presets, plus **Original / Tint / Replace** modes. Original preserves imported appearance; Tint multiplies imported base color while keeping maps and vertex colors. Replace creates an opaque material with the chosen color instead of inheriting baked maps, vertex colors or source-material transparency; the layer's own opacity still applies. Roughness, metalness, clearcoat, iridescence and emissive controls operate on the replacement surface. **Toon**, view-angle-dependent **Fresnel**, and actual triangle **Wireframe** are fixed surface shaders, separate from the layer's post effects. Unlit source materials stay unlit in Original/Tint with Standard; replacement or an explicit lit surface shader can adapt them.
+
+**Lighting** controls ambient, key, fill and rim intensity, light-rig rotation, and a locally generated studio reflection environment with intensity and rotation. No HDR download or remote resource is needed. These are environment reflections, not ray-traced reflections between objects; Toon and Wireframe do not reflect the environment. Original restores the legacy material/light setup without resetting independent motion or clip choices. Per-instance materials isolate edits even when layers share decoded geometry/textures, and renderer-local reflection targets are released with their scene.
+
+**Automatic motion** adds Spin, Rock, Float or Pulse to the authored pose. Choose X/Y/Z, or Auto to retain the original axes: Spin Y, Rock Z, Float Y and uniform Pulse. The Animation tab shares the carousel's **Rhythm** and **Character** components, clock and easing library: Original, Linear, Ease in-out, Ease in, Ease out, Back, Bounce and Spring, with the same strength controls and progress graph. Back/Spring overshoot remains visible rather than clamped.
+
+**Continuous** uses cycle duration and a speed multiplier (100% = 1). **Actions** uses explicit action/pause durations; Spin advances by `360 / steps per turn` degrees per action, while Rock/Float/Pulse complete one oscillation then hold rest. Forward/Reverse/Paused applies to both modes. Actions ignores speed magnitude, as carousel actions do; entering Actions in the UI preserves direction and normalizes nonzero rate to its sign. Times are stored in seconds and displayed in milliseconds. Amplitude affects Rock/Float/Pulse, not a complete Spin turn. Every sample overwrites XYZ rotation/translation/scale, so axis changes and reverse seeks cannot accumulate stale transforms.
+
+**Reset motion** keeps the selected movement, authored pose, materials, lights and embedded clip controls, restoring only neutral timing, axis, amplitude and rate. Material presets likewise preserve movement settings.
+
+The **Embedded clip** selector lists the animations decoded by the preview, or None. Its speed, source offset and loop are independent of automatic motion, including Actions pauses. Clip speed zero holds the source-offset pose. A missing positive clip index reports an error instead of silently playing another animation; None remains available to recover even before a clip list is available. Replacing the model source resets clip selection to the first clip while preserving other styling. Static models remain valid. Schema v9 adds frozen legacy-preserving defaults to v8 models; v10 adds neutral continuous/native/auto-axis timing to v9 models without changing their previous movement. Material/light/motion/clip settings are shared across linked formats while authored framing remains format-local. Edits use normal validation, save and undo.
+
 ### Studio typography
 
 Text layers support Druk Wide Heavy (900), Geist Regular/Bold (400/700), and Geist Mono Medium/Bold (500/700). Geist 600/800 remain available for existing compositions. The same bundled WOFF2 registry drives the font selector, placement map, preview and self-contained MP4 jobs; fonts are not fetched from a CDN at runtime. Existing text without a font ID keeps Geist and its original weight. New demo headlines use Druk Wide, with Geist Mono for the signature; saved projects are not restyled automatically.
@@ -193,7 +215,7 @@ The composition displays a matching non-interactive guide during map dragging on
 
 ### Preview continuity
 
-The editor retains the active animation while preparing a replacement scene. Parameter edits (effects, carousel motion, size and appearance, colors, timing, text and procedural backgrounds) update the live scene in place. Only structural edits rebuild it: adding, removing, reordering or retyping layers, changing the format, a carousel template, card count or card sources, a media, model or background source/mode, or an adjustment scope; changing a font face rebuilds when the face is not loaded yet.
+The editor retains the active animation while preparing a replacement scene. Parameter edits (effects, carousel motion, size and appearance, colors, timing, text, procedural backgrounds, and model materials, lighting, automatic motion and clip selection) update the live scene in place. Only structural edits rebuild it: adding, removing, reordering or retyping layers, changing the format, a carousel template, card count or card sources, a media, model or background source/mode, or an adjustment scope; changing a font face rebuilds when the face is not loaded yet.
 
 The preview canvas composites empty areas and translucent layers over white, matching MP4 and other opaque exports. The dark dotted workspace stays outside the composition and is never part of its pixels. Add a background layer to choose a different composition color. **Transparent background** remains an opt-in for MOV and PNG exports and does not change the editor backdrop.
 

@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
 import { FORMATS, FORMAT_LABELS, PROJECT_LIMITS } from '../src/project.js';
+import { MODEL_IMPORT_ACCEPT } from '../src/editor/model-import.js';
+import { uploadAssets } from '../src/editor/upload-assets.js';
 
 const source = fs.readFileSync(new URL('../src/editor/components/NewCompositionDialog.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -12,11 +14,11 @@ function dialog({ upload = async files => files.map(file => ({ name: file.name, 
   let cursor = 0, closes = 0;
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    Modal() {}, IconButton() {}, SavedTemplates() {}, UploadSimple() {}, X() {}, FORMATS, FORMAT_LABELS, PROJECT_LIMITS,
+    Modal() {}, IconButton() {}, SavedTemplates() {}, UploadSimple() {}, X() {}, FORMATS, FORMAT_LABELS, PROJECT_LIMITS, MODEL_IMPORT_ACCEPT,
     useId: () => 'new-composition',
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
-    async uploadAssets(files) { uploads.push(files); return upload(files); }
+    async uploadAssets(files, options) { uploads.push(files); return upload(files, options); }
   };
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.component = NewCompositionDialog;', context);
@@ -60,10 +62,10 @@ test('empty creation uses square and cancel sends no upload or creation request'
   assert.equal(cancelled.submissions.length, 0);
 });
 
-test('unsupported, oversized and excessive selections are rejected without replacing valid files', () => {
+test('unsupported and oversized selections are rejected without replacing valid files', () => {
   const h = dialog();
   h.choose([{ name: 'good.PNG', size: 75e6 }]);
-  for (const files of [[{ name: 'bad.pdf', size: 10 }], [{ name: 'large.mp4', size: 75e6 + 1 }], Array(PROJECT_LIMITS.maxLayers).fill({ name: 'extra.png', size: 10 })]) {
+  for (const files of [[{ name: 'bad.pdf', size: 10 }], [{ name: 'large.mp4', size: 75e6 + 1 }]]) {
     h.choose(files);
     assert(h.find(node => node.props.role === 'alert'));
     assert(h.button('Remove file 1: good.PNG'));
@@ -143,4 +145,20 @@ test('opening blocks tab changes and dismissal, and a failure retains the select
   await pending;
   assert.equal(h.find(node => node.props.role === 'alert').children[0], 'Save conflict');
   assert.equal(h.button('Open composition').props.disabled, false);
+});
+
+test('composition layer limit rejects prepared primary files before uploads or creation', async () => {
+  const original = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; return new Response('{}'); };
+  try {
+    const h = dialog({ upload: uploadAssets });
+    h.choose(Array.from({ length: PROJECT_LIMITS.maxLayers + 1 }, (_, index) => new File(['image'], `image-${index}.png`, { type: 'image/png' })));
+    await h.submit();
+    assert.match(h.find(node => node.props.role === 'alert').children[0], /layers/);
+    assert.equal(requests, 0);
+    assert.equal(h.submissions.length, 0);
+    assert.equal(h.closes(), 0);
+    assert.equal(h.button('Add files').props.disabled, false);
+  } finally { globalThis.fetch = original; }
 });

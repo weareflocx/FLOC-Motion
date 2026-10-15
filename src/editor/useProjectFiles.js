@@ -13,11 +13,13 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
     setUploading(true);
     setError('');
     try {
-      if (target === 'layers' && projectRef.current.layers.length + files.length > PROJECT_LIMITS.maxLayers) throw new Error(`Use up to ${PROJECT_LIMITS.maxLayers} layers.`);
       const cardLayer = target.startsWith('cards:') ? projectRef.current.layers.find(l => l.id === target.slice(6) && l.type === 'carousel') : null;
       if (target.startsWith('cards:') && (!cardLayer || cardLayer.locked)) throw new Error('Select an unlocked carousel layer.');
       if (cardLayer && carouselImages(projectRef.current, cardLayer).length + files.length > PROJECT_LIMITS.maxImages) throw new Error(`Use up to ${PROJECT_LIMITS.maxImages} carousel assets.`);
-      const values = await uploadAssets(files);
+      const replacingModel = projectRef.current.layers.find(layer => layer.id === target)?.type === 'model';
+      const values = await uploadAssets(files, target === 'layers'
+        ? { maxFiles: PROJECT_LIMITS.maxLayers - projectRef.current.layers.length, limitMessage: `Use up to ${PROJECT_LIMITS.maxLayers} layers.` }
+        : replacingModel ? { maxFiles: 1, modelOnly: true } : {});
       if (target === 'layers') {
         const current = projectRef.current;
         const layers = values.map(asset => fileLayer(asset, current.duration, crypto.randomUUID()));
@@ -27,7 +29,15 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
         const current = projectRef.current.layers.find(l => l.id === cardLayer.id);
         if (!current) throw new Error('Carousel no longer exists.');
         patch(current.id, { images: [...carouselImages(projectRef.current, current), ...values.map(({ id, src, name }) => ({ id, src, name }))] });
-      } else { const item = values[0]; const layer = projectRef.current.layers.find(layerItem => layerItem.id === target); if (!layer) throw new Error('Layer no longer exists.'); patch(target, { src: item.src, ...(layer.type === 'background' ? { mode: /\.(mp4|webm)$/i.test(item.src) ? 'video' : 'image' } : {}) }); }
+      } else {
+        const item = values[0];
+        const layer = projectRef.current.layers.find(layerItem => layerItem.id === target);
+        if (!layer) throw new Error('Layer no longer exists.');
+        patch(target, {
+          src: item.src,
+          ...(layer.type === 'background' ? { mode: /\.(mp4|webm)$/i.test(item.src) ? 'video' : 'image' } : {})
+        });
+      }
     } catch (error) { setError(error.message); }
     finally { setUploading(false); }
   }, [change, patch, projectRef, setError, setSelected, setLeftTab]);

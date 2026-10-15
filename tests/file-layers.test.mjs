@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoProject, validateProject, fileLayer, patchLayer, layerAlpha, duplicateLayer } from '../src/project.js';
+import { demoProject, validateProject, fileLayer, patchLayer, layerAlpha, duplicateLayer, assertLocksRespected, linkFormats, switchFormat } from '../src/project.js';
 import { stageMarkup } from '../src/scene.js';
 import { createTools } from '../src/webmcp.js';
 import { validateSvg, validateGlb } from '../server/asset-validation.mjs';
+import { DEFAULT_MODEL_STYLE, MODEL_STYLE_RANGES } from '../src/model-style.js';
+import { parseProjectFile } from '../src/editor/project-import.js';
 const asset = ext => ({ src: `/assets/12345678-1234-1234-1234-123456789012.${ext}`, name: `Example.${ext}` });
 
 test('independent file layers support SVG, video, audio and GLB timing and duplication', () => {
@@ -49,4 +51,94 @@ test('GLB upload rejects external buffers, textures, malformed files and decoder
 test('agent carousel edits explain missing carousel after deletion', async () => {
   const tools = createTools({ get: () => ({ ...demoProject(), layers: [] }), audit() {} });
   await assert.rejects(() => tools.find(tool => tool.name === 'floc_set_carousel').execute({ speed: 10 }), /Add a carousel layer/);
+});
+
+test('model styles normalize partial edits without mutating input and survive saved-file import and duplication', async () => {
+  const model = fileLayer(asset('glb'), 12, 'model');
+  assert.deepEqual(model.modelStyle, DEFAULT_MODEL_STYLE);
+  assert.equal(Object.hasOwn(fileLayer(asset('png'), 12, 'image'), 'modelStyle'), false);
+  const legacy = { ...model }; delete legacy.modelStyle;
+  const raw = { ...demoProject(), layers: [legacy] }, before = structuredClone(raw);
+  const style = { mode: 'replace', color: '#225588', roughness: 0.18, metalness: 0.8, shader: 'fresnel', environment: 'studio', keyIntensity: 5, fillIntensity: 2, motion: 'rock', motionSpeed: -2, animationClip: -1, animationSpeed: 0.5 };
+  const patch = { modelStyle: style }, patchBefore = structuredClone(patch);
+  const edited = patchLayer(raw, 'model', patch);
+  assert.deepEqual(edited.layers[0].modelStyle, { ...DEFAULT_MODEL_STYLE, ...style });
+  assert.deepEqual(raw, before);
+  assert.deepEqual(patch, patchBefore);
+  const serialized = JSON.stringify(edited);
+  const imported = await parseProjectFile({ size: Buffer.byteLength(serialized), async text() { return serialized; } });
+  assert.deepEqual(imported, edited);
+  const invalid = JSON.stringify({ ...edited, layers: [{ ...edited.layers[0], modelStyle: { shader: 'void main() {}' } }] });
+  await assert.rejects(parseProjectFile({ size: Buffer.byteLength(invalid), async text() { return invalid; } }), /3D/);
+  const copied = duplicateLayer(imported, 'model', 'copy');
+  assert.deepEqual(copied.layers[1].modelStyle, edited.layers[0].modelStyle);
+  assert.notEqual(copied.layers[1].modelStyle, copied.layers[0].modelStyle);
+  assert.notEqual(copied.layers[1].modelStyle.motionTiming, copied.layers[0].modelStyle.motionTiming);
+  copied.layers[1].modelStyle.motionTiming.pause = 2;
+  assert.equal(copied.layers[0].modelStyle.motionTiming.pause, 0);
+  copied.layers[1].modelStyle.color = '#ffffff';
+  assert.equal(copied.layers[0].modelStyle.color, '#225588');
+});
+
+test('model settings reject malformed nested values, uninstalled shaders and remote resources at the project boundary', () => {
+  const project = validateProject({ ...demoProject(), layers: [fileLayer(asset('glb'), 12, 'model')] });
+  const before = structuredClone(project);
+  const badStyles = [
+    null, [], true, 'chrome', { mode: 'chrome' }, { shader: 'custom' }, { shader: 'void main() {}' },
+    new Date(0), new Map(), Object.create({ mode: 'replace' }), { [Symbol('shader')]: 'custom' },
+    { motion: 'eval' }, { environment: 'https://example.com/studio.hdr' },
+    { environmentUrl: 'https://example.com/studio.hdr' }, { fragmentShader: 'void main() {}' },
+    { material: { roughness: 0.5 } }, { color: { value: '#ffffff' } }, { color: '#fff' },
+    { emissive: 'url(https://example.com/a)' }, { fresnelColor: '#zzzzzz' },
+    { toonSteps: 3.5 }, { animationClip: 0.5 }, { animationSpeed: -1 },
+    { motionAxis: 'xy' }, { motionSteps: 2.5 }, { motionTiming: null }, { motionTiming: [] },
+    { motionTiming: Object.create({ curve: 'spring' }) }, { motionTiming: Object.create(Object.create(null)) },
+    { motionTiming: { [Symbol('curve')]: 'spring' } }, { motionTiming: new Date(0) }, { motionTiming: new Map() },
+    { motionTiming: { action: 0 } }, { motionTiming: { pause: -1 } }, { motionTiming: { intensity: 2 } },
+    { motionTiming: { curve: 'custom' } }, { motionTiming: JSON.parse('{"__proto__":{"curve":"back"}}') },
+    JSON.parse('{"__proto__":{"shader":"custom"}}')
+  ];
+  for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
+    badStyles.push({ [key]: min - 0.01 }, { [key]: max + 0.01 }, { [key]: NaN }, { [key]: Infinity }, { [key]: '1' }, { [key]: null }, { [key]: {} });
+    for (const value of [min, max]) assert.equal(patchLayer(project, 'model', { modelStyle: { [key]: value } }).layers[0].modelStyle[key], value);
+  }
+  for (const modelStyle of badStyles) {
+    assert.throws(() => patchLayer(project, 'model', { modelStyle }), /3D/);
+    assert.throws(() => validateProject({ ...project, layers: [{ ...project.layers[0], modelStyle }] }), /3D/);
+  }
+  assert.deepEqual(project, before);
+  for (const entry of demoProject().layers) {
+    assert.throws(() => patchLayer({ ...demoProject(), layers: [entry] }, entry.id, { modelStyle: {} }), /Unknown layer property/);
+    assert.throws(() => validateProject({ ...demoProject(), layers: [{ ...entry, modelStyle: {} }] }), /Only model layers/);
+  }
+});
+
+test('model source and pose bounds remain enforced beside styling, and replacing a source resets only clip selection', () => {
+  const modelStyle = { ...DEFAULT_MODEL_STYLE, mode: 'tint', color: '#556677', motion: 'spin', motionAxis: 'z', motionSteps: 9, motionTiming: { mode: 'steps', action: .4, pause: .8, curve: 'spring', intensity: 1 }, animationClip: 7, animationSpeed: 0.4 };
+  const project = validateProject({ ...demoProject(), layers: [{ ...fileLayer(asset('glb'), 12, 'model'), modelStyle }] });
+  for (const src of ['https://example.com/model.glb', '/assets/../model.glb', `${asset('glb').src}?url=https://example.com`, asset('obj').src, asset('png').src, '']) {
+    assert.throws(() => patchLayer(project, 'model', { src }));
+  }
+  for (const patch of [{ offset: -1 }, { offset: 3601 }, { x: 1001 }, { y: -1001 }, { size: 501 }, { size: 1 }, { yaw: 181 }, { tilt: -181 }, { roll: 181 }, { loop: 1 }]) assert.throws(() => patchLayer(project, 'model', patch));
+  const same = patchLayer(project, 'model', { src: asset('glb').src });
+  assert.equal(same.layers[0].modelStyle.animationClip, 7);
+  const src = '/assets/87654321-4321-4321-4321-210987654321.glb';
+  const replaced = patchLayer(project, 'model', { src });
+  assert.equal(replaced.layers[0].src, src);
+  assert.deepEqual(replaced.layers[0].modelStyle, { ...modelStyle, animationClip: 0 });
+  assert.equal(project.layers[0].modelStyle.animationClip, 7);
+  assert.throws(() => patchLayer(project, 'model', { src, modelStyle: { shader: 'void main() {}' } }), /3D/);
+});
+
+test('locked model styling cannot change through patches or composition-wide format exceptions', () => {
+  let project = linkFormats(validateProject({ ...demoProject(), layers: [fileLayer(asset('glb'), 12, 'model')] }));
+  project = patchLayer(project, 'model', { locked: true });
+  assert.throws(() => patchLayer(project, 'model', { modelStyle: { mode: 'replace' } }), /Unlock/);
+  assert.throws(() => patchLayer(project, 'model', { locked: false, modelStyle: { mode: 'replace' } }), /Unlock/);
+  const portrait = switchFormat(project, 'portrait');
+  assert.doesNotThrow(() => assertLocksRespected(project, portrait, { allow: ['format'] }));
+  const changed = validateProject({ ...portrait, layers: portrait.layers.map(layer => ({ ...layer, modelStyle: { ...layer.modelStyle, keyIntensity: 8 } })) });
+  for (const allow of [[], ['format'], ['timing'], ['content']]) assert.throws(() => assertLocksRespected(project, changed, { allow }), /Unlock/);
+  const unlocked = patchLayer(project, 'model', { locked: false });
+  assert.equal(patchLayer(unlocked, 'model', { modelStyle: { shader: 'wireframe' } }).layers[0].modelStyle.shader, 'wireframe');
 });

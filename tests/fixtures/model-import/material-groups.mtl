@@ -1,0 +1,17 @@
+newmtl paint
+Kd 0.8 0.4 0.2
+Ks 0.3 0.3 0.3
+Ke 0.1 0.05 0
+Ns 64
+d 0.6
+map_Kd -s 2 2 1 -o 0.25 0.5 0 color.png
+map_d alpha.png
+norm normal.png
+bump -bm 0.4 height.png
+map_Ke emission.png
+map_Ks specular.png
+
+newmtl glass
+Kd 0.2 0.4 0.8
+Tr 0.25
+Ns 4

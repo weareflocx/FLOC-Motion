@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
-import { PROJECT_LIMITS, assertLocksRespected, carouselImages, demoProject, duplicateLayer, linkFormats, patchLayer, patchTemplateContent, reorderLayer, resetFormat, resizeDuration, switchFormat, validateProject } from '../src/project.js';
+import { PROJECT_LIMITS, assertLocksRespected, carouselImages, demoProject, fileLayer, duplicateLayer, linkFormats, patchLayer, patchTemplateContent, reorderLayer, resetFormat, resizeDuration, switchFormat, validateProject } from '../src/project.js';
 import { getCatalogEntry, listCatalog } from '../src/catalog.js';
 import { createStyleAlternatives } from '../src/visual-alternatives.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
@@ -91,6 +91,17 @@ test('documented composition-wide exceptions pass only for their own fields', ()
   assert.throws(() => check(adjusted, resetFormat(adjusted)), /Unlock “Headline”/);
   assert.doesNotThrow(() => check(adjusted, resetFormat(adjusted), { allow: ['format'] }));
   assert.throws(() => assertLocksRespected(p, p, { allow: ['everything'] }), /Unknown lock exception/);
+});
+
+test('locked model timing, axes and sectors cannot change through patches or whole-project edits', () => {
+  const model = fileLayer({ name: 'Model', src: '/assets/12345678-1234-1234-1234-123456789012.glb' }, 12, 'model');
+  const project = patchLayer(validateProject({ ...demoProject(), layers: [model] }), 'model', { locked: true });
+  for (const fields of [{ motionAxis: 'x' }, { motionSteps: 7 }, { motionTiming: { mode: 'steps', action: .4, pause: 1 } }]) {
+    const modelStyle = { ...layer(project, 'model').modelStyle, ...fields };
+    assert.throws(() => patchLayer(project, 'model', { modelStyle }), /Unlock/);
+    assert.throws(() => check(project, replace(project, 'model', { modelStyle })), /Unlock/);
+    assert.throws(() => check(project, replace(project, 'model', { modelStyle }), { allow: ['format'] }), /Unlock/);
+  }
 });
 
 test('editor changes, alternatives and layer drops respect locks; undo and import stay exempt', () => {

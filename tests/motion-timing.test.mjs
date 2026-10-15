@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_MOTION, MOTION_CURVES, motionClock, motionEase } from '../src/motion-timing.js';
+import { runInNewContext } from 'node:vm';
+import { DEFAULT_MOTION, MOTION_CURVES, motionClock, evaluateMotionClock, normalizeMotion, validateMotion, motionEase } from '../src/motion-timing.js';
 import { easeProgress, legacyCurve } from '../src/easing.js';
 import { carouselCard, MOTION_VARIANTS } from '../src/carousel-motion.js';
 import { demoProject, patchLayer, validateProject } from '../src/project.js';
@@ -136,4 +137,45 @@ test('agent edits share motion validation and reject invalid changes without sav
   await assert.rejects(set.execute({ template: 'stack', motion: motion({ action: -1 }) }));
   assert.equal(saves, 1);
   assert.equal(p.layers[1].motion.pause, .5);
+});
+
+test('shared evaluator preserves carousel native clocks, shaped-family exceptions and reusable output', () => {
+  const out = {};
+  for (const template of Object.keys(MOTION_VARIANTS)) for (const speed of [-18, 0, 18]) for (const loopDuration of [0, 6]) for (const mode of ['continuous', 'steps']) for (const time of [0, .25, .5, .99, 1.25, 13]) {
+    const l = layer({ template, start: 2, speed, loopDuration, motion: motion({ mode, action: .5, pause: .5 }) });
+    assert.equal(evaluateMotionClock(l.motion, 6, time, speed, loopDuration, template, out), out);
+    const shifted = motionClock(l, 6, time + 2);
+    close(shifted.phase, out.phase); close(shifted.advance, out.advance); assert.equal(shifted.stepped, out.stepped);
+    let advance;
+    if (mode === 'steps') {
+      const progress = Math.min((time % 1) / .5, 1);
+      const eased = template === 'sweep-reveal' ? (progress < .5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2) : template === 'window-push' ? 1 - (1 - progress) ** 3 : progress;
+      advance = speed === 0 ? 0 : (Math.floor(time) + eased) * Math.sign(speed);
+    } else advance = loopDuration ? time / loopDuration * Math.sign(speed) * 6 : template === 'horizontal' ? time * speed / 35 : time * speed / 360 * 6;
+    close(out.advance, advance);
+    close(out.phase, ((advance / 6) % 1 + 1) % 1);
+    assert.equal(out.stepped, mode === 'steps');
+    assert.equal(motionClock(l, 6, time + 2, out), out);
+  }
+  for (const template of ['flip', 'stickers', 'zoom-through', 'stack-shuffle', 'sweep-reveal', 'window-push']) {
+    const l = layer({ template, motion: motion({ curve: 'spring', intensity: 1 }) });
+    close(motionClock(l, 6, .3).advance, .3);
+  }
+});
+
+test('shared timing normalization gives independent partial defaults and rejects nested record hazards', () => {
+  const first = normalizeMotion({ action: .4 });
+  assert.deepEqual(first, { ...DEFAULT_MOTION, action: .4 });
+  assert.notEqual(normalizeMotion(), DEFAULT_MOTION);
+  assert.notEqual(normalizeMotion(), normalizeMotion());
+  assert.deepEqual(normalizeMotion(Object.assign(Object.create(null), { pause: .3 })), { ...DEFAULT_MOTION, pause: .3 });
+  assert.deepEqual(normalizeMotion(runInNewContext('({ mode: "steps", curve: "spring", pause: .3 })')), { ...DEFAULT_MOTION, mode: 'steps', curve: 'spring', pause: .3 });
+  for (const invalid of [null, [], new Map(), new Date(0), Object.create({ curve: 'back' }), Object.create(Object.create(null)), { [Symbol('curve')]: 'back' }, { action: .049 }, { action: 30.01 }, { pause: 30.01 }, { curve: 'custom' }, { intensity: NaN }, { extra: true }]) {
+    assert.throws(() => normalizeMotion(invalid));
+  }
+  assert.throws(() => validateMotion({}), /Unknown rhythm or curve/);
+  for (const settings of [Object.assign(Object.create({}), DEFAULT_MOTION), { ...DEFAULT_MOTION, [Symbol('pause')]: 4 }]) {
+    assert.throws(() => patchLayer(demoProject(), 'carousel', { motion: settings }));
+    assert.throws(() => patchLayer(demoProject(), 'carousel', { motionBaseline: { name: 'Original', speed: 18, loopDuration: 6, motion: settings } }));
+  }
 });
