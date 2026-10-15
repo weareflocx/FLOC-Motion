@@ -94,7 +94,7 @@ test('cancelling either step creates no layer and uploads no files', () => {
     assert.equal(h.closes(), 1);
     assert.equal(h.uploads.length, 0);
     assert.equal(h.creations.length, 0);
-    assert.equal(h.project.layers.length, 0);
+    assert.deepEqual(h.project, blankProject(), 'cancel leaves the composition and its background unchanged');
   }
 });
 

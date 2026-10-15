@@ -272,7 +272,7 @@ test('add, duplicate, remove, reorder and duration edits maintain the shared str
   let p = switchFormat(linkFormats(demoProject()), 'landscape');
   p = validateProject({ ...p, layers: [...p.layers, { ...layer(p, 'headline'), id: 'new-text', text: 'New' }] });
   p = duplicateLayer(p, 'carousel', 'copy-carousel');
-  p = reorderLayer(p, 'new-text', 'background', 'below');
+  p = reorderLayer(p, 'new-text', 'background', 'above');
   p = validateProject({ ...p, layers: p.layers.filter(entry => entry.id !== 'signature') });
   p = resizeDuration(p, 3);
   const ids = p.layers.map(entry => entry.id);

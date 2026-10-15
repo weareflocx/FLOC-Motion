@@ -46,7 +46,6 @@ export function editorCommands(editor, { mac = false } = {}) {
     { id: 'layer.add-text', group: 'Layers', title: 'Add text layer', keywords: ['type', 'copy'], enabled: canAdd, run: editor.addText },
     { id: 'layer.add-carousel', group: 'Layers', title: 'Add carousel…', keywords: ['cards', 'photos'], enabled: canAdd, run: editor.openAddLayer },
     { id: 'layer.add-logo', group: 'Layers', title: 'Add studio mark', keywords: ['logo', 'brand'], enabled: canAdd, run: () => editor.addLayer('logo') },
-    { id: 'layer.add-background', group: 'Layers', title: 'Add background layer', enabled: canAdd, run: () => editor.addLayer('background') },
     { id: 'layer.add-adjustment', group: 'Layers', title: 'Add adjustment layer', keywords: ['effect', 'filter'], enabled: canAdd, run: () => editor.addLayer('effect') },
     { id: 'playback.toggle', group: 'Playback', title: editor.playing ? 'Pause preview' : 'Play preview', shortcut: 'Space', enabled: () => editor.ready, run: editor.togglePlayback },
     { id: 'history.undo', group: 'Edit', title: 'Undo', shortcut: key('Mod+Z'), enabled: () => editor.canUndo, run: editor.undo },

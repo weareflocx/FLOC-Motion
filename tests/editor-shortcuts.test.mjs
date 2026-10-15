@@ -74,12 +74,22 @@ test('Delete and Backspace use layer removal, pause playback and support undo', 
   }
 });
 
-test('locked, absent and deselected layers cannot be removed', () => {
-  for (const options of [{ locked: true }, { selected: null }, { selected: 'missing' }]) {
+test('locked, background, absent and deselected layers cannot be removed', () => {
+  for (const options of [{ locked: true }, { selected: 'background' }, { selected: null }, { selected: 'missing' }]) {
     const h = editor(options), before = h.project;
     h.press('Delete'); h.press('Backspace');
     assert.equal(h.project, before);
   }
+});
+
+test('deleting a mixed selection keeps the editable background and undo restores only removed content', () => {
+  const h = editor({ selected: 'background', selection: ['background', 'headline'] }), before = h.project;
+  h.press('Delete');
+  assert.deepEqual(h.project.layers.find(layer => layer.id === 'background'), before.layers[0]);
+  assert.equal(h.project.layers.some(layer => layer.id === 'headline'), false);
+  assert.deepEqual([...h.selection], ['background']);
+  h.undo();
+  assert.deepEqual(h.project, before);
 });
 
 test('fields, dialogs, composition input, modifiers and locally handled keys retain control', () => {

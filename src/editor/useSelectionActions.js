@@ -16,11 +16,12 @@ export function useSelectionActions({ project, projectRef, clock, time, setPlayi
   const selectedLayers = useMemo(() => project.layers.filter(item => selection.includes(item.id)), [project.layers, selection]);
   const arrangeState = useMemo(() => ({ ...arrangeAvailability(project, selection, time), target: alignTargetLabel(selection.length, project.layout) }), [project, selection, time]);
   const unlockedSelected = selectedLayers.filter(item => !item.locked);
-  const canDuplicate = unlockedSelected.length > 0 && project.layers.length + unlockedSelected.length <= PROJECT_LIMITS.maxLayers;
+  const structuralSelection = unlockedSelected.filter(item => item.type !== 'background');
+  const canDuplicate = structuralSelection.length > 0 && project.layers.length + structuralSelection.length <= PROJECT_LIMITS.maxLayers;
   const groupActions = {
     toggleLock: () => setLayersFlag(selection, 'locked'), toggleVisibility: () => setLayersFlag(selection, 'visible'),
     duplicate: () => duplicateLayers(selection), remove: () => { setPlaying(false); removeLayers(selection); }
   };
   const summary = selection.length > 1 ? { layers: selectedLayers, canAlign: arrangeState.align, canDistribute: arrangeState.distribute, canDuplicate, onArrange: arrange, onToggleLock: groupActions.toggleLock, onToggleVisibility: groupActions.toggleVisibility, onDuplicate: groupActions.duplicate, onRemove: groupActions.remove } : null;
-  return { selectAll, collapseSelection, selectCanvasLayer, toggleCanvasLayer, moveGroup, arrange, selectedLayers, arrangeState, canDuplicate, canDelete: unlockedSelected.length > 0, groupActions, summary };
+  return { selectAll, collapseSelection, selectCanvasLayer, toggleCanvasLayer, moveGroup, arrange, selectedLayers, arrangeState, canDuplicate, canDelete: structuralSelection.length > 0, groupActions, summary };
 }

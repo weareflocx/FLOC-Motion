@@ -40,7 +40,7 @@ export function useEditorShortcuts({ blocked, projectRef, selected, selection = 
           return;
         }
         const layer = projectRef.current.layers.find(item => item.id === selected);
-        if (!layer || layer.locked) return;
+        if (!layer || layer.locked || layer.type === 'background') return;
         setPlaying(false);
         removeLayer(layer.id);
       }
