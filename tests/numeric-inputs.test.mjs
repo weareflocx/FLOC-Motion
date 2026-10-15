@@ -7,7 +7,7 @@ import { DEFAULT_NUDGE, loadNudge, saveNudge, nudgeAmount } from '../src/editor/
 import { nudgePlacement } from '../src/editor-controls.js';
 
 const source = readFileSync(new URL('../src/editor/controls.jsx', import.meta.url), 'utf8');
-const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replaceAll('export function', 'function'), { loader: 'jsx' })).code;
+const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace(/^export /gm, ''), { loader: 'jsx' })).code;
 
 function control(props) {
   const slots = [], changes = [];
@@ -15,7 +15,8 @@ function control(props) {
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     useState(initial) { const index = cursor++; if (!slots[index]) slots[index] = { value: initial }; return [slots[index].value, value => { slots[index].value = value; }]; },
-    useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; }, useEffect() {}
+    useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; }, useEffect() {},
+    createContext: value => ({ value }), useContext: context => context.value
   };
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.input = IntegerInput; this.range = Range;', context);

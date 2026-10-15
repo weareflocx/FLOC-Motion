@@ -12,11 +12,11 @@ export function SelectionSummary({ layers, canAlign, canDistribute, canDuplicate
     <div className="section-heading"><h2>{layers.length} layers selected</h2></div>
     <ul className="selection-summary-list">{[...layers].reverse().map(layer => <li key={layer.id}><span>{layer.name}</span>{layer.locked && <LockSimple size={12} aria-label="Locked"/>}{!layer.visible && <EyeSlash size={12} aria-label="Hidden"/>}</li>)}</ul>
     {locked > 0 && <p className="helper">{locked === 1 ? 'The locked layer keeps its place' : `${locked} locked layers keep their place`} and settings until unlocked.</p>}
-    <Section title="Arrange">
+    <Section title="Arrange" defaultOpen>
       <ArrangeControls className="selection-arrange" target="selection" canAlign={canAlign} canDistribute={canDistribute} onArrange={onArrange}/>
       {!canDistribute && <p className="helper">Distribute needs three or more unlocked layers on the canvas.</p>}
     </Section>
-    <Section title="Selection">
+    <Section title="Selection" defaultOpen>
       <div className="selection-actions">
         <button type="button" className="outline-button" onClick={onToggleVisibility}>{show ? <Eye size={15}/> : <EyeSlash size={15}/>}{show ? 'Show all' : 'Hide all'}</button>
         <button type="button" className="outline-button" onClick={onToggleLock}>{lock ? <LockSimple size={15}/> : <LockSimpleOpen size={15}/>}{lock ? 'Lock all' : 'Unlock all'}</button>

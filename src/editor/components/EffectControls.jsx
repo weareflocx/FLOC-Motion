@@ -28,7 +28,7 @@ export function EffectControls({ layer, onPatch }) {
   const add = type => onPatch(layer.id, { effects: [...effects, newEffect(type, effects.length)] });
   const percent = (label, effect, index) => <Range label="Amount" ariaLabel={`${label} amount ${index + 1}`} value={effect.amount * 100} min={0} max={100} suffix="%" onChange={amount => update(index, { amount: amount / 100 })}/>;
   const fraction = (label, ariaLabel, effect, key, index) => <Range label={label} ariaLabel={`${ariaLabel} ${index + 1}`} value={effect[key] * 100} min={0} max={100} suffix="%" onChange={value => update(index, { [key]: value / 100 })}/>;
-  return <Section title="Effects">
+  return <Section title="Effects" defaultOpen={layer.type === 'effect'} detail={effects.length ? `${effects.length} effect${effects.length === 1 ? '' : 's'}` : 'None'}>
     {layer.type === 'effect' && <Field label="Scope"><select aria-label="Effect scope" value={layer.effectScope ?? 'overlay'} onChange={event => onPatch(layer.id, { effectScope: event.target.value })}>
       <option value="below">Below layers</option>
       <option value="overlay" disabled={effects.some(effect => effect.type !== 'noise')}>Texture overlay</option>

@@ -30,24 +30,24 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
 
   return <>
     {rightTab === 'composition' ? <>
-    <Section title="3D model">
+    <Section title="3D model" detail="Replace file">
       <button type="button" className="outline-button" disabled={uploading} onClick={() => onPick(layer.id)}><UploadSimple size={15}/>Replace file</button>
       <p className="helper">Select OBJ with its declared MTL and textures for one 3D layer. GLB is preserved.</p>
     </Section>
-    <Section title="Transform">
+    <Section title="Transform" detail={`X ${Math.round(layer.x)} · Y ${Math.round(layer.y)} · ${Math.round(layer.size)}%`}>
       <Range label="Position X" value={layer.x} min={Math.min(-100, layer.x)} max={Math.max(100, layer.x)} onChange={x => onPatch(layer.id, { x })}/>
       <Range label="Position Y" value={layer.y} min={Math.min(-100, layer.y)} max={Math.max(100, layer.y)} onChange={y => onPatch(layer.id, { y })}/>
       <Range label="Size" value={layer.size} min={2} max={500} suffix="%" onChange={size => onPatch(layer.id, { size })}/>
       <OrientationControl key={layer.id} layer={layer} open onCommit={fields => onPatch(layer.id, fields)}/>
       <p className="helper">Shift-drag turns the model about the screen; the rotation handle rolls it toward you.</p>
     </Section>
-    <Section title="Camera" collapsible detail={`${style.framing === 'fit' ? 'Fit motion' : 'Fixed'} · ${Math.round(style.zoom * 100)}%`}>
+    <Section title="Camera" detail={`${style.framing === 'fit' ? 'Fit motion' : 'Fixed'} · ${Math.round(style.zoom * 100)}%`}>
       <Field label="Framing"><select aria-label="Framing" value={style.framing} onChange={event => patchStyle({ framing: event.target.value })}><option value="fit">Fit motion</option><option value="fixed">Fixed</option></select></Field>
       {range('zoom', 'Zoom')}
       {range('perspective', 'Perspective', { step: 1, scale: 1, suffix: '°' })}
       <p className="helper">{style.framing === 'fit' ? 'Fit motion keeps every rotation, the automatic motion and the selected embedded clip inside the layer at 100% zoom. Higher zoom may crop.' : 'Fixed keeps the earlier camera; rotation and motion may reach past the layer edges.'} Wider perspective exaggerates depth.</p>
     </Section>
-    <Section title="Material">
+    <Section title="Material" defaultOpen detail={MODEL_MATERIAL_PRESETS.find(preset => preset.id === selectedModelPreset(style))?.name ?? 'Custom'}>
       <Field label="Material preset"><select aria-label="Material preset" value={selectedModelPreset(style)} onChange={event => onPatch(layer.id, { modelStyle: applyModelPreset(style, event.target.value) })}>
         <option value="custom" disabled>Custom</option>
         {MODEL_MATERIAL_FAMILIES.map(([family, label]) => <optgroup key={family} label={label}>{MODEL_MATERIAL_PRESETS.filter(preset => preset.family === family).map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</optgroup>)}
@@ -99,7 +99,7 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
       {metadata?.unlit && <p className="helper">This source includes unlit materials. Original or Tint with Standard preserves their unlit appearance; surface shaders may adapt them to a lit material.</p>}
       {((pbr && style.metalness >= .5) || glass) && style.environment === 'none' && <p className="helper">{glass ? 'Glass' : 'Metal'} reflects its surroundings. Choose a Lighting preset with an environment, such as Studio, to see it.</p>}
     </Section>
-    <Section title="Lighting" collapsible defaultOpen={false} detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
+    <Section title="Lighting" detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
       <Field label="Lighting preset"><select aria-label="Lighting preset" value={lighting} onChange={event => onPatch(layer.id, { modelStyle: applyLightingPreset(style, event.target.value) })}>
         <option value="custom" disabled>Custom</option>
         {MODEL_LIGHTING_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
@@ -127,7 +127,7 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
     </Section>
     </> : <>
     <ModelMotionControls style={style} onChange={modelStyle => onPatch(layer.id, { modelStyle })}/>
-    <Section title="Embedded animation">
+    <Section title="Embedded animation" detail={style.animationClip < 0 ? 'None' : clipActive ? (clips.find(clip => clip.index === style.animationClip).name || `Clip ${style.animationClip + 1}`).slice(0, 24) : metadata === null ? 'Loading' : 'No clip'}>
       <Field label="Embedded clip"><select aria-label="Embedded clip" value={style.animationClip} disabled={metadata !== null && clips.length === 0 && !missingClip} onChange={event => patchStyle({ animationClip: Number(event.target.value) })}>
         <option value={-1}>None</option>
         {metadata === null && style.animationClip >= 0 && <option value={style.animationClip} disabled>Loading selected clip…</option>}
