@@ -3,8 +3,7 @@ import { Copy, DotsSixVertical, Eye, EyeSlash, LockSimple, LockSimpleOpen, Penci
 import { IconButton } from '../controls.jsx';
 import { LAYER_COLORS } from '../layer-colors.js';
 import { PROJECT_LIMITS, TEMPLATES } from '../../project.js';
-
-const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model', effect: 'Effect' };
+import { layerKind } from '../layer-kinds.js';
 
 // Click selects one layer; ⌘/Ctrl-click toggles and Shift-click selects the listed range.
 // Rows show the layer name with its kind or content underneath. Visibility and lock stay
@@ -25,7 +24,7 @@ export function LayerList({ project, selected, selection = selected == null ? []
   return <>
     <div className="layer-list" aria-label="Composition layers">{[...project.layers].reverse().map(item => {
       const Icon = icons[item.type];
-      const kind = item.type === 'effect' && item.effectScope === 'below' ? 'Adjustment' : layerTypes[item.type];
+      const kind = layerKind(item);
       const content = item.type === 'text' ? item.text.replace(/\s+/g, ' ').trim() : item.type === 'carousel' ? TEMPLATES.find(template => template.id === item.template)?.name : '';
       const detail = [kind !== item.name && kind, content].filter(Boolean).join(' · ');
       return <div key={item.id} className={`layer-row ${selection.includes(item.id) ? 'active' : ''} ${item.locked ? 'locked' : ''} ${item.visible ? '' : 'hidden-layer'} ${drop?.id === item.id ? `drop-${drop.side}` : ''}`}

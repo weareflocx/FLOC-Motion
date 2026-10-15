@@ -27,7 +27,7 @@ function controls(component, initial) {
     createContext: value => ({ value }), useContext: context => context.value
   };
   vm.createContext(context);
-  vm.runInContext(primitives + backgrounds + typography + '\nthis.background = BackgroundControls; this.typography = TypographyControls; this.preview = BackgroundPreview;', context);
+  vm.runInContext(primitives + backgrounds + typography + '\nthis.background = BackgroundControls; this.typography = TypographyControls; this.reveal = TextRevealControls; this.preview = BackgroundPreview;', context);
   function nodes(node) {
     if (!node || typeof node !== 'object') return [];
     if (typeof node.type === 'function' && node.type.name !== 'BackgroundPreview') {
@@ -65,7 +65,7 @@ test('procedural and solid sources keep inactive media, while incompatible media
   assert.equal(h.layer().src, '');
   h.button('Upload video').props.onClick();
   assert.deepEqual(h.uploads[1], [background.id, 'video/mp4,video/webm']);
-  assert.ok(h.input('Video source offset'));
+  assert.ok(h.input('Source offset'));
   assert.equal(h.input('Background fit').props.value, 'cover');
 });
 
@@ -89,11 +89,11 @@ test('pattern selection and bounded controls keep other background settings inta
   assert.equal(h.layer().patternColor, '#ff0000');
 });
 
-test('typography preserves precise spacing and reveal duration when a reveal is disabled', () => {
+test('typography preserves precise spacing, and the reveal keeps its duration when disabled', () => {
   const h = controls('typography', textLayer);
   assert.equal(h.input('Tracking (1/1000 em)').props.value, '-35');
   assert.equal(h.input('Tracking (1/1000 em)').props.inputMode, 'numeric');
-  assert.equal(h.input('Reveal duration'), undefined);
+  assert.equal(h.input('Text reveal'), undefined, 'the reveal lives on Motion');
   h.editInput('Tracking (1/1000 em)', '25');
   assert.equal(h.layer().letterSpacing, 0.025);
   const changes = h.changes.length;
@@ -102,13 +102,15 @@ test('typography preserves precise spacing and reveal duration when a reveal is 
   h.button('center').props.onClick();
   assert.equal(h.layer().textAlign, 'center');
   assert.equal(h.button('center').props['aria-pressed'], true);
-  h.input('Text reveal').props.onChange({ target: { value: 'up' } });
-  assert.equal(h.input('Reveal duration').props.value, '600');
-  h.editInput('Reveal duration', '1250');
-  h.input('Text reveal').props.onChange({ target: { value: 'none' } });
-  assert.equal(h.input('Reveal duration'), undefined);
-  h.input('Text reveal').props.onChange({ target: { value: 'right' } });
-  assert.equal(h.input('Reveal duration').props.value, '1250');
-  assert.equal(h.layer().letterSpacing, 0.025);
-  assert.equal(h.layer().text, textLayer.text);
+  const r = controls('reveal', h.layer());
+  assert.equal(r.input('Reveal duration'), undefined);
+  r.input('Text reveal').props.onChange({ target: { value: 'up' } });
+  assert.equal(r.input('Reveal duration').props.value, '600');
+  r.editInput('Reveal duration', '1250');
+  r.input('Text reveal').props.onChange({ target: { value: 'none' } });
+  assert.equal(r.input('Reveal duration'), undefined);
+  r.input('Text reveal').props.onChange({ target: { value: 'right' } });
+  assert.equal(r.input('Reveal duration').props.value, '1250');
+  assert.equal(r.layer().letterSpacing, 0.025);
+  assert.equal(r.layer().text, textLayer.text);
 });

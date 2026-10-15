@@ -52,20 +52,20 @@ function inspector(initial = {}, component = 'model') {
   };
 }
 
-test('material and shader transitions gate effective overrides without erasing preserved settings', () => {
+test('material and shader transitions hide inapplicable overrides without erasing preserved settings', () => {
   const h = inspector({ modelStyle: { color: '#445566', metalness: .7, motion: 'float', animationClip: -1 } });
-  assert.equal(h.find('Material color').blocked, true);
-  assert.equal(h.find('Metalness').blocked, true);
+  assert.equal(h.find('Material color'), undefined);
+  assert.equal(h.find('Metalness'), undefined);
   h.change('Material mode', 'tint');
   assert.equal(h.find('Material color').blocked, false);
-  assert.equal(h.find('Metalness').blocked, true);
+  assert.equal(h.find('Metalness'), undefined);
   h.change('Material mode', 'replace'); h.change('Surface shader', 'toon');
-  assert.equal(h.find('Metalness').blocked, true);
+  assert.equal(h.find('Metalness'), undefined);
   assert.equal(h.find('Emissive intensity').blocked, false);
   h.change('Toon steps', 6);
   h.change('Surface shader', 'wireframe');
-  assert.equal(h.find('Emissive intensity').blocked, true);
-  assert.equal(h.find('Key intensity').blocked, true);
+  assert.equal(h.find('Emissive intensity'), undefined);
+  assert.equal(h.find('Key intensity'), undefined);
   h.change('Surface shader', 'fresnel');
   assert.equal(h.find('Metalness').blocked, false);
   h.change('Fresnel power', 5);
@@ -95,11 +95,11 @@ test('material presets change only the surface; lighting presets change only the
   assert.equal(h.layer.modelStyle.mode, 'original', 'lighting presets keep the surface');
   assert.equal(h.find('Lighting preset').props.value, 'classic');
   h.change('Material preset', 'chrome');
-  assert.ok(h.render().some(node => node.type === 'p' && h.text(node).includes('Metal reflects its surroundings')), 'metal without an environment explains how to see reflections');
+  assert.ok(h.render().some(node => node.type === 'p' && h.text(node).includes('Metal needs a Lighting environment')), 'metal without an environment explains how to see reflections');
   h.change('Lighting preset', 'studio');
   assert.deepEqual([h.layer.modelStyle.environment, h.layer.modelStyle.toneMapping], ['softbox', 'neutral']);
   assert.equal(h.layer.modelStyle.metalness, 1);
-  assert.ok(!h.render().some(node => node.type === 'p' && h.text(node).includes('Metal reflects its surroundings')));
+  assert.ok(!h.render().some(node => node.type === 'p' && h.text(node).includes('Metal needs a Lighting environment')));
   assert.equal(h.layer.modelStyle.animationSpeed, .5);
 });
 
@@ -162,7 +162,7 @@ test('metadata distinguishes loading, static, missing clips and source changes w
     assert.equal(h.find('Embedded clip speed').blocked, false);
     h.setLayer({ src: 'metadata-b.glb' });
     assert.equal(h.find('Embedded clip').blocked, true);
-    assert.equal(h.find('Embedded clip speed').blocked, true);
+    assert.equal(h.find('Embedded clip speed'), undefined);
     assert.equal(h.render().some(node => node.props.role === 'alert'), false);
     h.setLayer({ modelStyle: { ...h.layer.modelStyle, animationClip: 3 } });
     assert.equal(h.find('Embedded clip').blocked, false);
@@ -177,7 +177,7 @@ test('an unavailable clip list still permits disabling an invalid embedded selec
   h.change('Embedded clip', -1);
   assert.equal(h.layer.modelStyle.animationClip, -1);
   assert.equal(h.layer.modelStyle.motion, 'float');
-  assert.equal(h.find('Embedded clip speed').blocked, true);
+  assert.equal(h.find('Embedded clip speed'), undefined);
 });
 
 test('automatic motion and embedded playback dependencies remain independent', () => {
@@ -191,7 +191,7 @@ test('automatic motion and embedded playback dependencies remain independent', (
     h.change('Speed multiplier', 2);
     h.change('Motion direction', -1);
     h.change('Embedded clip', -1);
-    assert.equal(h.find('Embedded clip speed').blocked, true);
+    assert.equal(h.find('Embedded clip speed'), undefined);
     assert.equal(h.layer.modelStyle.motion, 'spin');
     h.change('Automatic motion', 'pulse');
     assert.equal(h.find('Motion amplitude').blocked, false);
@@ -200,15 +200,16 @@ test('automatic motion and embedded playback dependencies remain independent', (
   } finally { release(); }
 });
 
-test('environment controls preserve reflection settings while incompatible shaders disable them', () => {
+test('environment controls preserve reflection settings while incompatible shaders hide them', () => {
   const h = inspector({ modelStyle: { environment: 'none' } });
-  assert.equal(h.find('Environment intensity').blocked, true);
+  assert.equal(h.find('Environment intensity'), undefined);
   assert.deepEqual(h.find('Reflection environment').children.flat().map(option => option.props.value), ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
   h.change('Reflection environment', 'sunset');
   h.change('Environment intensity', 1.7);
   h.change('Environment rotation', -35);
   h.change('Surface shader', 'toon');
-  assert.equal(h.find('Environment intensity').blocked, true);
+  assert.equal(h.find('Environment intensity'), undefined);
+  assert.ok(h.render().some(node => node.type === 'p' && h.text(node).includes('ignore the environment')));
   h.change('Surface shader', 'standard');
   assert.equal(h.find('Environment intensity').blocked, false);
   assert.equal(h.layer.modelStyle.environmentIntensity, 1.7);

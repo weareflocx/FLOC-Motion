@@ -24,9 +24,9 @@ export function EditorWorkspace({ session, selection: { selected, selection, set
       onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview}
       clock={clock} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo} zoom={zoom} onZoom={setZoom}
       arrange={{ canAlign: arrangeState.align, canDistribute: arrangeState.distribute, target: arrangeState.target }} onArrange={group.arrange}/>
-    <InspectorPanel key={summary ? 'selection' : displayedLayer?.id ?? 'composition'} nudge={nudge} project={displayedProject} layer={displayedLayer} summary={summary} rightTab={rightTab} uploading={files.uploading}
+    <InspectorPanel key={summary ? 'selection' : displayedLayer?.id ?? 'composition'} project={displayedProject} layer={displayedLayer} summary={summary} rightTab={rightTab} uploading={files.uploading}
       settings={{ project, onChangeProject: change, onChangeDuration: duration => change(resizeDuration(project, duration), { allow: ['timing'] }), onChangeFps: fps => change({ ...project, fps }) }}
-      onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={editLayer} onPick={target => dialogs.setAddTarget(target)} onPreview={previewPosition} onRemoveText={actions.removeText}/>
+      onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={editLayer} onPick={target => dialogs.setAddTarget(target)} onRemoveText={actions.removeText}/>
     <TimelinePanel project={project} selected={selected} clock={clock} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen}
       onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
   </div>;

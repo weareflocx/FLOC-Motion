@@ -4,12 +4,19 @@ import { Field, NumberField, Range, Section } from '../controls.jsx';
 
 export function TypographyControls({ layer, onPatch }) {
   const style = { ...DEFAULT_TEXT_STYLE, ...layer };
-  return <Section title="Typography" detail={style.reveal === 'none' ? 'No reveal' : `Reveal · ${TEXT_REVEALS.find(reveal => reveal.id === style.reveal)?.name}`}>
+  return <Section title="Typography" detail={`${style.textAlign} · line ${Math.round(style.lineHeight * 100)}%`}>
     <Range label="Line height" value={style.lineHeight} min={0.5} max={3} step={0.05} onChange={lineHeight => onPatch(layer.id, { lineHeight })}/>
     <NumberField scale={1000} label="Tracking (1/1000 em)" value={style.letterSpacing} min={-0.15} max={0.5} step={0.005} onChange={letterSpacing => onPatch(layer.id, { letterSpacing })}/>
     <Field label="Alignment"><div className="segmented" role="group" aria-label="Text alignment">
       {['left', 'center', 'right'].map(textAlign => <button type="button" key={textAlign} aria-pressed={style.textAlign === textAlign} className={style.textAlign === textAlign ? 'selected' : ''} onClick={() => onPatch(layer.id, { textAlign })}>{textAlign}</button>)}
     </div></Field>
+  </Section>;
+}
+
+// The reveal animates the text in; it lives with the other timing settings on Motion.
+export function TextRevealControls({ layer, onPatch }) {
+  const style = { ...DEFAULT_TEXT_STYLE, ...layer };
+  return <Section title="Reveal" defaultOpen detail={style.reveal === 'none' ? 'None' : TEXT_REVEALS.find(reveal => reveal.id === style.reveal)?.name}>
     <Field label="Reveal"><select aria-label="Text reveal" value={style.reveal} onChange={event => onPatch(layer.id, { reveal: event.target.value })}>
       {TEXT_REVEALS.map(reveal => <option key={reveal.id} value={reveal.id}>{reveal.name}</option>)}
     </select></Field>

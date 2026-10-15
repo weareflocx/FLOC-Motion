@@ -1,82 +1,4 @@
-/* Sidebar layout map and frame-aligned timeline gestures. */
-.placement-control {
-  margin-top: 10px;
-}
-
-.placement-map {
-  position: relative;
-  margin: 0 auto;
-  border: 1px solid #ffffff55;
-  background: #000000;
-  overflow: hidden;
-  touch-action: none;
-  user-select: none;
-  cursor: crosshair;
-}
-
-.map-node {
-  position: absolute;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: .98;
-  color: #ffffff;
-  letter-spacing: -.035em;
-  text-align: left;
-}
-
-.map-node img {
-  display: block;
-  width: 100%;
-  height: auto;
-  pointer-events: none;
-}
-
-.map-node.ghost {
-  pointer-events: none;
-}
-
-.map-node.selected {
-  outline: 1px solid #ffffff;
-  cursor: move;
-  z-index: 2;
-}
-
-.map-node.selected::after {
-  content: '';
-  position: absolute;
-  inset: -4px;
-}
-
-.map-node.selected:focus-visible {
-  outline: 2px solid #ffffff;
-}
-
-.map-coordinates {
-  display: block;
-  font-size: 10px;
-  color: #aaaaaa;
-  margin: 8px 0;
-}
-
-.precise-position {
-  font-size: 11px;
-  margin-top: 6px;
-}
-
-.precise-position summary {
-  cursor: pointer;
-  color: #aaaaaa;
-  padding: 6px 0;
-}
-
-.precise-position[open] summary {
-  margin-bottom: 4px;
-}
-
-.placement-coordinates input {
-  font-variant-numeric: tabular-nums;
-}
-
+/* Canvas placement guides: safe area, alignment lines and spacing labels. */
 .placement-guides {
   position: absolute;
   inset: 0;
@@ -140,15 +62,4 @@
 .spacing-guide.y small {
   top: 50%;
   transform: translate(-50%,-50%);
-}
-
-.placement-map .placement-guides {
-  font-size: 8px;
-}
-
-.layout-warning {
-  color: #fff;
-  border-left: 2px solid #fff;
-  padding-left: 8px;
-  margin-top: 8px;
 }

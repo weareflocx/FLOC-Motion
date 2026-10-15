@@ -14,6 +14,7 @@ import * as choreographyOps from '../src/choreography.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { alignDeltas, distributeDeltas, groupPositions } from '../src/editor/arrange.js';
 import { rangeSelection, selectAllIds, toggleSelection, transformableLayers } from '../src/editor/selection.js';
+import * as kinds from '../src/editor/layer-kinds.js';
 
 const strip = code => code.replace(/^import .*;\n/gm, '').replace(/export function /g, 'function ');
 const read = file => fs.readFileSync(new URL(`../src/editor/${file}`, import.meta.url), 'utf8');
@@ -169,7 +170,7 @@ test('layer list clicks select, ⌘/Ctrl-click toggles and Shift-click requests 
   const code = (await transform(strip(read('components/LayerList.jsx')), { loader: 'jsx' })).code;
   const elements = [];
   const context = { React: { createElement(type, props, ...children) { const node = { type, props: props ?? {}, children }; elements.push(node); return node; }, Fragment: 'fragment' },
-    useState: value => [value, () => {}], useRef: value => ({ current: value }), IconButton: 'IconButton', LAYER_COLORS: {}, PROJECT_LIMITS: projectOps.PROJECT_LIMITS, TEMPLATES: projectOps.TEMPLATES,
+    useState: value => [value, () => {}], useRef: value => ({ current: value }), IconButton: 'IconButton', LAYER_COLORS: {}, PROJECT_LIMITS: projectOps.PROJECT_LIMITS, TEMPLATES: projectOps.TEMPLATES, layerKind: kinds.layerKind,
     Copy: 'i', DotsSixVertical: 'i', Eye: 'i', EyeSlash: 'i', LockSimple: 'i', LockSimpleOpen: 'i', PencilSimple: 'i', Trash: 'i' };
   vm.createContext(context); vm.runInContext(`${code}\nthis.LayerList = LayerList;`, context);
   const calls = [];
