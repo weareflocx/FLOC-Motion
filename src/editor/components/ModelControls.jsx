@@ -112,8 +112,8 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
       <p className="helper">Environments are generated locally, not ray-traced reflections between objects. Toon and Wireframe do not reflect the environment. Intensity uses percentages: 100% is a multiplier of 1.</p>
       {metadata?.unlit && !replacement && style.shader === 'standard' && <p className="helper">Unlit source surfaces do not respond to lights or environment reflections. Lit surfaces in the same model still respond.</p>}
       <Field label="Tone mapping"><select aria-label="Tone mapping" value={style.toneMapping} onChange={event => patchStyle({ toneMapping: event.target.value })}>{MODEL_TONE_MAPPINGS.map(id => <option key={id} value={id}>{toneNames[id]}</option>)}</select></Field>
-      {range('exposure', 'Exposure')}
-      <p className="helper">Neutral and AgX roll bright light off smoothly instead of clipping it to flat white; AgX is softer and less saturated. None keeps the classic look.</p>
+      <fieldset className="layer-properties" disabled={style.toneMapping === 'none'}>{range('exposure', 'Exposure')}</fieldset>
+      <p className="helper">Neutral and AgX roll bright light off smoothly instead of clipping it to flat white; AgX is softer and less saturated. None keeps the classic look, without exposure.</p>
       <fieldset className="layer-properties" disabled={style.shader === 'wireframe'}>
         {range('ambientIntensity', 'Ambient intensity')}
         {range('keyIntensity', 'Key intensity')}

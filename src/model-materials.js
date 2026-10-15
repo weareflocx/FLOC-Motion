@@ -50,7 +50,8 @@ export function filmThicknessMap(size = 128) {
 const OVERLAY_GLASS = `
   float modelGlassF0 = pow((modelGlassIOR - 1.0) / (modelGlassIOR + 1.0), 2.0);
   float modelGlassFresnel = modelGlassF0 + (1.0 - modelGlassF0) * pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 5.0);
-  vec3 modelGlassLight = outgoingLight - (1.0 - modelGlassBody) * totalDiffuse;
+  // Clearcoat has already attenuated the diffuse term, so the remainder never goes negative.
+  vec3 modelGlassLight = max(outgoingLight - (1.0 - modelGlassBody) * totalDiffuse, vec3(0.0));
   float modelGlassAlpha = modelGlassBody + (1.0 - modelGlassBody) * modelGlassFresnel;
   modelGlassAlpha = clamp(max(modelGlassAlpha, max(modelGlassLight.r, max(modelGlassLight.g, modelGlassLight.b))), 0.0, 1.0);
   gl_FragColor = vec4(modelGlassLight / max(modelGlassAlpha, 1e-4), modelGlassAlpha * diffuseColor.a);
@@ -89,6 +90,9 @@ const STUDIO_GLASS = `
     modelGlassRefract(geometryNormal, geometryViewDir, modelGlassIOR, material.roughness).g,
     modelGlassRefract(geometryNormal, geometryViewDir, modelGlassIOR * (1.0 + modelGlassSpread), material.roughness).b);
   gl_FragColor = vec4(modelGlassThrough * diffuseColor.rgb * (1.0 - modelGlassFresnel) + totalSpecular + totalEmissiveRadiance, diffuseColor.a);
+  #ifdef OPAQUE
+    gl_FragColor.a = 1.0;
+  #endif
 `;
 function glass(material, shader) {
   const uniforms = { modelGlassIOR: { value: 1.5 }, modelGlassBody: { value: .08 }, modelGlassDispersion: { value: 0 } };
@@ -152,7 +156,11 @@ export function createModelMaterials(model) {
       }
     } else if (shader === 'wireframe') material = adapt(source, new THREE.MeshBasicMaterial(), preserve);
     else if (shader === 'toon') material = adapt(source, new THREE.MeshToonMaterial(), preserve);
-    else if (shader === 'glass' || shader === 'crystal') material = adapt(source, new THREE.MeshPhysicalMaterial(), preserve);
+    else if (shader === 'glass' || shader === 'crystal') {
+      material = adapt(source, new THREE.MeshPhysicalMaterial(), preserve);
+      // Original and Tint keep the imported surface finish, which glass reflects and refracts.
+      if (preserve && source.isMeshStandardMaterial) for (const key of ['roughness', 'metalness', 'roughnessMap', 'metalnessMap']) material[key] = source[key];
+    }
     else if (!preserve) material = adapt(source, new THREE.MeshPhysicalMaterial(), false);
     else if (shader === 'fresnel' && !source.isMeshStandardMaterial) material = adapt(source, new THREE.MeshPhysicalMaterial(), true);
     else material = source.clone();

@@ -21,14 +21,17 @@ function createRenderer() {
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const listeners = new Set();
+  let failed = false;
   const context = watchContextLoss(canvas, {
     restored() { listeners.forEach(listener => listener.restored()); },
-    failed() { listeners.forEach(listener => listener.failed()); }
+    failed() { failed = true; listeners.forEach(listener => listener.failed()); }
   });
   return {
     renderer,
     maxSide: Math.min(MAX_MODEL_RESOLUTION, renderer.capabilities.maxTextureSize),
     get lost() { return context.lost; },
+    get failed() { return failed; },
+    dispose() { context.dispose(); renderer.dispose(); },
     // Returns false while the context is lost; the target keeps its last frame.
     // Tone mapping is per model: programs are cached per mapping by three.js.
     draw(scene, camera, target, toneMapping = THREE.NoToneMapping, exposure = 1) {
@@ -52,9 +55,12 @@ function createRenderer() {
   };
 }
 
-// A failed creation is remembered, so drawing never retries it every frame.
+// A failed creation is remembered, so drawing never retries it every frame. A context that
+// was lost and never restored is replaced, so scenes built afterwards draw again; scenes on
+// the old context were already told it failed.
 let shared;
 export function modelRenderer() {
+  if (shared?.failed) { shared.dispose(); shared = undefined; }
   if (!shared) try { shared = createRenderer(); } catch (error) { shared = { error }; }
   if (shared.error) throw shared.error;
   return shared;

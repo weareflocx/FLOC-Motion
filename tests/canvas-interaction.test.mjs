@@ -189,6 +189,14 @@ const orientation = ({ tilt, yaw, roll }) => new Quaternion().setFromEuler(new E
 const screenTurn = (axis, degrees) => new Quaternion().setFromAxisAngle(new Vector3(...axis), MathUtils.degToRad(degrees));
 const sameOrientation = (a, b) => Math.abs(Math.abs(orientation(a).dot(b)) - 1) < 1e-9;
 
+test('a model turned past 90° keeps the Euler angles nearest its start for keyframe interpolation', () => {
+  const turned = dragModelOrientation({ tilt: 0, yaw: 0, roll: 0 }, 120 / 180, 0);
+  assert.deepEqual([turned.tilt, turned.yaw, turned.roll].map(value => Math.round(value * 1e6) / 1e6 + 0), [0, 120, 0]);
+  const further = dragModelOrientation({ tilt: 10, yaw: 120, roll: 5 }, 30 / 180, 0);
+  assert.ok(sameOrientation(further, orientation({ tilt: 10, yaw: 120, roll: 5 }).premultiply(screenTurn([0, 1, 0], 30))));
+  assert.ok(Math.abs(further.tilt - 10) < 90 && Math.abs(further.roll - 5) < 90, JSON.stringify(further));
+});
+
 test('Shift-drag orients carousels by angle and models about the screen axes, without moving them', () => {
   for (const type of ['carousel', 'model']) for (const cancelled of [false, true]) {
     const h = editor();
