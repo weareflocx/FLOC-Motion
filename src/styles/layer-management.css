@@ -30,6 +30,39 @@
   flex-shrink: 0;
 }
 
+.layer-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.layer-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #8d8d8d;
+}
+
+.layer-row.hidden-layer .layer-text {
+  opacity: .45;
+}
+
+.layer-row-more {
+  display: flex;
+  gap: 2px;
+}
+
+/* Rename, duplicate and delete need a precise pointer to reveal; touch keeps them visible. */
+@media (hover:hover) and (pointer:fine) {
+  .layer-row:not(:hover):not(:focus-within) .layer-row-more {
+    display: none;
+  }
+}
+
 .layer-row .icon-button {
   min-width: 23px;
   min-height: 26px;

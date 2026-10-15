@@ -14,7 +14,7 @@ export function TemplateFieldControls({ project, layer, onPatch }) {
     onPatch(layer.id, contentFieldPatch(project, layer.id, next));
   };
   const blurOnEnter = event => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } };
-  return <Section title="Template field">
+  return <Section title="Template field" detail={field ? field.label : 'Not exposed'}>
     <Field label="Field name"><input aria-label="Content field name" maxLength={60} placeholder="Not exposed" value={name} onChange={event => setName(event.target.value)} onBlur={() => commit()} onKeyDown={blurOnEnter}/></Field>
     {field && <>
       <label className="check-field"><input type="checkbox" checked={field.required} onChange={event => commit({ required: event.target.checked })}/>Required</label>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 export function Field({ label, children, value }) {
   return <div className="field"><div className="field-label"><span>{label}</span>{value !== undefined && <output>{value}</output>}</div>{children}</div>;
@@ -59,10 +59,25 @@ export function NumberField({ label, ariaLabel = label, value, min, max, scale =
   return <Field label={label}><IntegerInput ariaLabel={ariaLabel} value={value} min={min} max={max} scale={scale} suffix={suffix} onChange={onChange}/></Field>;
 }
 
-// Collapsible sections keep their title and a short state summary visible.
-export function Section({ title, children, collapsible = false, defaultOpen = true, detail }) {
-  if (!collapsible) return <section className="property-section"><h3>{title}</h3>{children}</section>;
-  return <details className="property-section collapsible-section" open={defaultOpen}><summary><h3>{title}</h3>{detail && <span>{detail}</span>}</summary>{children}</details>;
+// Every inspector section folds to its title and a short state summary. Only the main
+// section of each layer type starts open; the open state a person chooses is remembered
+// per layer type and inspector tab in this browser.
+export const SectionScope = createContext('');
+const SECTION_STORAGE = 'floc.editor.sections';
+function storedSections() {
+  try { const value = JSON.parse(globalThis.localStorage?.getItem(SECTION_STORAGE) ?? '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; } catch { return {}; }
+}
+export function Section({ title, children, defaultOpen = false, detail }) {
+  const key = `${useContext(SectionScope)}:${title}`;
+  const [open, setOpen] = useState(() => storedSections()[key] ?? defaultOpen);
+  function toggle(event) {
+    const next = event.currentTarget.open;
+    if (next === open) return;
+    setOpen(next);
+    try { globalThis.localStorage?.setItem(SECTION_STORAGE, JSON.stringify({ ...storedSections(), [key]: next })); } catch {}
+  }
+  // Folded content stays mounted, so in-progress numeric drafts survive folding.
+  return <details className="property-section collapsible-section" open={open} onToggle={toggle}><summary><h3>{title}</h3>{detail && <span>{detail}</span>}</summary>{children}</details>;
 }
 
 export function IconButton({ label, children, ...props }) {

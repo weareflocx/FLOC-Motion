@@ -169,7 +169,7 @@ test('layer list clicks select, ⌘/Ctrl-click toggles and Shift-click requests 
   const code = (await transform(strip(read('components/LayerList.jsx')), { loader: 'jsx' })).code;
   const elements = [];
   const context = { React: { createElement(type, props, ...children) { const node = { type, props: props ?? {}, children }; elements.push(node); return node; }, Fragment: 'fragment' },
-    useState: value => [value, () => {}], useRef: value => ({ current: value }), IconButton: 'IconButton', LAYER_COLORS: {}, PROJECT_LIMITS: projectOps.PROJECT_LIMITS,
+    useState: value => [value, () => {}], useRef: value => ({ current: value }), IconButton: 'IconButton', LAYER_COLORS: {}, PROJECT_LIMITS: projectOps.PROJECT_LIMITS, TEMPLATES: projectOps.TEMPLATES,
     Copy: 'i', DotsSixVertical: 'i', Eye: 'i', EyeSlash: 'i', LockSimple: 'i', LockSimpleOpen: 'i', PencilSimple: 'i', Trash: 'i' };
   vm.createContext(context); vm.runInContext(`${code}\nthis.LayerList = LayerList;`, context);
   const calls = [];

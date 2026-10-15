@@ -24,7 +24,7 @@ export function ModelMotionControls({ style, onChange }) {
   const direction = <Field label="Direction"><select aria-label="Motion direction" value={Math.sign(style.motionSpeed)} onChange={event => onChange({ ...style, motionSpeed: Number(event.target.value) * (steps ? 1 : Math.abs(style.motionSpeed) || 1) })}><option value={1}>Forward</option><option value={-1}>Reverse</option><option value={0}>Paused</option></select></Field>;
   const cycle = (motion.action + motion.pause) * (spin ? style.motionSteps : 1);
   return <>
-    <Section title="Automatic motion">
+    <Section title="Automatic motion" defaultOpen detail={style.motion === 'none' ? 'None' : `${motionNames[style.motion]} · ${style.motionAxis === 'auto' ? autoAxes[style.motion] : style.motionAxis.toUpperCase()}`}>
       <Field label="Automatic motion"><select aria-label="Automatic motion" value={style.motion} onChange={event => onChange({ ...style, motion: event.target.value })}>{MODEL_MOTIONS.map(value => <option key={value} value={value}>{motionNames[value]}</option>)}</select></Field>
       {style.motion !== 'none' && <>
         <Field label="Axis"><select aria-label="Motion axis" value={style.motionAxis} onChange={event => onChange({ ...style, motionAxis: event.target.value })}>{MODEL_MOTION_AXES.map(axis => <option key={axis} value={axis}>{axis === 'auto' ? `Auto · ${autoAxes[style.motion]}` : axis.toUpperCase()}</option>)}</select></Field>

@@ -8,7 +8,7 @@ import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from '../src/text-style.js';
 
 async function compile(path) {
   const source = fs.readFileSync(new URL(path, import.meta.url), 'utf8');
-  return (await transform(source.replace(/^import .*;\n/gm, '').replaceAll('export function', 'function'), { loader: 'jsx' })).code;
+  return (await transform(source.replace(/^import .*;\n/gm, '').replace(/^export /gm, ''), { loader: 'jsx' })).code;
 }
 const [primitives, backgrounds, typography] = await Promise.all([
   compile('../src/editor/controls.jsx'),
@@ -23,7 +23,8 @@ function controls(component, initial) {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     UploadSimple() {}, DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
     useState: value => [value, () => {}],
-    useRef: value => ({ current: value }), useEffect: effect => effects.push(effect)
+    useRef: value => ({ current: value }), useEffect: effect => effects.push(effect),
+    createContext: value => ({ value }), useContext: context => context.value
   };
   vm.createContext(context);
   vm.runInContext(primitives + backgrounds + typography + '\nthis.background = BackgroundControls; this.typography = TypographyControls; this.preview = BackgroundPreview;', context);
