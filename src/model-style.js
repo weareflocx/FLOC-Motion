@@ -13,6 +13,9 @@ export const DEFAULT_MODEL_STYLE = Object.freeze({
   // did, and the others are its own defaults, so older projects render unchanged.
   clearcoatRoughness: 0, sheen: 0, sheenColor: '#ffffff', sheenRoughness: 1, anisotropy: 0, anisotropyRotation: 0,
   iridescenceIOR: 1.3, iridescenceThicknessMin: 400, iridescenceThicknessMax: 400,
+  // Glass shaders only: index of refraction, how much of the tinted body covers the layers
+  // below (Glass) and the spectral spread of refracted light (Studio glass).
+  ior: 1.5, glassOpacity: .08, dispersion: 0,
   shader: 'standard', toonSteps: 4, fresnelColor: '#ffffff', fresnelIntensity: .5, fresnelPower: 3,
   ...STUDIO_LIGHTING,
   motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
@@ -21,7 +24,10 @@ export const DEFAULT_MODEL_STYLE = Object.freeze({
   framing: 'fit', zoom: 1, perspective: 38
 });
 export const MODEL_MATERIAL_MODES = Object.freeze(['original', 'tint', 'replace']);
-export const MODEL_SHADERS = Object.freeze(['standard', 'toon', 'fresnel', 'wireframe']);
+// glass lets the layers below show through a tinted, reflective body; crystal refracts the
+// model's own reflection environment and is opaque.
+export const MODEL_SHADERS = Object.freeze(['standard', 'toon', 'fresnel', 'wireframe', 'glass', 'crystal']);
+export const MODEL_GLASS_SHADERS = Object.freeze(['glass', 'crystal']);
 export const MODEL_MOTIONS = Object.freeze(['none', 'spin', 'rock', 'float', 'pulse']);
 export const MODEL_MOTION_AXES = Object.freeze(['auto', 'x', 'y', 'z']);
 // Screen turns and moves about the view's axes; object about the model's own
@@ -40,6 +46,7 @@ export const MODEL_STYLE_RANGES = Object.freeze({
   roughness: [0, 1], metalness: [0, 1], clearcoat: [0, 1], iridescence: [0, 1], emissiveIntensity: [0, 4],
   clearcoatRoughness: [0, 1], sheen: [0, 1], sheenRoughness: [0, 1], anisotropy: [0, 1], anisotropyRotation: [-180, 180],
   iridescenceIOR: [1, 2.5], iridescenceThicknessMin: [0, 1200], iridescenceThicknessMax: [0, 1200],
+  ior: [1, 2.5], glassOpacity: [0, 1], dispersion: [0, 1],
   toonSteps: [2, 8], fresnelIntensity: [0, 2], fresnelPower: [1, 8],
   environmentIntensity: [0, 4], environmentRotation: [-180, 180], exposure: [.25, 4],
   ambientIntensity: [0, 6], keyIntensity: [0, 10], fillIntensity: [0, 10], rimIntensity: [0, 10], lightRotation: [-180, 180],
@@ -47,13 +54,14 @@ export const MODEL_STYLE_RANGES = Object.freeze({
   zoom: [.25, 4], perspective: [15, 75]
 });
 const SURFACE_KEYS = ['mode', 'color', 'roughness', 'metalness', 'clearcoat', 'iridescence', 'emissive', 'emissiveIntensity',
-  'clearcoatRoughness', 'sheen', 'sheenColor', 'sheenRoughness', 'anisotropy', 'anisotropyRotation', 'iridescenceIOR', 'iridescenceThicknessMin', 'iridescenceThicknessMax'];
-const paintDefaults = Object.fromEntries(SURFACE_KEYS.map(key => [key, DEFAULT_MODEL_STYLE[key]]));
+  'clearcoatRoughness', 'sheen', 'sheenColor', 'sheenRoughness', 'anisotropy', 'anisotropyRotation', 'iridescenceIOR', 'iridescenceThicknessMin', 'iridescenceThicknessMax',
+  'ior', 'glassOpacity', 'dispersion', 'shader'];
+const paintDefaults = Object.fromEntries(SURFACE_KEYS.filter(key => key !== 'shader').map(key => [key, DEFAULT_MODEL_STYLE[key]]));
 // Material presets set the surface only; lighting presets set the environment and rig.
 // Metal colors are the measured linear reflectance of each metal, written in sRGB.
 const surface = settings => Object.freeze({ ...paintDefaults, mode: 'replace', shader: 'standard', ...settings });
 const iridescent = (iridescenceIOR, iridescenceThicknessMin, iridescenceThicknessMax) => ({ iridescence: 1, iridescenceIOR, iridescenceThicknessMin, iridescenceThicknessMax });
-export const MODEL_MATERIAL_FAMILIES = Object.freeze([['basic', 'Basics'], ['metal', 'Metals'], ['iridescent', 'Iridescent'], ['fabric', 'Fabric']]);
+export const MODEL_MATERIAL_FAMILIES = Object.freeze([['basic', 'Basics'], ['metal', 'Metals'], ['iridescent', 'Iridescent'], ['fabric', 'Fabric'], ['glass', 'Glass'], ['crystal', 'Studio glass']]);
 export const MODEL_MATERIAL_PRESETS = Object.freeze([
   { id: 'original', name: 'Original', family: 'basic', settings: Object.freeze({ ...paintDefaults, shader: 'standard' }) },
   { id: 'matte', name: 'Matte', family: 'basic', settings: surface({ roughness: .9 }) },
@@ -74,7 +82,15 @@ export const MODEL_MATERIAL_PRESETS = Object.freeze([
   { id: 'titanium', name: 'Anodized titanium', family: 'iridescent', settings: surface({ color: '#9099b8', roughness: .22, metalness: 1, ...iridescent(1.33, 380, 480) }) },
   { id: 'oil-slick', name: 'Oil slick', family: 'iridescent', settings: surface({ color: '#08080a', roughness: .3, metalness: .6, ...iridescent(1.7, 250, 800) }) },
   { id: 'pearl', name: 'Pearl', family: 'iridescent', settings: surface({ color: '#f3eee6', roughness: .32, clearcoat: 1, sheen: .6, sheenColor: '#ffd8ef', ...iridescent(1.45, 300, 650), iridescence: .55 }) },
-  { id: 'velvet', name: 'Velvet', family: 'fabric', settings: surface({ color: '#5c0f2e', roughness: .85, sheen: 1, sheenRoughness: .45, sheenColor: '#ff8fbd' }) }
+  { id: 'velvet', name: 'Velvet', family: 'fabric', settings: surface({ color: '#5c0f2e', roughness: .85, sheen: 1, sheenRoughness: .45, sheenColor: '#ff8fbd' }) },
+  { id: 'clear-glass', name: 'Clear glass', family: 'glass', settings: surface({ shader: 'glass', roughness: .04, glassOpacity: .04 }) },
+  { id: 'frosted-glass', name: 'Frosted glass', family: 'glass', settings: surface({ shader: 'glass', color: '#f2f5f8', roughness: .55, glassOpacity: .45 }) },
+  { id: 'tinted-glass', name: 'Tinted glass', family: 'glass', settings: surface({ shader: 'glass', color: '#3d9bff', roughness: .05, glassOpacity: .35 }) },
+  { id: 'smoked-glass', name: 'Smoked glass', family: 'glass', settings: surface({ shader: 'glass', color: '#18181b', roughness: .08, glassOpacity: .5 }) },
+  { id: 'bubble', name: 'Soap bubble', family: 'glass', settings: surface({ shader: 'glass', roughness: 0, metalness: .2, ior: 1.33, glassOpacity: 0, ...iridescent(1.33, 250, 850) }) },
+  { id: 'prism', name: 'Prism', family: 'crystal', settings: surface({ shader: 'crystal', roughness: 0, ior: 1.6, dispersion: .6 }) },
+  { id: 'diamond', name: 'Diamond', family: 'crystal', settings: surface({ shader: 'crystal', roughness: 0, ior: 2.42, dispersion: 1 }) },
+  { id: 'frosted-crystal', name: 'Frosted crystal', family: 'crystal', settings: surface({ shader: 'crystal', color: '#eef3f7', roughness: .4, ior: 1.5, dispersion: .2 }) }
 ]);
 const classic = Object.freeze({
   environment: 'none', environmentIntensity: 1, environmentRotation: 0, toneMapping: 'none', exposure: 1,
@@ -115,7 +131,7 @@ export const applyLightingPreset = (style, id) => applyPreset(MODEL_LIGHTING_PRE
 export function selectedModelPreset(style) {
   const value = normalizeModelStyle(style);
   if (value.mode === 'original') return 'original';
-  return MODEL_MATERIAL_PRESETS.find(preset => Object.keys(paintDefaults).every(key => value[key] === preset.settings[key]))?.id ?? 'custom';
+  return MODEL_MATERIAL_PRESETS.find(preset => SURFACE_KEYS.every(key => value[key] === preset.settings[key]))?.id ?? 'custom';
 }
 export function selectedLightingPreset(style) {
   const value = normalizeModelStyle(style);

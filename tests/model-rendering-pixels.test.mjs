@@ -99,7 +99,9 @@ test('shared model renderer produces real material, reflection, shader and deter
       result.presets = [];
       for (const preset of MODEL_MATERIAL_PRESETS.filter(item => item.id !== 'original')) {
         style('a', applyModelPreset(layers.get('a').modelStyle, preset.id));
-        result.presets.push({ id: preset.id, pixels: Array.from(frame('a', .4)), visible: opaque(frame('a', .4)) });
+        // Glass presets are translucent by design, so coverage counts any drawn pixel.
+        const pixels = frame('a', .4); let covered = 0; for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) covered++;
+        result.presets.push({ id: preset.id, pixels: Array.from(pixels), visible: covered });
       }
       style('a', applyLightingPreset(applyModelPreset(layers.get('a').modelStyle, 'chrome'), 'classic-reflections')); const studio = frame('a', .4);
       const environment = captures.get('a').scene.environment;
@@ -135,6 +137,18 @@ test('shared model renderer produces real material, reflection, shader and deter
       // A thickness range varies the film across the surface; equal bounds keep one thickness.
       style('a', { iridescenceThicknessMin: 600 }); result.filmVaries = difference(frame('a', .4), filmRange);
       style('a', { iridescence: 0, iridescenceIOR: 1.3, iridescenceThicknessMin: 400, iridescenceThicknessMax: 400 });
+      // Glass leaves most covered pixels translucent so layers below show through; a fuller
+      // body covers more. Studio glass is opaque, refracts the environment and disperses it.
+      const alphaStats = p => { let covered = 0, translucent = 0, sum = 0; for (let i = 3; i < p.length; i += 4) if (p[i] > 0) { covered++; sum += p[i]; if (p[i] < 200) translucent++; } return { covered, translucent, mean: sum / Math.max(1, covered) }; };
+      style('a', applyModelPreset(layers.get('a').modelStyle, 'clear-glass')); const clearGlass = frame('a', .4);
+      style('a', { glassOpacity: .6 }); result.glass = { clear: alphaStats(clearGlass), bodied: alphaStats(frame('a', .4)) };
+      style('a', applyModelPreset(layers.get('a').modelStyle, 'prism')); const prism = frame('a', .4);
+      style('a', { dispersion: 0 }); const unspread = frame('a', .4);
+      style('a', { environment: 'sunset' }); const sunsetPrism = frame('a', .4);
+      style('a', { environment: 'none' }); const fallbackPrism = frame('a', .4);
+      let fallbackLit = 0; for (let i = 0; i < fallbackPrism.length; i += 4) if (fallbackPrism[i + 3] > 0 && fallbackPrism[i] + fallbackPrism[i + 1] + fallbackPrism[i + 2] > 120) fallbackLit++;
+      result.crystal = { alpha: alphaStats(prism), dispersion: difference(prism, unspread), environment: difference(unspread, sunsetPrism), fallbackLit };
+      style('a', { environment: 'softbox', shader: 'standard' });
       style('a', CLASSIC_LIGHTING);
       style('a', { mode: 'replace', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, shader: 'standard' }); const standard = frame('a', .4);
       result.shaders = [];
@@ -358,6 +372,12 @@ test('shared model renderer produces real material, reflection, shader and deter
   for (const contrast of result.environmentContrast) visible(contrast, 'Distinct environments');
   visible(result.keyColor.delta, 'Key light color'); assert.ok(result.keyColor.redder > 300, `a red key light tints lit pixels: ${result.keyColor.redder}`);
   visible(result.brushed, 'Brushed anisotropy'); visible(result.coatRoughness, 'Clearcoat roughness'); visible(result.sheen, 'Sheen'); visible(result.film, 'Iridescent film index and thickness'); visible(result.filmVaries, 'Film thickness range varying over the surface');
+  const { clear, bodied } = result.glass;
+  assert.ok(clear.covered > 1000 && clear.translucent > clear.covered * .5, `clear glass lets the layers below show through most of the model: ${JSON.stringify(clear)}`);
+  assert.ok(bodied.mean > clear.mean + 40, `a fuller glass body covers more of the layers below: ${clear.mean} → ${bodied.mean}`);
+  assert.ok(result.crystal.alpha.covered > 1000 && result.crystal.alpha.translucent < result.crystal.alpha.covered * .15, `studio glass is opaque: ${JSON.stringify(result.crystal.alpha)}`);
+  visible(result.crystal.dispersion, 'Crystal dispersion'); visible(result.crystal.environment, 'Crystal refracting its environment');
+  assert.ok(result.crystal.fallbackLit > 500, `studio glass without an environment still shows a neutral horizon: ${result.crystal.fallbackLit}`);
   assert.deepEqual(result.unbrushedWithoutUv.delta, 0, 'brushing is ignored on meshes without UVs'); assert.ok(result.unbrushedWithoutUv.visible > 1000);
   assert.deepEqual(result.resolution, [192, 96, 288, 4096], 'canvas follows layer size, keyframed size and composition width, capped');
   assert.ok(result.fixedCrop > 0, 'fixed framing crops a rotated cube diagonal, as before');

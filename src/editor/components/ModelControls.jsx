@@ -1,12 +1,12 @@
 import React, { useCallback, useSyncExternalStore } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
-import { MODEL_ENVIRONMENTS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
+import { MODEL_ENVIRONMENTS, MODEL_GLASS_SHADERS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
 import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.js';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
 import { ModelMotionControls } from './ModelMotionControls.jsx';
 
-const names = { original: 'Original', tint: 'Tint', replace: 'Replace', standard: 'Standard', toon: 'Toon', fresnel: 'Fresnel', wireframe: 'Wireframe' };
+const names = { original: 'Original', tint: 'Tint', replace: 'Replace', standard: 'Standard', toon: 'Toon', fresnel: 'Fresnel', wireframe: 'Wireframe', glass: 'Glass', crystal: 'Studio glass' };
 const environmentNames = { none: 'None', studio: 'Classic room', softbox: 'Studio softboxes', stage: 'Dark stage', sunset: 'Sunset sky', neon: 'Neon tubes' };
 const toneNames = { none: 'None (classic)', neutral: 'Neutral', agx: 'AgX (soft)' };
 const serverMetadata = () => null;
@@ -23,7 +23,8 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
   const missingClip = metadata !== null && style.animationClip >= 0 && !clips.some(clip => clip.index === style.animationClip) && (clips.length > 0 || style.animationClip > 0);
   const clipActive = metadata !== null && clips.some(clip => clip.index === style.animationClip);
   const replacement = style.mode === 'replace';
-  const pbr = replacement && ['standard', 'fresnel'].includes(style.shader);
+  const glass = MODEL_GLASS_SHADERS.includes(style.shader);
+  const pbr = replacement && (['standard', 'fresnel'].includes(style.shader) || glass);
   const lighting = selectedLightingPreset(style);
   const details = [style.clearcoat > 0 && style.clearcoatRoughness > 0 && 'Soft coat', style.anisotropy > 0 && 'Brushed', style.sheen > 0 && 'Sheen', style.iridescence > 0 && 'Iridescent film'].filter(Boolean);
 
@@ -82,6 +83,13 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
       </fieldset>
       {!replacement && <p className="helper">Surface overrides are available in Replace mode; Original and Tint keep imported surface properties.</p>}
       {replacement && !pbr && <p className="helper">Toon and Wireframe do not use PBR surface properties. Wireframe does not use emissive lighting.</p>}
+      {glass && <>
+        {range('ior', 'Refractive index ×100', { scale: 100, suffix: ' ' })}
+        {style.shader === 'glass' ? range('glassOpacity', 'Glass body', { suffix: '%' }) : range('dispersion', 'Dispersion', { suffix: '%' })}
+        <p className="helper">{style.shader === 'glass'
+          ? 'Glass shows the layers below through its tinted body; a higher refractive index makes the edges more reflective and opaque. It does not bend or blur those layers.'
+          : 'Studio glass refracts its own reflection environment, not the layers below, and is opaque. Dark stage, Sunset or Neon give it the most contrast; dispersion splits the light into colors.'}</p>
+      </>}
       {style.shader === 'toon' && range('toonSteps', 'Toon steps', { step: 1, scale: 1 })}
       {style.shader === 'fresnel' && <>
         <Color label="Fresnel color" value={style.fresnelColor} onChange={fresnelColor => patchStyle({ fresnelColor })}/>
@@ -89,7 +97,7 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
         {range('fresnelPower', 'Fresnel power', { step: 1, scale: 1 })}
       </>}
       {metadata?.unlit && <p className="helper">This source includes unlit materials. Original or Tint with Standard preserves their unlit appearance; surface shaders may adapt them to a lit material.</p>}
-      {replacement && pbr && style.metalness >= .5 && style.environment === 'none' && <p className="helper">Metal reflects its surroundings. Choose a Lighting preset with an environment, such as Studio, to see it.</p>}
+      {((pbr && style.metalness >= .5) || glass) && style.environment === 'none' && <p className="helper">{glass ? 'Glass' : 'Metal'} reflects its surroundings. Choose a Lighting preset with an environment, such as Studio, to see it.</p>}
     </Section>
     <Section title="Lighting" collapsible defaultOpen={false} detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
       <Field label="Lighting preset"><select aria-label="Lighting preset" value={lighting} onChange={event => onPatch(layer.id, { modelStyle: applyLightingPreset(style, event.target.value) })}>

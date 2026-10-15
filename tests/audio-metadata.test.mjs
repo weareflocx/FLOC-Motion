@@ -66,6 +66,7 @@ test('late audio metadata applies the latest seek/playback state and ignores dis
       assert.equal(await page.evaluate(() => Number.isFinite(window.audio.duration)), false);
       if (state === 'playing') await page.evaluate(() => window.engine.seek(4, true));
       if (state === 'disposed') await page.evaluate(() => window.engine.dispose());
+      await page.evaluate(() => { window.releasedAt = performance.now(); });
       release();
       if (state === 'disposed') {
         await page.evaluate(() => window.audio.dispatchEvent(new Event('loadedmetadata')));
@@ -73,7 +74,9 @@ test('late audio metadata applies the latest seek/playback state and ignores dis
         assert.equal(await page.evaluate(() => window.audio.hasAttribute('src')), false);
       } else {
         await page.waitForFunction(() => Number.isFinite(window.audio.duration));
-        await page.waitForFunction(() => Math.abs(window.audio.currentTime - 3.5) < .2, { timeout: 5000 });
+        // Playing audio keeps advancing after the seek lands, by as much time as has elapsed since
+        // the metadata was released; a slow machine may not observe the first 200 ms window.
+        await page.waitForFunction(() => window.audio.currentTime > 3.3 && window.audio.currentTime < 3.7 + (performance.now() - window.releasedAt) / 1000, { timeout: 5000 });
         await page.waitForFunction(playing => window.audio.paused === !playing, {}, state === 'playing');
         if (state === 'paused') assert(Math.abs(await page.evaluate(() => window.audio.currentTime) - 3.5) < .03);
         await page.evaluate(() => window.engine.dispose());

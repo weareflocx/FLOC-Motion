@@ -106,7 +106,7 @@ test('material presets change only the surface; lighting presets change only the
 test('material presets are grouped by family and the film thickness range stays ordered', () => {
   const h = inspector();
   const groups = h.find('Material preset').children.flat().filter(node => node.type === 'optgroup');
-  assert.deepEqual(groups.map(group => group.props.label), ['Basics', 'Metals', 'Iridescent', 'Fabric']);
+  assert.deepEqual(groups.map(group => group.props.label), ['Basics', 'Metals', 'Iridescent', 'Fabric', 'Glass', 'Studio glass']);
   assert.ok(groups.find(group => group.props.label === 'Metals').children.flat().some(option => option.props.value === 'brushed-aluminium'));
   h.change('Material preset', 'brushed-aluminium');
   assert.equal(h.find('Material preset').props.value, 'brushed-aluminium');
@@ -118,6 +118,24 @@ test('material presets are grouped by family and the film thickness range stays 
   h.change('Film thickest', 200);
   assert.deepEqual([h.layer.modelStyle.iridescenceThicknessMin, h.layer.modelStyle.iridescenceThicknessMax], [200, 200]);
   assert.equal(h.find('Material preset').props.value, 'custom');
+});
+
+test('glass presets show the controls of their shader and switching shader leaves the preset', () => {
+  const h = inspector();
+  h.change('Material preset', 'tinted-glass');
+  assert.equal(h.layer.modelStyle.shader, 'glass');
+  assert.equal(h.find('Glass body').props.value, .35);
+  assert.equal(h.find('Dispersion'), undefined);
+  assert.equal(h.find('Roughness').blocked, false);
+  h.change('Material preset', 'diamond');
+  assert.deepEqual([h.layer.modelStyle.shader, h.layer.modelStyle.ior, h.layer.modelStyle.dispersion], ['crystal', 2.42, 1]);
+  assert.equal(h.find('Glass body'), undefined);
+  h.change('Dispersion', .3);
+  assert.equal(h.find('Material preset').props.value, 'custom');
+  h.change('Material preset', 'diamond');
+  h.change('Surface shader', 'standard');
+  assert.equal(h.find('Material preset').props.value, 'custom', 'a preset includes its shader');
+  assert.equal(h.find('Refractive index ×100'), undefined);
 });
 
 test('motion axis space offers Screen and Object, and Legacy only to projects that use it', () => {

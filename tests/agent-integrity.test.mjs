@@ -52,9 +52,9 @@ test('agent discovers installed model controls and saves canonical validated edi
   const call = (name, args) => tools.find(tool => tool.name === name).execute(args);
   const discovery = JSON.parse(await call('floc_list_effects'));
   assert.deepEqual(discovery.model.defaults, DEFAULT_MODEL_STYLE);
-  assert.deepEqual(discovery.model.materialPresets.map(preset => preset.id), ['original', 'matte', 'plastic', 'ceramic', 'lacquer', 'rubber', 'chrome', 'satin', 'gold', 'rose-gold', 'copper', 'brushed-aluminium', 'brushed-gold', 'gunmetal', 'iridescent', 'holographic', 'titanium', 'oil-slick', 'pearl', 'velvet']);
-  assert.ok(discovery.model.materialPresets.every(preset => ['basic', 'metal', 'iridescent', 'fabric'].includes(preset.family)));
-  assert.deepEqual(discovery.model.shaders, ['standard', 'toon', 'fresnel', 'wireframe']);
+  assert.deepEqual(discovery.model.materialPresets.map(preset => preset.id), ['original', 'matte', 'plastic', 'ceramic', 'lacquer', 'rubber', 'chrome', 'satin', 'gold', 'rose-gold', 'copper', 'brushed-aluminium', 'brushed-gold', 'gunmetal', 'iridescent', 'holographic', 'titanium', 'oil-slick', 'pearl', 'velvet', 'clear-glass', 'frosted-glass', 'tinted-glass', 'smoked-glass', 'bubble', 'prism', 'diamond', 'frosted-crystal']);
+  assert.ok(discovery.model.materialPresets.every(preset => ['basic', 'metal', 'iridescent', 'fabric', 'glass', 'crystal'].includes(preset.family)));
+  assert.deepEqual(discovery.model.shaders, ['standard', 'toon', 'fresnel', 'wireframe', 'glass', 'crystal']);
   assert.deepEqual(discovery.model.environments, ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
   assert.deepEqual(discovery.model.toneMappings, ['none', 'neutral', 'agx']);
   assert.deepEqual(discovery.model.motions, ['none', 'spin', 'rock', 'float', 'pulse']);
