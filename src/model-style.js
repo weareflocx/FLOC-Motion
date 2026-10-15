@@ -8,18 +8,24 @@ export const DEFAULT_MODEL_STYLE = Object.freeze({
   ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0,
   motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
   motionAxis: 'auto', motionSteps: 4, motionTiming: DEFAULT_MOTION,
-  animationClip: 0, animationSpeed: 1
+  animationClip: 0, animationSpeed: 1,
+  framing: 'fit', zoom: 1, perspective: 38
 });
 export const MODEL_MATERIAL_MODES = Object.freeze(['original', 'tint', 'replace']);
 export const MODEL_SHADERS = Object.freeze(['standard', 'toon', 'fresnel', 'wireframe']);
 export const MODEL_MOTIONS = Object.freeze(['none', 'spin', 'rock', 'float', 'pulse']);
 export const MODEL_MOTION_AXES = Object.freeze(['auto', 'x', 'y', 'z']);
+// Fit keeps the whole motion envelope in the layer; fixed is the pre-v11 camera.
+export const MODEL_FRAMINGS = Object.freeze(['fit', 'fixed']);
+// Pulse scales by up to 12% and Float moves by up to 0.2 normalized units at full amplitude.
+export const MODEL_PULSE_SCALE = .12, MODEL_FLOAT_OFFSET = .2;
 export const MODEL_STYLE_RANGES = Object.freeze({
   roughness: [0, 1], metalness: [0, 1], clearcoat: [0, 1], iridescence: [0, 1], emissiveIntensity: [0, 4],
   toonSteps: [2, 8], fresnelIntensity: [0, 2], fresnelPower: [1, 8],
   environmentIntensity: [0, 4], environmentRotation: [-180, 180],
   ambientIntensity: [0, 6], keyIntensity: [0, 10], fillIntensity: [0, 10], rimIntensity: [0, 10], lightRotation: [-180, 180],
-  motionDuration: [.25, 300], motionSpeed: [-4, 4], motionAmplitude: [0, 1], motionSteps: [1, 24], animationClip: [-1, 65535], animationSpeed: [0, 4]
+  motionDuration: [.25, 300], motionSpeed: [-4, 4], motionAmplitude: [0, 1], motionSteps: [1, 24], animationClip: [-1, 65535], animationSpeed: [0, 4],
+  zoom: [.25, 4], perspective: [15, 75]
 });
 const paintDefaults = Object.fromEntries(['mode', 'color', 'roughness', 'metalness', 'clearcoat', 'iridescence', 'emissive', 'emissiveIntensity'].map(key => [key, DEFAULT_MODEL_STYLE[key]]));
 const paint = (color, roughness, metalness, clearcoat = 0, iridescence = 0) => Object.freeze({ ...paintDefaults, mode: 'replace', color, roughness, metalness, clearcoat, iridescence, shader: 'standard', environment: 'studio' });
@@ -36,7 +42,7 @@ export function normalizeModelStyle(input) {
   const plain = prototype === null || (Object.getPrototypeOf(prototype) === null && Object.hasOwn(prototype, 'constructor') && typeof prototype.constructor === 'function' && Function.prototype.toString.call(prototype.constructor) === Function.prototype.toString.call(Object));
   if (input !== undefined && (!input || typeof input !== 'object' || Array.isArray(input) || !plain || Object.getOwnPropertySymbols(input).length || Object.keys(input).some(key => !Object.hasOwn(DEFAULT_MODEL_STYLE, key)))) throw new Error('Invalid 3D model settings.');
   const value = { ...DEFAULT_MODEL_STYLE, ...input };
-  if (!MODEL_MATERIAL_MODES.includes(value.mode) || !MODEL_SHADERS.includes(value.shader) || !MODEL_MOTIONS.includes(value.motion) || !MODEL_MOTION_AXES.includes(value.motionAxis) || !['none', 'studio'].includes(value.environment)) throw new Error('Unknown 3D material, shader, environment or motion.');
+  if (!MODEL_MATERIAL_MODES.includes(value.mode) || !MODEL_SHADERS.includes(value.shader) || !MODEL_MOTIONS.includes(value.motion) || !MODEL_MOTION_AXES.includes(value.motionAxis) || !['none', 'studio'].includes(value.environment) || !MODEL_FRAMINGS.includes(value.framing)) throw new Error('Unknown 3D material, shader, environment, motion or framing.');
   for (const key of ['color', 'emissive', 'fresnelColor']) if (typeof value[key] !== 'string' || !/^#[0-9a-f]{6}$/i.test(value[key])) throw new Error('Invalid 3D model color.');
   for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
     if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || value[key] < min || value[key] > max || (['toonSteps', 'motionSteps', 'animationClip'].includes(key) && !Number.isInteger(value[key]))) throw new Error(`Invalid 3D model ${key}.`);
@@ -62,6 +68,13 @@ export function resetModelMotion(style) {
     motionTiming: { ...DEFAULT_MOTION }
   });
 }
+// Largest pose the automatic motion reaches beyond the authored one, for framing.
+export function modelMotionReach(style) {
+  return {
+    scale: style.motion === 'pulse' ? 1 + style.motionAmplitude * MODEL_PULSE_SCALE : 1,
+    offset: style.motion === 'float' ? style.motionAmplitude * MODEL_FLOAT_OFFSET : 0
+  };
+}
 // Additive to the authored pose; clip playback uses its own clock and controls.
 export function automaticModelMotion(style, elapsed, out = {}) {
   const timing = style.motionTiming;
@@ -85,12 +98,12 @@ export function automaticModelMotion(style, elapsed, out = {}) {
     else if (axis === 'y') out.rotationY = angle;
     else out.rotationZ = angle;
   } else if (style.motion === 'float') {
-    const offset = wave * amplitude * .2;
+    const offset = wave * amplitude * MODEL_FLOAT_OFFSET;
     if (axis === 'x') out.offsetX = offset;
     else if (axis === 'y') out.offsetY = offset;
     else out.offsetZ = offset;
   } else if (style.motion === 'pulse') {
-    const scale = 1 + wave * amplitude * .12;
+    const scale = 1 + wave * amplitude * MODEL_PULSE_SCALE;
     if (style.motionAxis === 'auto' || axis === 'x') out.scaleX = scale;
     if (style.motionAxis === 'auto' || axis === 'y') out.scaleY = scale;
     if (style.motionAxis === 'auto' || axis === 'z') out.scaleZ = scale;

@@ -63,6 +63,17 @@ test('center resize snaps to canvas and safe edges, then releases beyond the mag
   assert.equal(margins.x + margins.size / 2, 50);
 });
 
+test('an off-center model silhouette snaps its own edge while scaling about the canvas center', () => {
+  const layer = { type: 'model', size: 20 };
+  const canvas = { x: 20, y: 20, width: 20, height: 20 };
+  const silhouette = { x: 32, y: 30, width: 10, height: 10 };
+  const next = snapCenteredResize(layer, 116, canvas, silhouette, { enabled: false }, { x: .6, y: .6 });
+  // The right edge, 12 units from the canvas center at x = 30, reaches the frame edge.
+  assert.ok(Math.abs(next.size - 20 * 70 / 12) < 1e-9, String(next.size));
+  assert.deepEqual(next.guides, [{ axis: 'x', value: 100 }]);
+  assert.ok(Math.abs(next.x + next.size / 2 - 30) < 1e-9, 'the canvas center stays in place');
+});
+
 test('matching aspect ratios indicate both width and height at once', () => {
   const layer = { type: 'media', size: 40 };
   const bounds = { x: 30, y: 30, width: 40, height: 40 };

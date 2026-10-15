@@ -6,7 +6,8 @@ import { alignmentPlacement, DEFAULT_LAYOUT } from '../layout.js';
 import { dragOrientation, wrapDegrees } from '../orientation.js';
 import { evaluateChoreography } from '../choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from './canvas-resize.js';
-import { layerPosition, measureLayerBounds } from './layer-bounds.js';
+import { layerPosition, measureLayerBounds, visualRect } from './layer-bounds.js';
+import { modelCanvasGeometry } from '../model-canvas.js';
 import { transformableLayers } from './selection.js';
 import { groupPositions, selectionBounds } from './arrange.js';
 
@@ -79,9 +80,15 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       const at = playhead(), l = evaluateChoreography(source, at);
       if (!l.visible || at < l.start || at >= l.end || l.type === 'music') continue;
       const node = nodeFor(l.id); if (!node || Number(node.style.opacity) <= 0) continue;
-      const b = node.getBoundingClientRect();
+      const b = visualRect(node);
       if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
-      if (['text', 'logo', 'media', 'model'].includes(l.type)) return l;
+      // A model takes clicks only on its geometry; transparent canvas passes through.
+      if (l.type === 'model') {
+        const drawn = modelCanvasGeometry(node), canvas = node.getBoundingClientRect();
+        if (!drawn || drawn.hitTest((x - canvas.left) / canvas.width, (y - canvas.top) / canvas.height)) return l;
+        continue;
+      }
+      if (['text', 'logo', 'media'].includes(l.type)) return l;
       if (l.type === 'carousel' && engine.current?.hitTest((x - box.left) / box.width, (y - box.top) / box.height, l.id)) return l;
       if (l.type === 'background') return l.id === selected ? l : null;
     }
@@ -106,6 +113,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     if (l.locked) return;
     const box = root.current.getBoundingClientRect();
     const b = nodeFor(l.id).getBoundingClientRect();
+    // What the layer shows: a model's silhouette within its square canvas.
+    const shown = l.type === 'model' ? visualRect(nodeFor(l.id)) : b;
     const spatial = ['carousel', 'model'].includes(l.type);
     const rollDrag = !resize && !event.metaKey && !event.ctrlKey && event.shiftKey && event.altKey;
     const orient = !!ring || !resize && !event.metaKey && !event.ctrlKey && (spatial && event.shiftKey || rollDrag);
@@ -113,18 +122,20 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const measured = ['logo', 'media', 'model'].includes(l.type) && layerResizeBounds(l, root.current);
     const angle = (l.type === 'model' ? 0 : l.roll ?? 0) * Math.PI / 180;
     const dx = event.clientX - center.x, dy = event.clientY - center.y;
-    const localX = dx * Math.cos(angle) + dy * Math.sin(angle), localY = -dx * Math.sin(angle) + dy * Math.cos(angle);
-    const halfWidth = measured && measured.width / 100 * box.width / 2, halfHeight = measured && measured.height / 100 * box.height / 2;
+    // Corners belong to the shown box; a model's silhouette may sit off its canvas center.
+    const cornerX = l.type === 'model' ? event.clientX - (shown.left + shown.right) / 2 : dx, cornerY = l.type === 'model' ? event.clientY - (shown.top + shown.bottom) / 2 : dy;
+    const localX = cornerX * Math.cos(angle) + cornerY * Math.sin(angle), localY = -cornerX * Math.sin(angle) + cornerY * Math.cos(angle);
+    const halfWidth = l.type === 'model' ? shown.width / 2 : measured && measured.width / 100 * box.width / 2, halfHeight = l.type === 'model' ? shown.height / 2 : measured && measured.height / 100 * box.height / 2;
     const tolerance = Math.min(12, halfWidth / 2, halfHeight / 2);
     const nearCorner = measured && Math.abs(Math.abs(localX) - halfWidth) <= tolerance && Math.abs(Math.abs(localY) - halfHeight) <= tolerance;
     const resizing = !orient && (!!resize || l.id === selected && (event.metaKey || event.ctrlKey) && nearCorner);
     if (resizing && Math.hypot(dx, dy) < 1) return;
     const bounds = resizing && measured;
     const initial = orient ? spatial ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { roll: l.roll ?? 0 } : ['carousel', 'background'].includes(l.type) ? { x: l.x ?? 0, y: l.y ?? 0 } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top), ...(resizing ? { size: l.size } : {}) };
-    const visualOffset = !orient && ['text', 'logo', 'media'].includes(l.type) ? { x: (b.left - box.left) / box.width * 100 - initial.x, y: (b.top - box.top) / box.height * 100 - initial.y } : { x: 0, y: 0 };
+    const visualOffset = !orient && ['text', 'logo', 'media', 'model'].includes(l.type) ? { x: (shown.left - box.left) / box.width * 100 - initial.x, y: (shown.top - box.top) / box.height * 100 - initial.y } : { x: 0, y: 0 };
     const at = playhead(), targets = measureLayerBounds(root.current, project.layers.filter(other => other.id !== l.id && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at)));
-    const visualBounds = { x: (b.left - box.left) / box.width * 100, y: (b.top - box.top) / box.height * 100, width: b.width / box.width * 100, height: b.height / box.height * 100 };
-    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: b.width / box.width * 100, height: b.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false, toggle };
+    const visualBounds = { x: (shown.left - box.left) / box.width * 100, y: (shown.top - box.top) / box.height * 100, width: shown.width / box.width * 100, height: shown.height / box.height * 100 };
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: shown.width / box.width * 100, height: shown.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false, toggle };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function members(at) {
@@ -266,17 +277,19 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   const editable = enabled && !multi && layer && !['music', 'effect'].includes(layer.type) && layer.visible && time >= layer.start && time < layer.end && !layer.locked ? layer : null;
   const node = editable && nodeFor(editable.id);
   const frame = root.current?.getBoundingClientRect();
-  const box = node?.getBoundingClientRect();
+  // A model's handles frame its drawn silhouette rather than its square canvas.
+  const box = node && (editable.type === 'model' ? visualRect(node) : node.getBoundingClientRect());
   const center = editable?.type === 'carousel' ? { x: draft?.x ?? editable.x, y: draft?.y ?? editable.y }
     : box && frame ? { x: (box.left + box.width / 2 - frame.left) / frame.width * 100, y: (box.top + box.height / 2 - frame.top) / frame.height * 100 } : null;
   const angle = (draft?.roll ?? editable?.roll ?? 0) * Math.PI / 180;
   const ring = editable && center ? editable.type === 'carousel' ? <svg className="canvas-orientation-ring" style={{ left: `${center.x}%`, top: `${center.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label="Rotate carousel Z: drag ring or use arrow keys; Escape cancels"><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos(angle)} cy={50 + 45 * Math.sin(angle)} r="2"/></svg>
     : <svg className="canvas-orientation-ring canvas-layer-rotation" style={{ left: `${center.x}%`, top: `${center.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label={`Rotate ${editable.name}: drag handle or use arrow keys; Escape cancels`}><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos(angle)} cy={50 + 45 * Math.sin(angle)} r="3"/></svg> : null;
   const scale = frame?.width / FORMATS[project.format][0] || 1;
+  const [boxWidth, boxHeight] = editable?.type === 'model' && box ? [box.width / scale, box.height / scale] : [node?.offsetWidth, node?.offsetHeight];
   const fitsWidth = box && frame && Math.abs(box.left - frame.left) < .5 && Math.abs(box.right - frame.right) < .5;
   const fitsHeight = box && frame && Math.abs(box.top - frame.top) < .5 && Math.abs(box.bottom - frame.bottom) < .5;
   const fitLabel = fitsWidth && fitsHeight ? 'Fits width & height' : fitsWidth ? 'Fits width' : fitsHeight ? 'Fits height' : null;
-  const selection = editable && center && ['logo', 'media', 'model'].includes(editable.type) && node ? <div className="canvas-transform-box" data-canvas-move="true" style={{ left: `${center.x}%`, top: `${center.y}%`, width: `${node.offsetWidth}px`, height: `${node.offsetHeight}px`, transform: `translate(-50%,-50%) rotate(${editable.type === 'model' ? 0 : draft?.roll ?? editable.roll ?? 0}deg)`, '--handle-size': `${10 / scale}px`, '--handle-offset': `${24 / scale}px`, '--selection-line': `${1 / scale}px`, '--fit-font-size': `${11 / scale}px`, '--fit-padding': `${4 / scale}px` }}>
+  const selection = editable && center && ['logo', 'media', 'model'].includes(editable.type) && node ? <div className="canvas-transform-box" data-canvas-move="true" style={{ left: `${center.x}%`, top: `${center.y}%`, width: `${boxWidth}px`, height: `${boxHeight}px`, transform: `translate(-50%,-50%) rotate(${editable.type === 'model' ? 0 : draft?.roll ?? editable.roll ?? 0}deg)`, '--handle-size': `${10 / scale}px`, '--handle-offset': `${24 / scale}px`, '--selection-line': `${1 / scale}px`, '--fit-font-size': `${11 / scale}px`, '--fit-padding': `${4 / scale}px` }}>
     {['nw', 'ne', 'sw', 'se'].map(corner => <button key={corner} type="button" className={`canvas-resize-handle ${corner}`} data-canvas-resize={corner} title="Resize from center · ⌘/Ctrl-drag an object corner · Shift bypasses snapping · Escape cancels" aria-label={`Resize ${editable.name} from ${corner}: drag from center or use arrow keys; Command/Control-drag an object corner; Shift bypasses snapping; Escape cancels`}/>)}
     <button type="button" className="canvas-rotate-handle" data-canvas-ring="true" aria-label={`Rotate ${editable.name}: drag or use arrow keys; Escape cancels`}/>
     {fitLabel && <span className="canvas-fit-label" role="status">{fitLabel}</span>}

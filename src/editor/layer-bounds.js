@@ -1,7 +1,20 @@
+import { modelCanvasGeometry } from '../model-canvas.js';
+
 const MEASURED_TYPES = ['text', 'logo', 'media', 'model'];
 
 export function layerNode(root, id) {
   return [...(root?.querySelectorAll('[data-floc-layer]') ?? [])].find(node => node.dataset.flocLayer === id);
+}
+
+// Client rectangle of what a layer node shows. A 3D model reports the drawn
+// silhouette inside its square canvas; until it has drawn, the whole canvas.
+export function visualRect(node) {
+  const box = node.getBoundingClientRect();
+  const content = modelCanvasGeometry(node)?.bounds();
+  if (!content) return box;
+  const left = box.left + content.x * box.width, top = box.top + content.y * box.height;
+  const width = content.width * box.width, height = content.height * box.height;
+  return { left, top, width, height, right: left + width, bottom: top + height };
 }
 
 // Canvas-percent rectangles of rendered layers, as placement guides, snapping and
@@ -16,7 +29,7 @@ export function measureLayerBounds(root, layers) {
     if (!MEASURED_TYPES.includes(layer.type)) return [];
     const node = nodes.find(item => item.dataset.flocLayer === layer.id);
     if (!node) return [];
-    const box = node.getBoundingClientRect();
+    const box = visualRect(node);
     return [{ id: layer.id, x: (box.left - frame.left) / frame.width * 100, y: (box.top - frame.top) / frame.height * 100, width: box.width / frame.width * 100, height: box.height / frame.height * 100 }];
   });
 }

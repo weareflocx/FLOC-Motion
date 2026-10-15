@@ -2,12 +2,23 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { evaluateChoreography } from './choreography.js';
-import { createResourceCache, watchContextLoss } from './scene-resources.js';
-import { normalizeModelStyle, automaticModelMotion } from './model-style.js';
+import { createResourceCache } from './scene-resources.js';
+import { normalizeModelStyle, automaticModelMotion, modelMotionReach } from './model-style.js';
 import { registerModelMetadata } from './model-metadata.js';
 import { createModelMaterials } from './model-materials.js';
 import { createModelEnvironment } from './model-environment.js';
+import { modelRenderer, modelResolution } from './model-renderer.js';
+import { registerModelCanvas } from './model-canvas.js';
 
+// Fixed framing is the pre-v11 camera: 38° from 4.5 units, model scaled to two units.
+const FIXED_DISTANCE = 4.5, FIXED_HALF_FOV = THREE.MathUtils.degToRad(19);
+// Fit framing keeps the motion envelope within this fraction of the view.
+const FIT_MARGIN = .97;
+const CLIP_SAMPLES = 24;
+// Skinned vertices are evaluated on the CPU; larger meshes are sampled evenly.
+const SKINNED_SAMPLES = 20000;
+// Envelope radius per decoded source and clip (-1: none), shared by its instances.
+const reaches = new WeakMap();
 async function loadModel(src) {
   const manager = new THREE.LoadingManager();
   manager.setURLModifier(url => {
@@ -42,25 +53,25 @@ function disposeModel(gltf) {
   textures.forEach(texture => texture.dispose());
 }
 
-export async function createModelScene(canvas, layer, width, height, { resources = createResourceCache(), renderMode = false, onError = () => {} } = {}) {
+export async function createModelScene(canvas, layer, { compositionWidth = canvas.width, resources = createResourceCache(), renderMode = false, onError = () => {} } = {}) {
   let style = normalizeModelStyle(layer.modelStyle);
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: renderMode });
-  renderer.setSize(width, height, false);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const shared = modelRenderer();
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
-  camera.position.z = 4.5;
+  camera.position.z = FIXED_DISTANCE;
   const ambient = new THREE.HemisphereLight(0xffffff, 0x444444, 3); scene.add(ambient);
   const rig = new THREE.Group(); scene.add(rig);
   const key = new THREE.DirectionalLight(0xffffff, 3); key.position.set(3, 4, 5); rig.add(key);
   const fill = new THREE.DirectionalLight(0xffffff, 0); fill.position.set(-4, 2, 2); rig.add(fill);
   const rim = new THREE.DirectionalLight(0xffffff, 0); rim.position.set(2, 3, -4); rig.add(rim);
   const group = new THREE.Group(); scene.add(group);
-  const environment = createModelEnvironment(renderer, scene);
+  const environment = createModelEnvironment(shared.renderer, scene);
   const handle = resources.acquire(`model\n${layer.src}`, () => loadModel(layer.src), disposeModel);
   const motion = { phase: 0, advance: 0, stepped: false, rotationX: 0, rotationY: 0, rotationZ: 0, offsetX: 0, offsetY: 0, offsetZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }, skeletons = new Set();
-  let mixer, model, materials, clips, action, clip, clipIndex, lastTime, lastDraft, disposed = false;
-  const context = watchContextLoss(canvas, {
+  const sphere = new THREE.Sphere(), point = new THREE.Vector3(), raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
+  let mixer, model, source, materials, clips, action, clip, clipIndex, lastTime, lastDraft, drawnBounds, disposed = false, unregister = () => {};
+  let width = compositionWidth;
+  const unwatch = shared.watch({
     restored: () => {
       if (disposed) return;
       try { environment.invalidate(); environment.update(style); if (lastTime !== undefined) draw(lastTime, lastDraft); }
@@ -77,33 +88,86 @@ export async function createModelScene(canvas, layer, width, height, { resources
     action = clip ? mixer.clipAction(clip) : null;
     if (action) { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; }
   }
+  // Farthest geometry from the pivot in the current clip pose, in normalized units.
+  function poseRadius() {
+    let radius = 0;
+    model.traverse(node => {
+      if (!node.geometry || !(node.isMesh || node.isLine || node.isPoints)) return;
+      if (node.isSkinnedMesh) {
+        const count = node.geometry.attributes.position.count, step = Math.ceil(count / SKINNED_SAMPLES);
+        for (let i = 0; i < count; i += step) radius = Math.max(radius, node.getVertexPosition(i, point).applyMatrix4(node.matrixWorld).length());
+        return;
+      }
+      if (node.isInstancedMesh) { if (!node.boundingSphere) node.computeBoundingSphere(); sphere.copy(node.boundingSphere); }
+      else { if (!node.geometry.boundingSphere) node.geometry.computeBoundingSphere(); sphere.copy(node.geometry.boundingSphere); }
+      sphere.applyMatrix4(node.matrixWorld);
+      radius = Math.max(radius, sphere.center.length() + sphere.radius);
+    });
+    return radius;
+  }
+  // Any authored rotation keeps geometry within this radius of the pivot; an
+  // embedded clip is sampled across its duration.
+  function envelopeRadius() {
+    const key = action ? clipIndex : -1;
+    let measured = reaches.get(source);
+    if (!measured) reaches.set(source, measured = new Map());
+    if (!measured.has(key)) {
+      group.rotation.set(0, 0, 0); group.position.set(0, 0, 0); group.scale.set(1, 1, 1);
+      let radius = 0;
+      for (let i = 0; i <= (action ? CLIP_SAMPLES : 0); i++) {
+        if (action) { action.reset().play(); mixer.setTime(clip.duration * i / CLIP_SAMPLES); }
+        group.updateMatrixWorld(true);
+        radius = Math.max(radius, poseRadius());
+      }
+      measured.set(key, radius || 1);
+      if (lastTime !== undefined) pose(lastTime, lastDraft);
+    }
+    return measured.get(key);
+  }
+  function frameCamera() {
+    const half = THREE.MathUtils.degToRad(style.perspective / 2);
+    camera.fov = style.perspective;
+    camera.zoom = style.zoom;
+    if (style.framing === 'fixed') {
+      camera.position.z = FIXED_DISTANCE * (Math.tan(FIXED_HALF_FOV) / Math.tan(half));
+      camera.far = 100;
+    } else {
+      // A sphere of this radius around the pivot contains every rotation, pulse and float.
+      const reach = modelMotionReach(style), radius = envelopeRadius() * reach.scale + reach.offset;
+      camera.position.z = radius / (Math.sin(half) * FIT_MARGIN);
+      camera.far = Math.max(100, camera.position.z + radius * 2);
+    }
+    camera.updateProjectionMatrix();
+    drawnBounds = undefined;
+  }
   function applyStyle(next) {
     selectClip(next.animationClip);
     materials.update(next);
     ambient.intensity = next.ambientIntensity;
     key.intensity = next.keyIntensity; fill.intensity = next.fillIntensity; rim.intensity = next.rimIntensity;
     rig.rotation.y = THREE.MathUtils.degToRad(next.lightRotation);
-    if (!context.lost) environment.update(next);
+    if (!shared.lost) environment.update(next);
     style = next;
+    frameCamera();
+  }
+  function resize() {
+    const size = modelResolution(layer, width, shared.maxSide);
+    if (canvas.width !== size) canvas.width = size;
+    if (canvas.height !== size) canvas.height = size;
   }
   function dispose() {
     if (disposed) return;
     disposed = true;
+    unregister();
+    unwatch();
     mixer?.stopAllAction();
     if (model) mixer?.uncacheRoot(model);
-    context.dispose();
     materials?.dispose();
     skeletons.forEach(skeleton => skeleton.dispose());
     environment.dispose();
     handle.release();
-    renderer.dispose(); renderer.forceContextLoss();
   }
-  function draw(time, draft) {
-    lastTime = time; lastDraft = draft;
-    if (context.lost) {
-      if (renderMode) throw new Error('The graphics context was lost while rendering a 3D model.');
-      return;
-    }
+  function pose(time, draft) {
     const elapsed = Math.max(0, time - layer.start);
     if (action) {
       const clock = elapsed * style.animationSpeed + layer.offset;
@@ -121,11 +185,58 @@ export async function createModelScene(canvas, layer, width, height, { resources
     );
     group.position.set(motion.offsetX, motion.offsetY, motion.offsetZ);
     group.scale.set(motion.scaleX, motion.scaleY, motion.scaleZ);
-    renderer.render(scene, camera);
+    drawnBounds = undefined;
   }
+  function draw(time, draft) {
+    lastTime = time; lastDraft = draft;
+    pose(time, draft);
+    if (shared.lost) {
+      if (renderMode) throw new Error('The graphics context was lost while rendering a 3D model.');
+      return;
+    }
+    shared.draw(scene, camera, canvas);
+  }
+  // Canvas fractions covered by the drawn pose: projected local bounds of each
+  // visible part, or the whole canvas when geometry reaches behind the camera.
+  function measureBounds() {
+    scene.updateMatrixWorld(); camera.updateMatrixWorld();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, behind = false;
+    const add = value => {
+      value.project(camera);
+      if (!(value.z >= -1 && value.z <= 1)) { behind = true; return; }
+      minX = Math.min(minX, value.x); maxX = Math.max(maxX, value.x);
+      minY = Math.min(minY, value.y); maxY = Math.max(maxY, value.y);
+    };
+    model.traverseVisible(node => {
+      if (behind || !node.geometry || !(node.isMesh || node.isLine || node.isPoints)) return;
+      if (node.isSkinnedMesh) {
+        const count = node.geometry.attributes.position.count, step = Math.ceil(count / SKINNED_SAMPLES);
+        for (let i = 0; i < count; i += step) add(node.getVertexPosition(i, point).applyMatrix4(node.matrixWorld));
+        return;
+      }
+      let box;
+      if (node.isInstancedMesh) { if (!node.boundingBox) node.computeBoundingBox(); box = node.boundingBox; }
+      else { if (!node.geometry.boundingBox) node.geometry.computeBoundingBox(); box = node.geometry.boundingBox; }
+      if (box.isEmpty()) return;
+      for (let i = 0; i < 8; i++) add(point.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).applyMatrix4(node.matrixWorld));
+    });
+    if (behind) return { x: 0, y: 0, width: 1, height: 1 };
+    const left = Math.max(-1, minX), right = Math.min(1, maxX), bottom = Math.max(-1, minY), top = Math.min(1, maxY);
+    if (!(right > left && top > bottom)) return null;
+    return { x: (left + 1) / 2, y: (1 - top) / 2, width: (right - left) / 2, height: (top - bottom) / 2 };
+  }
+  const geometry = {
+    bounds: () => lastTime === undefined ? null : drawnBounds === undefined ? (drawnBounds = measureBounds()) : drawnBounds,
+    hitTest(u, v) {
+      if (lastTime === undefined) return false;
+      scene.updateMatrixWorld(); camera.updateMatrixWorld();
+      raycaster.setFromCamera(pointer.set(u * 2 - 1, 1 - v * 2), camera);
+      return raycaster.intersectObject(model, true).length > 0;
+    }
+  };
   try {
-    const gltf = await handle.value;
-    model = clone(gltf.scene);
+    source = await handle.value;
+    model = clone(source.scene);
     model.traverse(node => { if (node.skeleton) skeletons.add(node.skeleton); });
     materials = createModelMaterials(model);
     const box = new THREE.Box3().setFromObject(model);
@@ -136,13 +247,17 @@ export async function createModelScene(canvas, layer, width, height, { resources
     model.position.sub(box.getCenter(new THREE.Vector3()));
     normalizer.add(model); normalizer.scale.setScalar(2 / extent); group.add(normalizer);
     mixer = new THREE.AnimationMixer(model);
-    clips = gltf.animations;
+    clips = source.animations;
     applyStyle(style);
+    resize();
+    unregister = registerModelCanvas(canvas, geometry);
     return {
       id: layer.id,
-      updateLayer(value) { const next = normalizeModelStyle(value.modelStyle); applyStyle(next); layer = value; },
+      updateLayer(value) { const next = normalizeModelStyle(value.modelStyle); applyStyle(next); layer = value; resize(); },
       draw,
-      setResolution(w, h) { renderer.setSize(w, h, false); }, dispose
+      // The composition's current pixel width; the canvas follows the layer's size.
+      setCompositionWidth(value) { width = value; resize(); },
+      dispose
     };
   } catch (error) { dispose(); throw error; }
 }

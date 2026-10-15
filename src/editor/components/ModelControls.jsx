@@ -29,6 +29,12 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
       <button type="button" className="outline-button" disabled={uploading} onClick={() => onPick(layer.id)}><UploadSimple size={15}/>Replace file</button>
       <p className="helper">Select OBJ with its declared MTL and textures for one 3D layer. GLB is preserved.</p>
     </Section>
+    <Section title="Camera">
+      <Field label="Framing"><select aria-label="Framing" value={style.framing} onChange={event => patchStyle({ framing: event.target.value })}><option value="fit">Fit motion</option><option value="fixed">Fixed</option></select></Field>
+      {range('zoom', 'Zoom')}
+      {range('perspective', 'Perspective', { step: 1, scale: 1, suffix: '°' })}
+      <p className="helper">{style.framing === 'fit' ? 'Fit motion keeps every rotation, the automatic motion and the selected embedded clip inside the layer at 100% zoom. Higher zoom may crop.' : 'Fixed keeps the earlier camera; rotation and motion may reach past the layer edges.'} Wider perspective exaggerates depth.</p>
+    </Section>
     <Section title="Material">
       <Field label="Material preset"><select aria-label="Material preset" value={selectedModelPreset(style)} onChange={event => onPatch(layer.id, { modelStyle: applyModelPreset(style, event.target.value) })}>
         <option value="custom" disabled>Custom</option>

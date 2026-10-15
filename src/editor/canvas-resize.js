@@ -18,27 +18,34 @@ export function canvasMediaPlacement(x, y) {
 }
 
 // Snap only within a small pointer distance: continuing past a margin releases it.
+// The visual edges scale about the stored box center, which a 3D model's
+// silhouette need not share.
 export function snapCenteredResize(layer, size, bounds, visualBounds, layout, tolerance) {
   const area = safeArea(layout);
   const requested = centeredResize(layer, size, bounds);
+  const edges = (axis, extent) => [visualBounds[axis], visualBounds[axis] + visualBounds[extent]];
+  const pivot = (axis, extent) => bounds[axis] + bounds[extent] / 2;
   let best;
   for (const [axis, extent] of [['x', 'width'], ['y', 'height']]) {
-    const center = visualBounds[axis] + visualBounds[extent] / 2;
-    const half = visualBounds[extent] / 2;
-    if (!half) continue;
+    if (!visualBounds[extent]) continue;
+    const center = pivot(axis, extent);
     for (const reference of new Set([0, 100, area[axis], area[axis] + area[extent]])) {
-      const candidate = layer.size * Math.abs(reference - center) / half;
-      const distance = Math.abs(candidate - requested.size) / layer.size * half / tolerance[axis];
-      if (distance <= 1 && centeredResize(layer, candidate, bounds).size === candidate && (!best || distance < best.distance)) best = { candidate, distance, axis, reference };
+      for (const edge of edges(axis, extent)) {
+        const ratio = (reference - center) / (edge - center);
+        if (!(ratio > 0) || !Number.isFinite(ratio)) continue;
+        const candidate = layer.size * ratio;
+        const distance = Math.abs(candidate - requested.size) / layer.size * Math.abs(edge - center) / tolerance[axis];
+        if (distance <= 1 && centeredResize(layer, candidate, bounds).size === candidate && (!best || distance < best.distance)) best = { candidate, distance, axis, reference };
+      }
     }
   }
   const result = best ? centeredResize(layer, best.candidate, bounds) : requested;
   const guides = [];
   for (const [axis, extent] of [['x', 'width'], ['y', 'height']]) {
-    const half = visualBounds[extent] / 2 * result.size / layer.size;
-    const center = visualBounds[axis] + visualBounds[extent] / 2;
+    const center = pivot(axis, extent), ratio = result.size / layer.size;
+    const scaled = edges(axis, extent).map(edge => center + (edge - center) * ratio);
     for (const reference of new Set([0, 100, area[axis], area[axis] + area[extent]])) {
-      if (Math.min(Math.abs(center - half - reference), Math.abs(center + half - reference)) < 1e-5) guides.push({ axis, value: reference });
+      if (scaled.some(edge => Math.abs(edge - reference) < 1e-5)) guides.push({ axis, value: reference });
     }
   }
   return { ...result, guides };

@@ -10,7 +10,8 @@ import { dragOrientation, wrapDegrees } from '../src/orientation.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
 import { nudgeAmount } from '../src/editor/nudge.js';
-import { layerPosition, measureLayerBounds } from '../src/editor/layer-bounds.js';
+import { layerPosition, measureLayerBounds, visualRect } from '../src/editor/layer-bounds.js';
+import { modelCanvasGeometry, registerModelCanvas } from '../src/model-canvas.js';
 import { transformableLayers } from '../src/editor/selection.js';
 import { groupPositions, selectionBounds } from '../src/editor/arrange.js';
 
@@ -30,7 +31,7 @@ function editor() {
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
     gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
-    layerPosition, measureLayerBounds, transformableLayers, groupPositions, selectionBounds,
+    layerPosition, measureLayerBounds, visualRect, modelCanvasGeometry, transformableLayers, groupPositions, selectionBounds,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -248,6 +249,30 @@ test('Shift+Alt on a model resize handle still resizes from the center', () => {
   assert.equal(h.patches[0].tilt, undefined);
   assert.equal(h.patches[0].roll, undefined);
   h.unmount();
+});
+
+test('a model is picked, measured and snapped by its drawn silhouette, not its transparent canvas', () => {
+  const h = editor();
+  Object.assign(h.project.layers.find(l => l.id === 'headline'), { type: 'model', x: 20, y: 20, size: 40, tilt: 0, yaw: 0, roll: 0 });
+  Object.assign(h.node.style, { left: '20%', top: '20%' });
+  Object.assign(h.node, { offsetWidth: 400, offsetHeight: 400, focus() {} });
+  h.node.getBoundingClientRect = () => ({ left: 200, top: 200, right: 600, bottom: 600, width: 400, height: 400 });
+  // The silhouette fills the middle half of the canvas; geometry is a centered disc.
+  const unregister = registerModelCanvas(h.node, { bounds: () => ({ x: .25, y: .25, width: .5, height: .5 }), hitTest: (u, v) => Math.hypot(u - .5, v - .5) < .2 });
+  const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
+  assert.deepEqual(measureLayerBounds(frame, [h.project.layers.find(l => l.id === 'headline')]), [{ id: 'headline', x: 30, y: 30, width: 20, height: 20 }]);
+  const selected = [];
+  const { handlers } = h.render({ root: { current: frame }, onSelect: id => selected.push(id) });
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const at = (clientX, clientY) => ({ button: 0, pointerId: 1, clientX, clientY, target: { closest: () => null }, currentTarget: target, preventDefault() {} });
+  handlers.onPointerDown(at(320, 320));
+  assert.deepEqual(selected, [null], 'transparent model pixels pass the click through');
+  handlers.onPointerDown(at(400, 400));
+  handlers.onPointerMove(at(103, 400));
+  handlers.onPointerUp(at(103, 400));
+  assert.deepEqual(selected, [null, 'headline']);
+  assert.deepEqual(h.patches, [{ id: 'headline', x: -10, y: 20 }], 'the silhouette edge, not the canvas edge, snaps to the frame');
+  unregister(); h.unmount();
 });
 
 test('Alt-arrow rotates visual layers and respects locks', () => {
