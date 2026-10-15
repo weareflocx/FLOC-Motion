@@ -12,6 +12,11 @@
   cursor: move;
 }
 
+/* A model's selection frames its silhouette; its square canvas stays unmarked. */
+.stage canvas[id^="model-"].canvas-selected {
+  outline: none;
+}
+
 .stage [data-floc-layer]:focus-visible {
   outline: 1px solid #ffffffa6;
   outline-offset: 3px;

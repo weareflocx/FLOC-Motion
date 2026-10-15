@@ -276,6 +276,47 @@
   outline-offset: 2px;
 }
 
+.collapsible-section summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.collapsible-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-section summary::before {
+  content: "›";
+  font-size: 16px;
+  color: #d1d1d1;
+}
+
+.collapsible-section[open] summary {
+  margin-bottom: 8px;
+}
+
+.collapsible-section[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.collapsible-section summary h3 {
+  margin-bottom: 0;
+}
+
+.collapsible-section summary span {
+  margin-left: auto;
+  color: #aaa;
+  font-size: 10px;
+}
+
+.collapsible-section summary:focus-visible {
+  outline: 1px solid #aaa;
+  outline-offset: 2px;
+}
+
 .orientation-fields .field {
   grid-template-columns: 1fr 64px;
 }

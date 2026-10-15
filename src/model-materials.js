@@ -27,12 +27,99 @@ function fresnel(material) {
   material.customProgramCacheKey = () => 'floc-model-fresnel-v1';
   return uniforms;
 }
+// A smooth, tiling film-thickness field (green channel) so iridescent hues flow over
+// the surface instead of showing a single thickness. Deterministic: no random seed.
+export function filmThicknessMap(size = 128) {
+  const data = new Uint8Array(size * size * 4), turn = Math.PI * 2;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const u = x / size, v = y / size;
+    const value = .5 + .25 * Math.sin(turn * (2 * u + .5 * Math.sin(turn * 3 * v))) + .25 * Math.sin(turn * (3 * v + .5 * Math.sin(turn * 2 * u)));
+    const i = (y * size + x) * 4;
+    data[i + 1] = Math.round(value * 255); data[i + 3] = 255;
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter; texture.minFilter = THREE.LinearMipmapLinearFilter; texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+// Glass over layers: the tinted body covers glassOpacity of what lies below, Fresnel makes
+// edges more reflective and opaque, and reflections are added on top. The output is
+// premultiplied, with alpha raised to cover bright highlights, so the layer's 2D canvas
+// composites it over any background in preview and export alike.
+const OVERLAY_GLASS = `
+  float modelGlassF0 = pow((modelGlassIOR - 1.0) / (modelGlassIOR + 1.0), 2.0);
+  float modelGlassFresnel = modelGlassF0 + (1.0 - modelGlassF0) * pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 5.0);
+  // Clearcoat has already attenuated the diffuse term, so the remainder never goes negative.
+  vec3 modelGlassLight = max(outgoingLight - (1.0 - modelGlassBody) * totalDiffuse, vec3(0.0));
+  float modelGlassAlpha = modelGlassBody + (1.0 - modelGlassBody) * modelGlassFresnel;
+  modelGlassAlpha = clamp(max(modelGlassAlpha, max(modelGlassLight.r, max(modelGlassLight.g, modelGlassLight.b))), 0.0, 1.0);
+  gl_FragColor = vec4(modelGlassLight / max(modelGlassAlpha, 1e-4), modelGlassAlpha * diffuseColor.a);
+`;
+// Studio glass: view rays refract into the model and out again, then sample the model's
+// own reflection environment, one index per color channel for dispersion. The exit is
+// solved for a sphere through the entry point, which reads as a thick, image-inverting
+// lens on any convex shape. The result is opaque; reflections come from the lit surface.
+const STUDIO_GLASS_PARS = `
+uniform float modelGlassIOR;
+uniform float modelGlassBody;
+uniform float modelGlassDispersion;
+vec3 modelGlassEnvironment(vec3 viewDirection, float roughness) {
+  vec3 direction = transformDirectionByInverseViewMatrix(viewDirection, viewMatrix);
+  #if defined(USE_ENVMAP) && defined(ENVMAP_TYPE_CUBE_UV)
+    return textureCubeUV(envMap, envMapRotation * direction, roughness).rgb * envMapIntensity;
+  #else
+    // Without an environment a neutral horizon keeps the glass readable.
+    return mix(vec3(.03), vec3(.9), smoothstep(-.35, .85, direction.y));
+  #endif
+}
+vec3 modelGlassRefract(vec3 normal, vec3 viewDir, float eta, float roughness) {
+  vec3 inside = refract(-viewDir, normal, 1.0 / eta);
+  vec3 exitNormal = reflect(normal, inside);
+  vec3 outside = refract(inside, -exitNormal, eta);
+  if (dot(outside, outside) < 1e-6) outside = reflect(inside, -exitNormal);
+  return modelGlassEnvironment(normalize(outside), roughness);
+}
+void main() {`;
+const STUDIO_GLASS = `
+  float modelGlassF0 = pow((modelGlassIOR - 1.0) / (modelGlassIOR + 1.0), 2.0);
+  float modelGlassFresnel = modelGlassF0 + (1.0 - modelGlassF0) * pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 5.0);
+  float modelGlassSpread = .1 * modelGlassDispersion;
+  vec3 modelGlassThrough = vec3(
+    modelGlassRefract(geometryNormal, geometryViewDir, modelGlassIOR * (1.0 - modelGlassSpread), material.roughness).r,
+    modelGlassRefract(geometryNormal, geometryViewDir, modelGlassIOR, material.roughness).g,
+    modelGlassRefract(geometryNormal, geometryViewDir, modelGlassIOR * (1.0 + modelGlassSpread), material.roughness).b);
+  gl_FragColor = vec4(modelGlassThrough * diffuseColor.rgb * (1.0 - modelGlassFresnel) + totalSpecular + totalEmissiveRadiance, diffuseColor.a);
+  #ifdef OPAQUE
+    gl_FragColor.a = 1.0;
+  #endif
+`;
+function glass(material, shader) {
+  const uniforms = { modelGlassIOR: { value: 1.5 }, modelGlassBody: { value: .08 }, modelGlassDispersion: { value: 0 } };
+  material.onBeforeCompile = program => {
+    Object.assign(program.uniforms, uniforms);
+    program.fragmentShader = program.fragmentShader
+      .replace('void main() {', STUDIO_GLASS_PARS)
+      .replace('#include <opaque_fragment>', shader === 'glass' ? OVERLAY_GLASS : STUDIO_GLASS);
+  };
+  material.customProgramCacheKey = () => `floc-model-${shader}-v1`;
+  if (shader === 'glass') {
+    // Back faces render first, then front faces, so the far wall shows through the near one.
+    material.transparent = true; material.depthWrite = false; material.side = THREE.DoubleSide; material.premultipliedAlpha = true;
+  } else {
+    material.transparent = false; material.depthWrite = true; material.opacity = 1;
+  }
+  return uniforms;
+}
 export function createModelMaterials(model) {
   const bindings = [], variants = new Map(), owned = new Set(), tint = new THREE.Color();
-  let gradient, gradientSteps;
+  // Brushing and a varying film need a UV frame; materials on meshes without UVs skip them.
+  const withoutUv = new Set();
+  let gradient, gradientSteps, film;
   model.traverse(node => {
     if (!node.material) return;
     bindings.push({ node, source: node.material });
+    if (node.isMesh && !node.geometry.attributes.uv) for (const source of [node.material].flat()) withoutUv.add(source);
   });
   function ramp(steps) {
     if (!gradient) {
@@ -47,6 +134,10 @@ export function createModelMaterials(model) {
       gradientSteps = steps;
     }
     return gradient;
+  }
+  function filmThickness() {
+    if (!film) film = filmThicknessMap();
+    return film;
   }
   function variant(source, style, mesh) {
     const key = `${style.mode}/${mesh ? style.shader : 'standard'}`;
@@ -65,16 +156,21 @@ export function createModelMaterials(model) {
       }
     } else if (shader === 'wireframe') material = adapt(source, new THREE.MeshBasicMaterial(), preserve);
     else if (shader === 'toon') material = adapt(source, new THREE.MeshToonMaterial(), preserve);
+    else if (shader === 'glass' || shader === 'crystal') {
+      material = adapt(source, new THREE.MeshPhysicalMaterial(), preserve);
+      // Original and Tint keep the imported surface finish, which glass reflects and refracts.
+      if (preserve && source.isMeshStandardMaterial) for (const key of ['roughness', 'metalness', 'roughnessMap', 'metalnessMap']) material[key] = source[key];
+    }
     else if (!preserve) material = adapt(source, new THREE.MeshPhysicalMaterial(), false);
     else if (shader === 'fresnel' && !source.isMeshStandardMaterial) material = adapt(source, new THREE.MeshPhysicalMaterial(), true);
     else material = source.clone();
     if (shader === 'wireframe') material.wireframe = true;
-    value = { source, material, rim: shader === 'fresnel' ? fresnel(material) : null };
+    value = { source, material, rim: shader === 'fresnel' ? fresnel(material) : null, glass: shader === 'glass' || shader === 'crystal' ? glass(material, shader) : null };
     table.set(source, value); owned.add(material);
     return value;
   }
   function updateMaterial(value, style) {
-    const { source, material, rim } = value;
+    const { source, material, rim, glass } = value;
     if (material.color) {
       if (style.mode === 'replace') material.color.set(style.color);
       else { material.color.copy(source.color ?? tint.set('#ffffff')); if (style.mode === 'tint') material.color.multiply(tint.set(style.color)); }
@@ -84,6 +180,17 @@ export function createModelMaterials(model) {
         material.roughness = style.roughness; material.metalness = style.metalness;
         material.clearcoat = style.clearcoat; material.iridescence = style.iridescence;
       }
+      if (material.isMeshPhysicalMaterial) {
+        material.clearcoatRoughness = style.clearcoatRoughness;
+        material.sheen = style.sheen; material.sheenColor.set(style.sheenColor); material.sheenRoughness = style.sheenRoughness;
+        material.anisotropy = withoutUv.has(source) ? 0 : style.anisotropy;
+        material.anisotropyRotation = THREE.MathUtils.degToRad(style.anisotropyRotation);
+        material.iridescenceIOR = style.iridescenceIOR;
+        material.iridescenceThicknessRange[0] = style.iridescenceThicknessMin; material.iridescenceThicknessRange[1] = style.iridescenceThicknessMax;
+        // Without a thickness map three.js uses only the thickest film; a range varies it across the surface.
+        const thicknessMap = style.iridescence > 0 && style.iridescenceThicknessMin < style.iridescenceThicknessMax && !withoutUv.has(source) ? filmThickness() : null;
+        if (material.iridescenceThicknessMap !== thicknessMap) { material.iridescenceThicknessMap = thicknessMap; material.needsUpdate = true; }
+      }
       if (material.emissive) { material.emissive.set(style.emissive); material.emissiveIntensity = style.emissiveIntensity; }
     }
     if (material.isMeshToonMaterial) material.gradientMap = ramp(style.toonSteps);
@@ -91,6 +198,11 @@ export function createModelMaterials(model) {
       rim.modelRimColor.value.set(style.fresnelColor);
       rim.modelRimIntensity.value = style.fresnelIntensity;
       rim.modelRimPower.value = style.fresnelPower;
+    }
+    if (glass) {
+      glass.modelGlassIOR.value = style.ior;
+      glass.modelGlassBody.value = style.glassOpacity;
+      glass.modelGlassDispersion.value = style.dispersion;
     }
   }
   return {
@@ -105,6 +217,6 @@ export function createModelMaterials(model) {
         node.material = Array.isArray(source) ? source.map(assign) : assign(source);
       }
     },
-    dispose() { for (const material of owned) material.dispose(); owned.clear(); variants.clear(); gradient?.dispose(); }
+    dispose() { for (const material of owned) material.dispose(); owned.clear(); variants.clear(); gradient?.dispose(); film?.dispose(); }
   };
 }

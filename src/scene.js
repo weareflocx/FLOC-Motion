@@ -314,7 +314,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   try {
     await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontFamily(l.font)}"`)));
     await document.fonts.ready;
-    for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, width, width, { resources, renderMode, onError: onMediaError }));
+    for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, { compositionWidth: width, resources, renderMode, onError: onMediaError }));
     const sources = [...new Set((carousel ? p.images : []).map(img => img.src))];
     const results = await Promise.allSettled(sources.map(cardTexture));
     textures.push(...results.filter(result => result.status === 'fulfilled').map(result => result.value));
@@ -472,7 +472,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     placementBounds.clear();
     textStyles.clear();
   }
-  return { update, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); models.forEach(model => model.setResolution(w, w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
+  return { update, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); models.forEach(model => model.setCompositionWidth(w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
 }
 
 // The first engine also owns every non-carousel layer; each further carousel

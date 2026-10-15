@@ -15,13 +15,17 @@ test('shared model renderer produces real material, reflection, shader and deter
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { clone } from 'three/addons/utils/SkeletonUtils.js';
     import { createModelScene } from './model-scene.js';
+    import { modelCanvasGeometry } from './model-canvas.js';
     import { createResourceCache } from './scene-resources.js';
-    import { DEFAULT_MODEL_STYLE, MODEL_MATERIAL_PRESETS, applyModelPreset } from './model-style.js';
+    import { DEFAULT_MODEL_STYLE, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_PRESETS, applyLightingPreset, applyModelPreset } from './model-style.js';
     import { getModelMetadata } from './model-metadata.js';
+    const CLASSIC_LIGHTING = MODEL_LIGHTING_PRESETS.find(preset => preset.id === 'classic').settings;
+    // Every model shares one renderer, so captures are keyed by the layer being drawn.
     const captures = new Map();
+    let drawing;
     const beforeRender = THREE.Scene.prototype.onBeforeRender;
     THREE.Scene.prototype.onBeforeRender = function(renderer, scene, camera, ...rest) {
-      if (this.children.some(child => child.isHemisphereLight)) captures.set(renderer.domElement, { scene: this, renderer });
+      if (drawing && this.children.some(child => child.isHemisphereLight)) captures.set(drawing, { scene: this, renderer, camera });
       return beforeRender?.call(this, renderer, scene, camera, ...rest);
     };
     const disposal = { materials: [], textures: [], geometry: [], targets: [] };
@@ -38,20 +42,24 @@ test('shared model renderer produces real material, reflection, shader and deter
     }
     function difference(a, b) { let changed = 0, total = 0; for (let i = 0; i < a.length; i += 4) { let d = 0; for (let j = 0; j < 4; j++) d += Math.abs(a[i + j] - b[i + j]); if (d > 0) changed++; total += d; } return { changed, total }; }
     function opaque(p) { let count = 0; for (let i = 3; i < p.length; i += 4) if (p[i] > 127) count++; return count; }
-    function mesh(id) { let result; captures.get(canvas(id)).scene.traverse(node => { if (node.isMesh && !result) result = node; }); return result; }
+    function mesh(id) { let result; captures.get(id).scene.traverse(node => { if (node.isMesh && !result) result = node; }); return result; }
     async function fixture(unlit = false, options = {}) {
       const buffer = await createModelRenderingFixture({ unlit, ...options });
       const url = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' })); urls.push(url);
       return url;
     }
-    async function mount(id, src, modelStyle = undefined) {
+    // Material and motion checks use the pre-v11 camera, pre-v12 Euler motion and pre-v13 classic light; framing, axes and light are checked separately.
+    async function mount(id, src, modelStyle = undefined, { size = 100, compositionWidth = 192, framing = 'fixed' } = {}) {
       scenes.get(id)?.dispose();
-      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, tilt: 13, yaw: 22, roll: 0, modelStyle };
-      const instance = await createModelScene(canvas(id), layer, 192, 192, { resources, renderMode: true, onError: error => errors.push(error.message) });
-      layers.set(id, layer); scenes.set(id, instance); instance.draw(0); return instance;
+      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, size, tilt: 13, yaw: 22, roll: 0, modelStyle: { ...DEFAULT_MODEL_STYLE, ...CLASSIC_LIGHTING, motionSpace: 'euler', ...modelStyle, framing } };
+      const instance = await createModelScene(canvas(id), layer, { compositionWidth, resources, renderMode: true, onError: error => errors.push(error.message) });
+      layers.set(id, layer); scenes.set(id, instance); drawing = id; instance.draw(0); return instance;
     }
     function style(id, patch) { const layer = { ...layers.get(id), modelStyle: { ...DEFAULT_MODEL_STYLE, ...layers.get(id).modelStyle, ...patch } }; scenes.get(id).updateLayer(layer); layers.set(id, layer); }
-    function frame(id, time = 0, draft) { scenes.get(id).draw(time, draft); return pixels(id); }
+    function frame(id, time = 0, draft) { drawing = id; scenes.get(id).draw(time, draft); return pixels(id); }
+    // Opaque pixels on the outermost ring: geometry cropped by the layer edge.
+    function border(p, size) { let count = 0; for (let i = 0; i < size; i++) for (const [x, y] of [[i, 0], [i, size - 1], [0, i], [size - 1, i]]) if (p[(y * size + x) * 4 + 3] > 0) count++; return count; }
+    function opaqueBox(p, size) { let left = size, top = size, right = -1, bottom = -1; for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (p[(y * size + x) * 4 + 3] > 0) { left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y); } return { left, top, right: right + 1, bottom: bottom + 1 }; }
     async function legacy(src) {
       const renderer = new THREE.WebGLRenderer({ canvas: canvas('legacy'), alpha: true, antialias: true, preserveDrawingBuffer: true }); renderer.setSize(192, 192, false); renderer.outputColorSpace = THREE.SRGBColorSpace;
       const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(38, 1, .01, 100); camera.position.z = 4.5;
@@ -66,7 +74,7 @@ test('shared model renderer produces real material, reflection, shader and deter
         group.rotation.set(THREE.MathUtils.degToRad(13), THREE.MathUtils.degToRad(22) + (style.motion === 'spin' ? phase * Math.PI * 2 : 0), style.motion === 'rock' ? wave * style.motionAmplitude * Math.PI / 9 : 0);
         group.position.y = style.motion === 'float' ? wave * style.motionAmplitude * .2 : 0;
         group.scale.setScalar(style.motion === 'pulse' ? 1 + wave * style.motionAmplitude * .12 : 1);
-        renderer.render(scene, camera); return pixels('legacy');
+        drawing = undefined; renderer.render(scene, camera); return pixels('legacy');
       }, dispose() { mixer.stopAllAction(); scene.traverse(node => { node.geometry?.dispose(); node.material?.map?.dispose(); node.material?.dispose(); }); renderer.dispose(); renderer.forceContextLoss(); } };
     }
     window.exerciseModels = async () => {
@@ -91,14 +99,57 @@ test('shared model renderer produces real material, reflection, shader and deter
       result.presets = [];
       for (const preset of MODEL_MATERIAL_PRESETS.filter(item => item.id !== 'original')) {
         style('a', applyModelPreset(layers.get('a').modelStyle, preset.id));
-        result.presets.push({ id: preset.id, pixels: Array.from(frame('a', .4)), visible: opaque(frame('a', .4)) });
+        // Glass presets are translucent by design, so coverage counts any drawn pixel.
+        const pixels = frame('a', .4); let covered = 0; for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) covered++;
+        result.presets.push({ id: preset.id, pixels: Array.from(pixels), visible: covered });
       }
-      style('a', applyModelPreset(layers.get('a').modelStyle, 'chrome')); const studio = frame('a', .4);
-      const environment = captures.get(canvas('a')).scene.environment;
+      style('a', applyLightingPreset(applyModelPreset(layers.get('a').modelStyle, 'chrome'), 'classic-reflections')); const studio = frame('a', .4);
+      const environment = captures.get('a').scene.environment;
       style('a', { environmentRotation: 90 }); result.environmentRotation = difference(studio, frame('a', .4));
       style('a', { environmentIntensity: 0 }); result.environmentIntensity = difference(studio, frame('a', .4));
       style('a', { environment: 'none', ambientIntensity: 0, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0 }); const keyOnly = frame('a', .4);
       style('a', { fillIntensity: 3, rimIntensity: 2, lightRotation: 70 }); result.lightRig = difference(keyOnly, frame('a', .4));
+      // Tone mapping rolls bright light off instead of clipping it; exposure, every environment and light color change real pixels.
+      const white = p => { let count = 0; for (let i = 0; i < p.length; i += 4) if (p[i] >= 250 && p[i + 1] >= 250 && p[i + 2] >= 250 && p[i + 3] >= 250) count++; return count; };
+      style('a', { ...CLASSIC_LIGHTING, mode: 'replace', color: '#ffffff', roughness: .3, metalness: 0, clearcoat: .7, shader: 'standard' }); const clipped = frame('a', .4);
+      style('a', { toneMapping: 'neutral' }); const neutral = frame('a', .4);
+      style('a', { toneMapping: 'agx' }); const agx = frame('a', .4);
+      result.toneMapping = { clippedWhite: white(clipped), neutralWhite: white(neutral), agxWhite: white(agx), neutral: difference(clipped, neutral), agx: difference(neutral, agx) };
+      style('a', { toneMapping: 'neutral', exposure: 2 }); result.exposure = difference(neutral, frame('a', .4));
+      style('a', { exposure: 1, color: '#e0e0e0', roughness: .05, metalness: 1, clearcoat: 0 });
+      result.environments = ['studio', 'softbox', 'stage', 'sunset', 'neon'].map(environment => { style('a', { environment }); return { environment, pixels: frame('a', .4) }; });
+      result.environmentContrast = result.environments.slice(1).map((item, i) => difference(result.environments[i].pixels, item.pixels));
+      result.environments = result.environments.map(({ environment, pixels }) => ({ environment, visible: opaque(pixels) }));
+      style('a', { environment: 'none', metalness: 0, roughness: .5 }); const whiteKey = frame('a', .4);
+      style('a', { keyColor: '#ff0000' }); const redKey = frame('a', .4);
+      let redder = 0; for (let i = 0; i < redKey.length; i += 4) if (redKey[i + 3] > 250 && redKey[i] - redKey[i + 2] > whiteKey[i] - whiteKey[i + 2] + 20) redder++;
+      result.keyColor = { delta: difference(whiteKey, redKey), redder };
+      // Replacement-surface details each change real pixels under the Studio light.
+      const surfaceBase = { environment: 'softbox', toneMapping: 'neutral', keyColor: '#ffffff', mode: 'replace', shader: 'standard', color: '#c4c5c4', roughness: .3, metalness: 1, clearcoat: 0 };
+      style('a', surfaceBase); const unbrushed = frame('a', .4);
+      style('a', { anisotropy: .9 }); result.brushed = difference(unbrushed, frame('a', .4));
+      style('a', { anisotropy: 0, color: '#f2efe8', metalness: 0, clearcoat: 1, clearcoatRoughness: 0 }); const sharpCoat = frame('a', .4);
+      style('a', { clearcoatRoughness: .7 }); result.coatRoughness = difference(sharpCoat, frame('a', .4));
+      style('a', { clearcoat: 0, clearcoatRoughness: 0, color: '#5c0f2e', roughness: .85 }); const bare = frame('a', .4);
+      style('a', { sheen: 1, sheenColor: '#ff8fbd', sheenRoughness: .45 }); result.sheen = difference(bare, frame('a', .4));
+      style('a', { sheen: 0, color: '#9aa0aa', roughness: .05, metalness: 1, iridescence: 1 }); const film = frame('a', .4);
+      style('a', { iridescenceIOR: 1.5, iridescenceThicknessMin: 300, iridescenceThicknessMax: 600 }); const filmRange = frame('a', .4); result.film = difference(film, filmRange);
+      // A thickness range varies the film across the surface; equal bounds keep one thickness.
+      style('a', { iridescenceThicknessMin: 600 }); result.filmVaries = difference(frame('a', .4), filmRange);
+      style('a', { iridescence: 0, iridescenceIOR: 1.3, iridescenceThicknessMin: 400, iridescenceThicknessMax: 400 });
+      // Glass leaves most covered pixels translucent so layers below show through; a fuller
+      // body covers more. Studio glass is opaque, refracts the environment and disperses it.
+      const alphaStats = p => { let covered = 0, translucent = 0, sum = 0; for (let i = 3; i < p.length; i += 4) if (p[i] > 0) { covered++; sum += p[i]; if (p[i] < 200) translucent++; } return { covered, translucent, mean: sum / Math.max(1, covered) }; };
+      style('a', applyModelPreset(layers.get('a').modelStyle, 'clear-glass')); const clearGlass = frame('a', .4);
+      style('a', { glassOpacity: .6 }); result.glass = { clear: alphaStats(clearGlass), bodied: alphaStats(frame('a', .4)) };
+      style('a', applyModelPreset(layers.get('a').modelStyle, 'prism')); const prism = frame('a', .4);
+      style('a', { dispersion: 0 }); const unspread = frame('a', .4);
+      style('a', { environment: 'sunset' }); const sunsetPrism = frame('a', .4);
+      style('a', { environment: 'none' }); const fallbackPrism = frame('a', .4);
+      let fallbackLit = 0; for (let i = 0; i < fallbackPrism.length; i += 4) if (fallbackPrism[i + 3] > 0 && fallbackPrism[i] + fallbackPrism[i + 1] + fallbackPrism[i + 2] > 120) fallbackLit++;
+      result.crystal = { alpha: alphaStats(prism), dispersion: difference(prism, unspread), environment: difference(unspread, sunsetPrism), fallbackLit };
+      style('a', { environment: 'softbox', shader: 'standard' });
+      style('a', CLASSIC_LIGHTING);
       style('a', { mode: 'replace', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, shader: 'standard' }); const standard = frame('a', .4);
       result.shaders = [];
       for (const shader of ['toon', 'fresnel', 'wireframe']) {
@@ -156,22 +207,39 @@ test('shared model renderer produces real material, reflection, shader and deter
       result.actionHold = [.6, 1, 1.249, 1.25].map(time => difference(endpoint, frame('a', time)).total);
       const expectedQuarter = frame('a', 1.25, { tilt: 5, yaw: 35, roll: 7 });
       style('a', { motion: 'none' }); result.axisAdditivePose = difference(expectedQuarter, frame('a', 1.25, { tilt: 95, yaw: 35, roll: 7 })).total;
+      // A held quarter turn equals the static pose turned about the screen (premultiplied) or the model's own axis (postmultiplied).
+      const quarterPose = { tilt: 30, yaw: 20, roll: 10 };
+      const composed = (space, axis) => {
+        const pose = new THREE.Quaternion().setFromEuler(new THREE.Euler(...[30, 20, 10].map(THREE.MathUtils.degToRad), 'XYZ')), turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...axis), Math.PI / 2);
+        if (space === 'screen') pose.premultiply(turn); else pose.multiply(turn);
+        const euler = new THREE.Euler().setFromQuaternion(pose, 'XYZ');
+        return { tilt: THREE.MathUtils.radToDeg(euler.x), yaw: THREE.MathUtils.radToDeg(euler.y), roll: THREE.MathUtils.radToDeg(euler.z) };
+      };
+      result.spaces = []; const turned = {};
+      for (const motionSpace of ['screen', 'object']) for (const [motionAxis, axis] of [['x', [1, 0, 0]], ['y', [0, 1, 0]], ['z', [0, 0, 1]]]) {
+        style('a', { motion: 'spin', motionAxis, motionSpace });
+        const moving = turned[motionSpace + motionAxis] = frame('a', 1.25, quarterPose);
+        style('a', { motion: 'none' });
+        result.spaces.push({ motionSpace, motionAxis, delta: difference(moving, frame('a', 1.25, composed(motionSpace, axis))).total });
+      }
+      result.spaceContrast = ['x', 'y', 'z'].map(axis => difference(turned['screen' + axis], turned['object' + axis]));
+      style('a', { motionSpace: 'euler', motionAxis: 'x' });
       style('a', { motion: 'spin' });
       const linearAction = frame('a', .15);
       style('a', { motionTiming: { mode: 'steps', action: .5, pause: .75, curve: 'spring', intensity: 1 } }); result.actionCurve = difference(linearAction, frame('a', .15));
       const springEndpoint = frame('a', .5); result.springHold = difference(springEndpoint, frame('a', 1)).total;
       style('a', { motion: 'none', motionAxis: 'auto', motionDuration: 2, motionTiming: DEFAULT_MODEL_STYLE.motionTiming }); result.axisReset = difference(staticFrame, frame('a', .5)).total;
-      const stableRenderer = captures.get(canvas('a')).renderer, programCount = stableRenderer.info.programs.length, materialVersion = mesh('a').material.version;
+      const stableRenderer = captures.get('a').renderer, programCount = stableRenderer.info.programs.length, materialVersion = mesh('a').material.version;
       for (const time of [.2, 1.9, .2, 2.4, .6]) frame('a', time);
       result.stablePrograms = stableRenderer.info.programs.length === programCount && mesh('a').material.version === materialVersion;
       style('a', { motionAmplitude: 1 });
       style('a', { motion: 'float', motionSpeed: 1, animationClip: 1, animationSpeed: 1 }); frame('a', .75); const movingScale = mesh('a').scale.toArray();
       style('a', { motion: 'none' }); frame('a', .75); result.motionClipIndependent = JSON.stringify(movingScale) === JSON.stringify(mesh('a').scale.toArray());
-      style('a', { motion: 'float', animationClip: 0, animationSpeed: 3 }); frame('a', .75); const floatPose = captures.get(canvas('a')).scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup)).position.y;
-      style('a', { animationClip: 1, animationSpeed: .5 }); frame('a', .75); result.clipMotionIndependent = floatPose === captures.get(canvas('a')).scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup)).position.y;
+      style('a', { motion: 'float', animationClip: 0, animationSpeed: 3 }); frame('a', .75); const floatPose = captures.get('a').scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup)).position.y;
+      style('a', { animationClip: 1, animationSpeed: .5 }); frame('a', .75); result.clipMotionIndependent = floatPose === captures.get('a').scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup)).position.y;
       style('a', { motion: 'spin', motionAxis: 'z', animationClip: 1, animationSpeed: 1, motionTiming: { mode: 'steps', action: .5, pause: 1, curve: 'bounce', intensity: 1 } });
       const holdA = frame('a', .6), clipA = mesh('a').scale.toArray();
-      const automaticGroup = captures.get(canvas('a')).scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup));
+      const automaticGroup = captures.get('a').scene.children.find(child => child.isGroup && child.children.some(node => node.isGroup));
       const groupA = automaticGroup.rotation.toArray();
       const holdB = frame('a', 1.1), clipB = mesh('a').scale.toArray();
       result.clipDuringActionHold = difference(holdA, holdB);
@@ -182,15 +250,15 @@ test('shared model renderer produces real material, reflection, shader and deter
       try { style('a', { animationClip: 7 }); } catch (error) { result.invalidClip = error.message; }
       result.metadata = getModelMetadata(src);
       style('a', { animationClip: -1, motion: 'none', environment: 'studio', environmentIntensity: 1, mode: 'replace', shader: 'standard' }); const beforeRestore = frame('a', 0);
-      const gl = canvas('a').getContext('webgl2'), extension = gl.getExtension('WEBGL_lose_context');
+      const shared = captures.get('a').renderer, gl = shared.getContext(), extension = gl.getExtension('WEBGL_lose_context');
       if (!extension) throw new Error('Browser does not expose WEBGL_lose_context for recovery verification.');
-      const lost = new Promise(resolve => canvas('a').addEventListener('webglcontextlost', resolve, { once: true })); extension.loseContext(); await lost;
-      const restored = new Promise(resolve => canvas('a').addEventListener('webglcontextrestored', () => requestAnimationFrame(resolve), { once: true })); await new Promise(resolve => setTimeout(resolve, 100)); extension.restoreContext(); await restored;
+      const lost = new Promise(resolve => shared.domElement.addEventListener('webglcontextlost', resolve, { once: true })); extension.loseContext(); await lost;
+      const restored = new Promise(resolve => shared.domElement.addEventListener('webglcontextrestored', () => requestAnimationFrame(resolve), { once: true })); await new Promise(resolve => setTimeout(resolve, 100)); extension.restoreContext(); await restored;
       result.contextRestore = difference(beforeRestore, frame('a', 0)).total;
-      result.environmentRecovered = captures.get(canvas('a')).scene.environment !== environment;
+      result.environmentRecovered = captures.get('a').scene.environment !== environment;
       const held = resources.acquire('model\\n' + src, () => { throw new Error('Shared decoded source must not reload.'); }); const source = await held.value;
       let sourceMaterial; source.scene.traverse(node => { if (node.isMesh && !sourceMaterial) sourceMaterial = node.material; });
-      const ownedMaterial = mesh('a').material, targetTexture = captures.get(canvas('a')).scene.environment;
+      const ownedMaterial = mesh('a').material, targetTexture = captures.get('a').scene.environment;
       scenes.get('a').dispose(); scenes.delete('a');
       result.ownedDisposed = disposal.materials.includes(ownedMaterial.uuid) && disposal.targets.includes(targetTexture.uuid);
       result.sourceSurvives = !disposal.materials.includes(sourceMaterial.uuid) && !disposal.textures.includes(sourceMap.uuid);
@@ -206,6 +274,42 @@ test('shared model renderer produces real material, reflection, shader and deter
       style('colored', { mode: 'original' }); result.coloredRestoration = difference(coloredOriginal, frame('colored', .4)).total;
       await mount('unlit', unlitSrc); result.unlitMetadata = getModelMetadata(unlitSrc).unlit;
       const unlit = frame('unlit', .4); style('unlit', { shader: 'fresnel', fresnelIntensity: 2 }); result.unlitSurface = difference(unlit, frame('unlit', .4));
+      // Editor geometry: the reported silhouette contains the drawn pixels and hit-tests geometry only.
+      const posed = frame('unlit', .4), drawnBox = opaqueBox(posed, 192), geometry = modelCanvasGeometry(canvas('unlit')), bounds = geometry.bounds();
+      result.silhouette = { drawn: drawnBox, bounds: { left: bounds.x * 192, top: bounds.y * 192, right: (bounds.x + bounds.width) * 192, bottom: (bounds.y + bounds.height) * 192 } };
+      result.hitCenter = geometry.hitTest((drawnBox.left + drawnBox.right) / 384, (drawnBox.top + drawnBox.bottom) / 384);
+      result.hitCorner = geometry.hitTest(.01, .01);
+      // The canvas holds the largest keyframed size at the composition width, capped.
+      const sized = layers.get('unlit'), resolution = [canvas('unlit').width];
+      scenes.get('unlit').updateLayer({ ...sized, size: 50 }); resolution.push(canvas('unlit').width);
+      scenes.get('unlit').updateLayer({ ...sized, size: 50, choreography: [{ id: 'grow', time: 1, easing: 'linear', values: { size: 150 } }] }); resolution.push(canvas('unlit').width);
+      scenes.get('unlit').setCompositionWidth(4000); resolution.push(canvas('unlit').width);
+      result.resolution = resolution;
+      // A unit cube's diagonal reaches past the fixed camera; fit framing keeps every pose and motion inside.
+      const cubeSrc = await fixture(false, { cube: true }), diagonal = { tilt: 90, yaw: 45, roll: 0 };
+      await mount('fixedCube', cubeSrc); result.fixedCrop = border(frame('fixedCube', 0, diagonal), 192);
+      await mount('fitCube', cubeSrc, undefined, { framing: 'fit' }); result.fitCrop = 0;
+      for (const motion of ['none', 'spin', 'rock', 'float', 'pulse']) for (const motionAxis of ['x', 'y', 'z']) {
+        style('fitCube', { motion, motionAxis, motionDuration: 4, motionAmplitude: 1 });
+        for (const time of [0, .5, 1, 1.5, 2, 2.5, 3, 3.5]) for (const draft of [diagonal, { tilt: 35.26, yaw: 45, roll: 0 }, { tilt: 0, yaw: 0, roll: 45 }]) result.fitCrop = Math.max(result.fitCrop, border(frame('fitCube', time, draft), 192));
+      }
+      // Grow reaches 1.8× mid-clip, so its rest pose frames smaller than without the clip.
+      style('fitCube', { motion: 'none' }); const withClip = opaque(frame('fitCube', 0, { tilt: 20, yaw: 30, roll: 0 }));
+      style('fitCube', { animationClip: -1 }); result.clipEnvelope = [withClip, opaque(frame('fitCube', 0, { tilt: 20, yaw: 30, roll: 0 }))];
+      // Without the clip the cube fills its envelope; wider fields of view only distort depth.
+      const coverage = perspective => { style('fitCube', { perspective }); return opaque(frame('fitCube', 0, { tilt: 20, yaw: 30, roll: 0 })); };
+      result.perspectiveCoverage = [coverage(20), coverage(38), coverage(70)];
+      style('fitCube', { perspective: 38, zoom: 1.25 }); result.zoomCoverage = opaque(frame('fitCube', 0, { tilt: 20, yaw: 30, roll: 0 }));
+      // Brushing needs UVs: on a mesh without them it is ignored instead of drawing NaN tangents.
+      const flatSrc = await fixture(false, { cube: true, uv: false }), flatPose = { tilt: 25, yaw: 35, roll: 0 };
+      await mount('flatCube', flatSrc, { ...surfaceBase, animationClip: -1 }); const flatPlain = frame('flatCube', 0, flatPose);
+      style('flatCube', { anisotropy: .9 }); const flatBrushed = frame('flatCube', 0, flatPose);
+      result.unbrushedWithoutUv = { delta: difference(flatPlain, flatBrushed).total, visible: opaque(flatBrushed) };
+      // More models than the browser's live-context limit share one renderer and all stay visible.
+      const many = [];
+      for (let i = 0; i < 20; i++) { await mount('many-' + i, src, undefined, { compositionWidth: 96 }); many.push(opaque(frame('many-' + i, .4))); }
+      result.manyVisible = Math.min(...many); result.manyFirstAfter = opaque(frame('many-0', .4));
+      result.sharedRenderers = new Set(many.map((_, i) => captures.get('many-' + i).renderer)).size;
       for (const instance of scenes.values()) instance.dispose(); await Promise.resolve(); urls.forEach(url => URL.revokeObjectURL(url));
       result.errors = errors; result.resourcesReleased = resources.size === 0;
       return result;
@@ -258,4 +362,32 @@ test('shared model renderer produces real material, reflection, shader and deter
   assert.ok(result.uniformReplacementPixels > 1500, 'Replace produces an opaque chosen color instead of multiplying imported vertex colors/alpha');
   assert.equal(result.coloredRestoration, 0, 'Original restores imported vertex color and transparency');
   assert.equal(result.metadataReleased, true); assert.equal(result.resourcesReleased, true);
+  const { drawn, bounds } = result.silhouette;
+  assert.ok(bounds.left <= drawn.left + 1 && bounds.top <= drawn.top + 1 && bounds.right >= drawn.right - 1 && bounds.bottom >= drawn.bottom - 1, `silhouette bounds contain every drawn pixel: ${JSON.stringify(result.silhouette)}`);
+  assert.ok(bounds.right - bounds.left < 192 * .9 && (bounds.right - bounds.left) <= (drawn.right - drawn.left) * 1.5, `silhouette bounds stay close to the drawn model, not its canvas: ${JSON.stringify(result.silhouette)}`);
+  assert.equal(result.hitCenter, true); assert.equal(result.hitCorner, false, 'transparent canvas pixels do not hit the model');
+  assert.ok(result.toneMapping.clippedWhite > 300 && result.toneMapping.neutralWhite < result.toneMapping.clippedWhite * .5 && result.toneMapping.agxWhite < result.toneMapping.clippedWhite * .5, `tone mapping keeps highlights from clipping to flat white: ${JSON.stringify(result.toneMapping)}`);
+  visible(result.toneMapping.neutral, 'Neutral tone mapping'); visible(result.toneMapping.agx, 'AgX differs from Neutral'); visible(result.exposure, 'Exposure');
+  for (const environment of result.environments) assert.ok(environment.visible > 1000, `${environment.environment} reflects on metal`);
+  for (const contrast of result.environmentContrast) visible(contrast, 'Distinct environments');
+  visible(result.keyColor.delta, 'Key light color'); assert.ok(result.keyColor.redder > 300, `a red key light tints lit pixels: ${result.keyColor.redder}`);
+  visible(result.brushed, 'Brushed anisotropy'); visible(result.coatRoughness, 'Clearcoat roughness'); visible(result.sheen, 'Sheen'); visible(result.film, 'Iridescent film index and thickness'); visible(result.filmVaries, 'Film thickness range varying over the surface');
+  const { clear, bodied } = result.glass;
+  assert.ok(clear.covered > 1000 && clear.translucent > clear.covered * .5, `clear glass lets the layers below show through most of the model: ${JSON.stringify(clear)}`);
+  assert.ok(bodied.mean > clear.mean + 40, `a fuller glass body covers more of the layers below: ${clear.mean} → ${bodied.mean}`);
+  assert.ok(result.crystal.alpha.covered > 1000 && result.crystal.alpha.translucent < result.crystal.alpha.covered * .15, `studio glass is opaque: ${JSON.stringify(result.crystal.alpha)}`);
+  visible(result.crystal.dispersion, 'Crystal dispersion'); visible(result.crystal.environment, 'Crystal refracting its environment');
+  assert.ok(result.crystal.fallbackLit > 500, `studio glass without an environment still shows a neutral horizon: ${result.crystal.fallbackLit}`);
+  assert.deepEqual(result.unbrushedWithoutUv.delta, 0, 'brushing is ignored on meshes without UVs'); assert.ok(result.unbrushedWithoutUv.visible > 1000);
+  assert.deepEqual(result.resolution, [192, 96, 288, 4096], 'canvas follows layer size, keyframed size and composition width, capped');
+  assert.ok(result.fixedCrop > 0, 'fixed framing crops a rotated cube diagonal, as before');
+  assert.equal(result.fitCrop, 0, 'fit framing keeps every rotation and automatic motion inside the layer');
+  const [narrow, normal, wide] = result.perspectiveCoverage;
+  assert.ok(Math.max(narrow, normal, wide) / Math.min(narrow, normal, wide) < 1.35, `perspective changes distortion, not framed size: ${result.perspectiveCoverage}`);
+  assert.ok(result.zoomCoverage > normal * 1.4 && result.zoomCoverage < 192 * 192, `zoom 125% magnifies the framed model by about 1.56× in area: ${result.zoomCoverage} vs ${normal}`);
+  assert.ok(result.clipEnvelope[0] < result.clipEnvelope[1] * .5, `fit framing reserves room for the embedded clip: ${result.clipEnvelope}`);
+  assert.ok(result.manyVisible > 500 && result.manyFirstAfter > 500, `twenty models stay visible together: ${result.manyVisible}, ${result.manyFirstAfter}`);
+  for (const space of result.spaces) assert.ok(space.delta < 20, `${space.motionSpace} ${space.motionAxis} spin turns about the ${space.motionSpace === 'screen' ? 'view' : 'model'} axis: ${space.delta}`);
+  for (const contrast of result.spaceContrast) visible(contrast, 'Screen and Object axes on a posed model');
+  assert.equal(result.sharedRenderers, 1);
 });

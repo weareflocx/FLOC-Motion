@@ -6,11 +6,13 @@ import { transform } from 'esbuild';
 import { demoProject, FORMATS } from '../src/project.js';
 import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../src/editor-controls.js';
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../src/layout.js';
-import { dragOrientation, wrapDegrees } from '../src/orientation.js';
+import { dragModelOrientation, dragOrientation, wrapDegrees } from '../src/orientation.js';
+import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
 import { nudgeAmount } from '../src/editor/nudge.js';
-import { layerPosition, measureLayerBounds } from '../src/editor/layer-bounds.js';
+import { layerPosition, measureLayerBounds, visualRect } from '../src/editor/layer-bounds.js';
+import { modelCanvasGeometry, registerModelCanvas } from '../src/model-canvas.js';
 import { transformableLayers } from '../src/editor/selection.js';
 import { groupPositions, selectionBounds } from '../src/editor/arrange.js';
 
@@ -29,8 +31,8 @@ function editor() {
     removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
-    gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
-    layerPosition, measureLayerBounds, transformableLayers, groupPositions, selectionBounds,
+    gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragModelOrientation, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
+    layerPosition, measureLayerBounds, visualRect, modelCanvasGeometry, transformableLayers, groupPositions, selectionBounds,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -182,20 +184,39 @@ test('rotation handle previews one text edit, commits on release and cancels wit
   }
 });
 
-test('Shift-drag orients carousel and model X/Y without moving them', () => {
+// Equal orientations, whichever Euler angles express them.
+const orientation = ({ tilt, yaw, roll }) => new Quaternion().setFromEuler(new Euler(...[tilt, yaw, roll].map(MathUtils.degToRad), 'XYZ'));
+const screenTurn = (axis, degrees) => new Quaternion().setFromAxisAngle(new Vector3(...axis), MathUtils.degToRad(degrees));
+const sameOrientation = (a, b) => Math.abs(Math.abs(orientation(a).dot(b)) - 1) < 1e-9;
+
+test('a model turned past 90° keeps the Euler angles nearest its start for keyframe interpolation', () => {
+  const turned = dragModelOrientation({ tilt: 0, yaw: 0, roll: 0 }, 120 / 180, 0);
+  assert.deepEqual([turned.tilt, turned.yaw, turned.roll].map(value => Math.round(value * 1e6) / 1e6 + 0), [0, 120, 0]);
+  const further = dragModelOrientation({ tilt: 10, yaw: 120, roll: 5 }, 30 / 180, 0);
+  assert.ok(sameOrientation(further, orientation({ tilt: 10, yaw: 120, roll: 5 }).premultiply(screenTurn([0, 1, 0], 30))));
+  assert.ok(Math.abs(further.tilt - 10) < 90 && Math.abs(further.roll - 5) < 90, JSON.stringify(further));
+});
+
+test('Shift-drag orients carousels by angle and models about the screen axes, without moving them', () => {
   for (const type of ['carousel', 'model']) for (const cancelled of [false, true]) {
     const h = editor();
-    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: type === 'model' ? 100 : 10, yaw: 170, roll: 20 });
+    const initial = { tilt: type === 'model' ? 100 : 10, yaw: 170, roll: 20 };
+    Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, ...initial });
     h.node.focus = () => {};
     const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
     const event = { button: 0, pointerId: 1, clientX: 500, clientY: 500, shiftKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
     const { handlers } = h.render({ engine: { current: { hitTest: () => true } } });
     handlers.onPointerDown(event);
     handlers.onPointerMove({ ...event, clientX: 600, clientY: 600 });
-    assert.equal(h.previews.at(-1).tilt, type === 'model' ? 118 : 28);
-    assert.equal(h.previews.at(-1).yaw, -172);
-    assert.equal(h.previews.at(-1).roll, 20);
-    assert.equal(h.previews.at(-1).x, undefined);
+    if (type === 'carousel') {
+      assert.equal(h.previews.at(-1).tilt, 28);
+      assert.equal(h.previews.at(-1).yaw, -172);
+      assert.equal(h.previews.at(-1).roll, 20);
+    } else {
+      // A drag of 10% of the frame turns 18° about the screen's vertical and horizontal axes.
+      const expected = orientation(initial).premultiply(screenTurn([1, 0, 0], 18)).premultiply(screenTurn([0, 1, 0], 18));
+      assert.ok(sameOrientation(h.previews.at(-1), expected), JSON.stringify(h.previews.at(-1)));
+    }
     if (cancelled) handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
     handlers.onPointerUp(event);
     assert.equal(h.patches.length, cancelled ? 0 : 1);
@@ -203,7 +224,7 @@ test('Shift-drag orients carousel and model X/Y without moving them', () => {
   }
 });
 
-test('Shift+Alt-drag rotates only Z across spatial and flat layers', () => {
+test('Shift+Alt-drag rotates only Z across spatial and flat layers; models roll about the view direction', () => {
   for (const type of ['carousel', 'model', 'text', 'logo', 'media']) {
     const h = editor();
     Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: 10, yaw: 20, roll: 170 });
@@ -215,12 +236,14 @@ test('Shift+Alt-drag rotates only Z across spatial and flat layers', () => {
     handlers.onPointerMove({ ...event, clientX: 600, clientY: 650 });
     handlers.onPointerUp(event);
     assert.equal(h.patches.length, 1, type);
-    assert.equal(h.patches[0].roll, -172, type);
+    if (type !== 'model') assert.equal(h.patches[0].roll, -172, type);
     assert.equal(h.patches[0].x, undefined, type);
     assert.equal(h.patches[0].size, undefined, type);
-    if (['carousel', 'model'].includes(type)) {
+    if (type === 'carousel') {
       assert.equal(h.patches[0].tilt, 10);
       assert.equal(h.patches[0].yaw, 20);
+    } else if (type === 'model') {
+      assert.ok(sameOrientation(h.patches[0], orientation({ tilt: 10, yaw: 20, roll: 170 }).premultiply(screenTurn([0, 0, 1], 18))), JSON.stringify(h.patches[0]));
     } else {
       assert.equal(h.patches[0].tilt, undefined);
       assert.equal(h.patches[0].yaw, undefined);
@@ -248,6 +271,30 @@ test('Shift+Alt on a model resize handle still resizes from the center', () => {
   assert.equal(h.patches[0].tilt, undefined);
   assert.equal(h.patches[0].roll, undefined);
   h.unmount();
+});
+
+test('a model is picked, measured and snapped by its drawn silhouette, not its transparent canvas', () => {
+  const h = editor();
+  Object.assign(h.project.layers.find(l => l.id === 'headline'), { type: 'model', x: 20, y: 20, size: 40, tilt: 0, yaw: 0, roll: 0 });
+  Object.assign(h.node.style, { left: '20%', top: '20%' });
+  Object.assign(h.node, { offsetWidth: 400, offsetHeight: 400, focus() {} });
+  h.node.getBoundingClientRect = () => ({ left: 200, top: 200, right: 600, bottom: 600, width: 400, height: 400 });
+  // The silhouette fills the middle half of the canvas; geometry is a centered disc.
+  const unregister = registerModelCanvas(h.node, { bounds: () => ({ x: .25, y: .25, width: .5, height: .5 }), hitTest: (u, v) => Math.hypot(u - .5, v - .5) < .2 });
+  const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
+  assert.deepEqual(measureLayerBounds(frame, [h.project.layers.find(l => l.id === 'headline')]), [{ id: 'headline', x: 30, y: 30, width: 20, height: 20 }]);
+  const selected = [];
+  const { handlers } = h.render({ root: { current: frame }, onSelect: id => selected.push(id) });
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const at = (clientX, clientY) => ({ button: 0, pointerId: 1, clientX, clientY, target: { closest: () => null }, currentTarget: target, preventDefault() {} });
+  handlers.onPointerDown(at(320, 320));
+  assert.deepEqual(selected, [null], 'transparent model pixels pass the click through');
+  handlers.onPointerDown(at(400, 400));
+  handlers.onPointerMove(at(103, 400));
+  handlers.onPointerUp(at(103, 400));
+  assert.deepEqual(selected, [null, 'headline']);
+  assert.deepEqual(h.patches, [{ id: 'headline', x: -10, y: 20 }], 'the silhouette edge, not the canvas edge, snaps to the frame');
+  unregister(); h.unmount();
 });
 
 test('Alt-arrow rotates visual layers and respects locks', () => {

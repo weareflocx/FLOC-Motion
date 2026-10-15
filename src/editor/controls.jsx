@@ -59,8 +59,10 @@ export function NumberField({ label, ariaLabel = label, value, min, max, scale =
   return <Field label={label}><IntegerInput ariaLabel={ariaLabel} value={value} min={min} max={max} scale={scale} suffix={suffix} onChange={onChange}/></Field>;
 }
 
-export function Section({ title, children }) {
-  return <section className="property-section"><h3>{title}</h3>{children}</section>;
+// Collapsible sections keep their title and a short state summary visible.
+export function Section({ title, children, collapsible = false, defaultOpen = true, detail }) {
+  if (!collapsible) return <section className="property-section"><h3>{title}</h3>{children}</section>;
+  return <details className="property-section collapsible-section" open={defaultOpen}><summary><h3>{title}</h3>{detail && <span>{detail}</span>}</summary>{children}</details>;
 }
 
 export function IconButton({ label, children, ...props }) {

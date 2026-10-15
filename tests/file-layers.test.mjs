@@ -96,11 +96,14 @@ test('model settings reject malformed nested values, uninstalled shaders and rem
     { motionTiming: { [Symbol('curve')]: 'spring' } }, { motionTiming: new Date(0) }, { motionTiming: new Map() },
     { motionTiming: { action: 0 } }, { motionTiming: { pause: -1 } }, { motionTiming: { intensity: 2 } },
     { motionTiming: { curve: 'custom' } }, { motionTiming: JSON.parse('{"__proto__":{"curve":"back"}}') },
-    JSON.parse('{"__proto__":{"shader":"custom"}}')
+    JSON.parse('{"__proto__":{"shader":"custom"}}'),
+    { iridescenceThicknessMin: 500, iridescenceThicknessMax: 400 }
   ];
+  // Each film bound is checked with the other at its widest so the range stays ordered.
+  const companion = { iridescenceThicknessMin: { iridescenceThicknessMax: 1200 }, iridescenceThicknessMax: { iridescenceThicknessMin: 0 } };
   for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
     badStyles.push({ [key]: min - 0.01 }, { [key]: max + 0.01 }, { [key]: NaN }, { [key]: Infinity }, { [key]: '1' }, { [key]: null }, { [key]: {} });
-    for (const value of [min, max]) assert.equal(patchLayer(project, 'model', { modelStyle: { [key]: value } }).layers[0].modelStyle[key], value);
+    for (const value of [min, max]) assert.equal(patchLayer(project, 'model', { modelStyle: { ...companion[key], [key]: value } }).layers[0].modelStyle[key], value);
   }
   for (const modelStyle of badStyles) {
     assert.throws(() => patchLayer(project, 'model', { modelStyle }), /3D/);

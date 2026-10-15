@@ -138,8 +138,9 @@ test('failed exports persist their error so it survives a server restart', async
     project.images = [{ id: 'missing', name: 'Missing video', src: '/assets/12345678-1234-1234-1234-123456789abc.mp4' }];
     const job = await startExport(project);
     let persisted;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      // job.json is written as queued first; wait for the failure to be persisted.
+    // job.json is written as queued first; wait for the failure to be persisted. Preparing the
+    // composition can take several seconds when the whole suite runs, so allow up to 30 s.
+    for (let attempt = 0; attempt < 600; attempt++) {
       try { persisted = JSON.parse(await readFile(path.join(folder, 'renders', job.id, 'job.json'), 'utf8')); if (persisted.state === 'failed') break; } catch {}
       await new Promise(resolve => setTimeout(resolve, 50));
     }
