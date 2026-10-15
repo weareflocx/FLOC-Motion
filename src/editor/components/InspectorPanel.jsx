@@ -151,7 +151,7 @@ export function InspectorPanel({ project, layer, summary, settings, rightTab, up
   if (summary) return <SectionScope.Provider value="selection"><SelectionSummary {...summary}/></SectionScope.Provider>;
   if (!layer) return <aside className="right-panel panel"><SectionScope.Provider value="project"><ProjectControls {...settings}/></SectionScope.Provider></aside>;
   const tab = (id, label) => <button className={rightTab === id ? 'selected' : ''} aria-pressed={rightTab === id} onClick={() => onSetRightTab(id)}>{label}</button>;
-  return <aside className="right-panel panel"><SectionScope.Provider value={layer.type}>
+  return <aside className="right-panel panel"><SectionScope.Provider value={`${layer.type}:${rightTab === 'composition' ? 'design' : 'motion'}`}>
     <div className="tabs">{tab('composition', 'Design')}{tab('animation', 'Motion')}</div>
     <LayerHeader layer={layer} uploading={uploading} onPatch={onPatch} onPick={onPick}/>
     {layer.locked && <p className="helper layer-lock-notice">This layer is locked. Unlock it to edit.</p>}

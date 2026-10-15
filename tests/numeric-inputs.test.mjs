@@ -16,10 +16,10 @@ function control(props) {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     useState(initial) { const index = cursor++; if (!slots[index]) slots[index] = { value: initial }; return [slots[index].value, value => { slots[index].value = value; }]; },
     useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; }, useEffect() {},
-    createContext: value => ({ value }), useContext: context => context.value
+    createContext: value => ({ value }), useContext: context => context.value, useSyncExternalStore: (subscribe, snapshot) => snapshot()
   };
   vm.createContext(context);
-  vm.runInContext(compiled + '\nthis.input = IntegerInput; this.range = Range;', context);
+  vm.runInContext(compiled + '\nthis.input = IntegerInput; this.range = Range; this.field = NumberField;', context);
   const render = () => { cursor = 0; return context.input({ ariaLabel: 'Value', value: 8, min: -100, max: 100, ...props, onChange(value) { changes.push(value); props = { ...props, value }; } }); };
   const input = () => render().children.find(node => node?.type === 'input');
   const edit = value => input().props.onChange({ target: { value } });
@@ -52,6 +52,33 @@ test('decimals, out of range values and nonfinite text never reach the project',
   assert.deepEqual(h.changes, []);
   h.edit('125'); h.key('Enter');
   assert.deepEqual(h.changes, [125]);
+});
+
+test('a step finer than one display unit accepts that many decimals, with a comma or a point', () => {
+  const h = control({ value: 5, min: 0, max: 25, decimals: 1 });
+  for (const text of ['2.55', '25.5', '2.']) { h.edit(text); h.key('Enter'); assert.equal(h.input().props['aria-invalid'], true, text); }
+  h.edit('2.5'); h.key('Enter');
+  h.edit('7,5'); h.blur();
+  assert.deepEqual(h.changes, [2.5, 7.5]);
+  assert.equal(h.input().props.value, '7.5');
+  // NumberField derives the precision from its step; whole-unit steps such as 50 ms stay integers.
+  const decimals = props => h.context.field({ label: 'Field', value: 1, min: 0, max: 25, onChange() {}, ...props }).children[0].props.decimals;
+  assert.deepEqual([decimals({ step: .5 }), decimals({ step: .25 }), decimals({}), decimals({ step: .05, scale: 1000 }), decimals({ step: 1 / 24, scale: 1000 })], [1, 2, 0, 0, 0]);
+});
+
+test('inspector sections open one at a time per scope, start with the main one and remember the choice', () => {
+  let saved = '{"text:design":"Typography"}';
+  const { context } = control({});
+  context.localStorage = { getItem: () => saved, setItem: (key, value) => { saved = value; } };
+  const open = (title, defaultOpen = false) => context.Section({ title, defaultOpen, children: [] }).props.open;
+  const toggle = (title, value) => context.Section({ title, children: [] }).props.onToggle({ currentTarget: { open: value } });
+  assert.deepEqual([open('Cards', true), open('Size')], [true, false]);
+  toggle('Size', true);
+  assert.deepEqual([open('Cards', true), open('Size'), open('Gap')], [false, true, false]);
+  assert.deepEqual(JSON.parse(saved), { 'text:design': 'Typography', '': 'Size' }, 'other scopes keep their choice');
+  toggle('Size', false);
+  assert.deepEqual([open('Cards', true), open('Size')], [false, false], 'closing the open section leaves all folded');
+  assert.equal(JSON.parse(saved)[''], null);
 });
 
 test('integer milliseconds and percentages preserve precision until an intentional edit', () => {

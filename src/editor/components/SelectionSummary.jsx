@@ -16,7 +16,7 @@ export function SelectionSummary({ layers, canAlign, canDistribute, canDuplicate
       <ArrangeControls className="selection-arrange" target="selection" canAlign={canAlign} canDistribute={canDistribute} onArrange={onArrange}/>
       {!canDistribute && <p className="helper">Distribute needs three or more unlocked layers on the canvas.</p>}
     </Section>
-    <Section title="Selection" defaultOpen>
+    <Section title="Selection">
       <div className="selection-actions">
         <button type="button" className="outline-button" onClick={onToggleVisibility}>{show ? <Eye size={15}/> : <EyeSlash size={15}/>}{show ? 'Show all' : 'Hide all'}</button>
         <button type="button" className="outline-button" onClick={onToggleLock}>{lock ? <LockSimple size={15}/> : <LockSimpleOpen size={15}/>}{lock ? 'Lock all' : 'Unlock all'}</button>
