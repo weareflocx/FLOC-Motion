@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { PROJECT_LIMITS, assertLocksRespected, demoProject, patchLayer, validateProject } from '../src/project.js';
+import { webcrypto } from 'node:crypto';
+import { PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, patchLayer, validateProject } from '../src/project.js';
 import * as historyOps from '../src/editor/history.js';
 import * as selectionOps from '../src/editor/selection.js';
 
@@ -14,8 +15,8 @@ function editor({ blocked = false, selected = 'headline', selection, locked = fa
   const slots = []; let cursor = 0, listen = false;
   let playing = false, listener, cleanup, prevented = 0, api, palette = 0, selectAll = 0, notices = [];
   const context = {
-    PROJECT_LIMITS, assertLocksRespected, demoProject, patchLayer, validateProject, ...historyOps, ...selectionOps,
-    editorSession: () => ({ draftId: 'draft' }),
+    PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, patchLayer, validateProject, crypto: webcrypto, ...historyOps, ...selectionOps,
+    editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }),
     useCallback: fn => fn,
     useEffect(fn) { if (listen) cleanup = fn(); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
@@ -41,6 +42,8 @@ function editor({ blocked = false, selected = 'headline', selection, locked = fa
       setPlaying(next) { playing = typeof next === 'function' ? next(playing) : next; }
     });
   }
+  render();
+  api.importDraft(demoProject());
   render();
   if (locked) { api.patch('headline', { locked: true }); render(); }
   return {
