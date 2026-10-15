@@ -8,6 +8,8 @@ import { createAssetStorage } from '../server/asset-storage.mjs';
 import { createDraftStore } from '../server/draft-store.mjs';
 import { createTemplateStore } from '../server/template-store.mjs';
 import { demoProject } from '../src/project.js';
+import { DatabaseSync } from 'node:sqlite';
+import { closeDatabase, database, DATABASE_FILE, SCHEMA_VERSION } from '../server/database.mjs';
 
 const id = value => `${String(value).padStart(8, '0')}-1234-4234-8234-123456789012`;
 const asset = (value, ext = 'png') => `${id(value)}.${ext}`;
@@ -64,4 +66,39 @@ test('uploads reclaim eligible orphans at quota and reject when referenced data 
   const second = Readable.from([svg]); second.headers = { 'content-length': String(svg.length) };
   await assert.rejects(createAssetStorage({ data, quotaBytes: svg.length - 1, graceMs: 0, now: () => 1000 }).upload(second, { ext: 'svg', run() {}, convertGif() {} }), error => error.status === 507);
   assert.deepEqual(await readdir(assets), [`${uploaded.id}.svg`]);
+});
+
+test('the media library lists uploads newest first with their file names, usage and no GIF derivatives', async t => {
+  const data = await folder(t), assets = path.join(data, 'assets');
+  const photo = asset(1), gif = asset(2, 'gif'), track = asset(3, 'mp3');
+  for (const [index, name] of [photo, gif, asset(2, 'webm'), track].entries()) { await writeFile(path.join(assets, name), name); await age(path.join(assets, name), index * 1000); }
+  await createTemplateStore(data).create({ name: 'Saved', tags: [], project: using(photo) });
+  const storage = createAssetStorage({ data });
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1z"/></svg>');
+  const request = Readable.from([svg]); request.headers = { 'content-length': String(svg.length) };
+  const uploaded = await storage.upload(request, { ext: 'svg', name: 'Brand mark.svg', run() {}, convertGif() {} });
+  const library = await storage.library();
+  assert.deepEqual(library.map(item => [item.src, item.name, item.used]), [
+    [`/assets/${uploaded.id}.svg`, 'Brand mark.svg', false],
+    [`/assets/${track}`, `Audio ${id(3).slice(0, 8)}`, false],
+    [`/assets/${gif}`, `GIF ${id(2).slice(0, 8)}`, false],
+    [`/assets/${photo}`, `Image ${id(1).slice(0, 8)}`, true]
+  ]);
+  assert.equal(library[0].id, uploaded.id);
+  assert.equal(library[0].bytes, svg.length);
+});
+
+test('the media-name migration names earlier uploads from saved projects, preferring file names', async t => {
+  const data = await folder(t), card = asset(1), mark = asset(2, 'svg');
+  const project = using(card);
+  project.images[0].name = 'poster-final.png';
+  project.layers.push({ ...project.layers.find(layer => layer.type === 'logo'), id: 'mark', name: 'Studio mark', src: `/assets/${mark}` });
+  project.images.push({ id: 'mark-card', src: `/assets/${mark}`, name: 'mark.svg' });
+  await createTemplateStore(data).create({ name: 'Saved', tags: [], project });
+  const raw = new DatabaseSync(path.join(data, DATABASE_FILE));
+  raw.exec(`DROP TABLE asset_names; DELETE FROM schema_migrations WHERE version = ${SCHEMA_VERSION};`);
+  raw.close(); closeDatabase(data);
+  const names = Object.fromEntries(database(data).prepare('SELECT asset, name FROM asset_names').all().map(row => [row.asset, row.name]));
+  assert.equal(names[card], 'poster-final.png');
+  assert.equal(names[mark], 'mark.svg', 'a file-like card name wins over the layer name');
 });

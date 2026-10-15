@@ -60,7 +60,7 @@ const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace(
 test('the inspector edits the selected visual layer opacity, respects locks and excludes audio', () => {
   const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     useState: () => [false, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] }, PROJECT_LIMITS, SectionScope: { Provider: 'section-scope' } };
-  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'FontControls', 'TypographyControls', 'TextRevealControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'ModelControls', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls', 'ProjectControls', 'LayerHeader']) context[name] = function() {};
+  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'FontControls', 'TypographyControls', 'TextRevealControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'ModelControls', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls', 'ProjectControls', 'LayerHeader', 'CardList']) context[name] = function() {};
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.render = InspectorPanel;', context);
   // The inspector's own sub-components render inline; imported controls stay stubs.

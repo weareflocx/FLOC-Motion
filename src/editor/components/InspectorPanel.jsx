@@ -16,6 +16,7 @@ import { SelectionSummary } from './SelectionSummary.jsx';
 import { ModelControls } from './ModelControls.jsx';
 import { ProjectControls } from './ProjectControls.jsx';
 import { LayerHeader } from './LayerHeader.jsx';
+import { CardList } from './CardList.jsx';
 
 const CARD_RATIOS = [[9 / 16, '9:16'], [0.8, '4:5'], [1 / 1.14, '7:8'], [1, '1:1'], [4 / 3, '4:3'], [16 / 9, '16:9']];
 const FIT_OPTIONS = [['height', 'Each image · same height'], ['width', 'Each image · same width']];
@@ -37,12 +38,13 @@ function CardRatioField({ layer, onPatch }) {
   </select></Field>;
 }
 
-function CarouselDesign({ layer, images, uploading, onPatch, onPick, onSetLeftTab }) {
+function CarouselDesign({ layer, images, uploading, cards, onPatch, onPick }) {
   const segmented = (label, key, options) => <Field label={label}><div className="segmented" role="group" aria-label={label}>{options.map(([value, name]) => <button key={value} aria-pressed={layer[key] === value} className={layer[key] === value ? 'selected' : ''} onClick={() => onPatch(layer.id, { [key]: value })}>{name}</button>)}</div></Field>;
   const radial = ['circular', 'sphere', 'spinner', 'wheel'].includes(layer.template);
   return <>
     <Section title="Cards" defaultOpen detail={`${layer.cardCount || images.length} cards`}>
-      <button className="outline-button" disabled={uploading || images.length >= PROJECT_LIMITS.maxImages} onClick={() => onPick(`cards:${layer.id}`)}><Images size={18}/>Add photos</button>
+      <CardList layer={layer} images={images} onMove={(from, to) => cards.onMove(layer.id, from, to)} onRemove={index => cards.onRemove(layer.id, index)} onAddAsset={asset => cards.onAddAsset(asset, `cards:${layer.id}`)}/>
+      <button className="outline-button" disabled={uploading || images.length >= PROJECT_LIMITS.maxImages} onClick={() => onPick(`cards:${layer.id}`)}><Images size={18}/>Upload cards</button>
       <Field label="Motion variant"><select aria-label="Motion variant" value={layer.motionVariant} onChange={event => onPatch(layer.id, { motionVariant: event.target.value })}><option value="default">Default</option>{MOTION_VARIANTS[layer.template].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>
       <label className="check-field"><input type="checkbox" checked={layer.cardCount === 0} onChange={event => onPatch(layer.id, { cardCount: event.target.checked ? 0 : Math.max(1, images.length) })}/>Match media count</label>
       {layer.cardCount > 0 && <NumberField label="Card count" value={layer.cardCount} min={1} max={PROJECT_LIMITS.maxCardCount} onChange={value => onPatch(layer.id, { cardCount: value })}/>}
@@ -59,7 +61,6 @@ function CarouselDesign({ layer, images, uploading, onPatch, onPick, onSetLeftTa
       {segmented('Card shape', 'cardShape', [['rounded', 'Rounded'], ['squircle', 'Squircle']])}
       {segmented('Front face', 'frontface', [['show', 'Show'], ['hide', 'Hide']])}
       {segmented('Back face', 'backface', [['show', 'Show'], ['hide', 'Hide']])}
-      <button className="outline-button" onClick={() => onSetLeftTab('media')}><Images size={15}/>Edit photos</button>
     </Section>
     {radial && <Section title="Distribution" detail={layer.radius === 0 ? 'Auto radius' : `Radius ${Math.round(layer.radius * 100)}%`}>
       <label className="check-field"><input type="checkbox" checked={layer.radius === 0} onChange={event => onPatch(layer.id, { radius: event.target.checked ? 0 : 1 })}/>Auto radius</label>
@@ -89,9 +90,9 @@ function FlatTransform({ layer, onPatch, defaultOpen = false }) {
   </Section>;
 }
 
-function Design({ project, layer, images, uploading, onPatch, onPick, onSetLeftTab, onRemoveText }) {
+function Design({ project, layer, images, uploading, cards, onPatch, onPick, onRemoveText }) {
   return <>
-    {layer.type === 'carousel' && <CarouselDesign layer={layer} images={images} uploading={uploading} onPatch={onPatch} onPick={onPick} onSetLeftTab={onSetLeftTab}/>}
+    {layer.type === 'carousel' && <CarouselDesign layer={layer} images={images} uploading={uploading} cards={cards} onPatch={onPatch} onPick={onPick}/>}
     {layer.type === 'background' && <><BackgroundControls layer={layer} uploading={uploading} onPatch={onPatch} onPick={onPick}/><FlatTransform layer={layer} onPatch={onPatch}/></>}
     {layer.type === 'text' && <>
       <Section title="Content" defaultOpen>
@@ -139,7 +140,9 @@ function Motion({ layer, images, onPatch }) {
 // `summary` holds SelectionSummary props while two or more layers are selected; with no
 // selection the inspector edits the composition's output and layout (`settings`). A layer
 // shows a common header, then Design (how it looks) and Motion (how it changes over time).
-export function InspectorPanel({ project, layer, summary, settings, rightTab, uploading, onSetRightTab, onSetLeftTab, onPatch, onPick, onRemoveText }) {
+// `cards` edits a carousel's card list: onMove(layerId, from, to), onRemove(layerId, index)
+// and onAddAsset(asset, target) for library items dropped on it.
+export function InspectorPanel({ project, layer, summary, settings, rightTab, uploading, cards, onSetRightTab, onPatch, onPick, onRemoveText }) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const libraryButton = useRef(null);
   const images = carouselImages(project, layer?.type === 'carousel' ? layer : null);
@@ -155,7 +158,7 @@ export function InspectorPanel({ project, layer, summary, settings, rightTab, up
     <fieldset className="layer-properties" disabled={layer.locked} inert={layer.locked ? true : undefined}>
       {layer.type === 'carousel' && <div className="property-section"><button ref={libraryButton} className="library-launcher" onClick={() => setLibraryOpen(true)} aria-haspopup="dialog" aria-label="Change carousel"><span className="library-launcher-label"><Images size={20} aria-hidden="true"/><span><small>Template</small><strong>{currentTemplate?.name}</strong></span></span><span className="library-launcher-action">Change</span></button></div>}
       {rightTab === 'composition'
-        ? <Design project={project} layer={layer} images={images} uploading={uploading} onPatch={onPatch} onPick={onPick} onSetLeftTab={onSetLeftTab} onRemoveText={onRemoveText}/>
+        ? <Design project={project} layer={layer} images={images} uploading={uploading} cards={cards} onPatch={onPatch} onPick={onPick} onRemoveText={onRemoveText}/>
         : <Motion layer={layer} images={images} onPatch={onPatch}/>}
     </fieldset>
     {libraryOpen && !layer.locked && layer.type === 'carousel' && <PresetBrowser key={layer.id} layer={layer} onApply={patch => onPatch(layer.id, patch)} onClose={closeLibrary}/>}

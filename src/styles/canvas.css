@@ -143,12 +143,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.carousel-media-select {
-  font-size: 11px;
-  padding: 7px 9px;
-  margin-bottom: 4px;
-}
-
 .asset-list {
   display: flex;
   flex-direction: column;

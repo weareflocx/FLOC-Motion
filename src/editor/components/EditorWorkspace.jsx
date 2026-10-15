@@ -19,14 +19,15 @@ export function EditorWorkspace({ session, selection: { selected, selection, set
   return <div className="workspace">
     <LayerPanel project={project} selected={selected} selection={selection} leftTab={leftTab} uploading={files.uploading} onSelectLayer={selectLayer} onSetLeftTab={setLeftTab} onPatch={patch}
       onOpenAdd={() => dialogs.setAddTarget('layers')} onRemoveLayer={actions.removeText} onMoveLayer={actions.moveLayer} onDropLayer={actions.dropLayer} onDuplicateLayer={actions.copyLayer}
-      onReorderImage={actions.reorderImage} onRemoveImage={actions.removeImage}/>
+      onPlaceAsset={(asset, target) => files.placeAssets([asset], target)}/>
     <CanvasPanel nudge={nudge} onOpenNudge={dialogs.openNudge} selected={selected} selection={selection} onSelect={group.selectCanvasLayer} onToggle={group.toggleCanvasLayer} onPatch={editLayer} onMoveGroup={group.moveGroup}
       onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview}
-      clock={clock} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo} zoom={zoom} onZoom={setZoom}
+      clock={clock} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo} zoom={zoom} onZoom={setZoom} onDropAsset={(asset, point) => files.placeAssets([asset], 'layers', point)}
       arrange={{ canAlign: arrangeState.align, canDistribute: arrangeState.distribute, target: arrangeState.target }} onArrange={group.arrange}/>
     <InspectorPanel key={summary ? 'selection' : displayedLayer?.id ?? 'composition'} project={displayedProject} layer={displayedLayer} summary={summary} rightTab={rightTab} uploading={files.uploading}
       settings={{ project, onChangeProject: change, onChangeDuration: duration => change(resizeDuration(project, duration), { allow: ['timing'] }), onChangeFps: fps => change({ ...project, fps }) }}
-      onSetRightTab={setRightTab} onSetLeftTab={setLeftTab} onPatch={editLayer} onPick={target => dialogs.setAddTarget(target)} onRemoveText={actions.removeText}/>
+      cards={{ onMove: actions.moveImage, onRemove: actions.removeImage, onAddAsset: (asset, target) => files.placeAssets([asset], target) }}
+      onSetRightTab={setRightTab} onPatch={editLayer} onPick={target => dialogs.setAddTarget(target)} onRemoveText={actions.removeText}/>
     <TimelinePanel project={project} selected={selected} clock={clock} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen}
       onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
   </div>;

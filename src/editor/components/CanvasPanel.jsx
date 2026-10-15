@@ -24,7 +24,7 @@ function Timecode({ clock, fps, duration }) {
 }
 
 // `zoom` is owned by the app so commands can fit or reset the view.
-export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, clock, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, selection = selected == null ? [] : [selected], onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, zoom, onZoom, arrange, onArrange }) {
+export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, clock, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, selection = selected == null ? [] : [selected], onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom, onZoom, arrange, onArrange }) {
   const [panning, setPanning] = useState(false);
   const [viewport, setViewport] = useState({ scale: 1, canPan: false });
   const pendingEdit = useRef();
@@ -38,7 +38,7 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
   const selectedLayer = !multi && project.layers.find(layer => layer.id === selected && layer.visible && !layer.locked && time >= layer.start && time < layer.end && !['music', 'effect'].includes(layer.type));
   return <section className="center-panel">
     <div className="preview-wrap">
-      <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
+      <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} onDropAsset={onDropAsset && ((asset, point) => { pendingEdit.current?.(); onDropAsset(asset, point); })} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
       {ready && !panning && selectedLayer && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · Esc cancels</div>}
       {ready && !panning && multi && <div className="canvas-gesture-hint">{selection.length} layers · Drag any to move together · Shift-click toggles · Esc clears</div>}

@@ -79,7 +79,18 @@ const MIGRATIONS = [
   CREATE INDEX font_references_font ON font_references (font);
   ${fontTriggers('drafts', row => `'draft:' || ${row}.id`)}
   ${fontTriggers('templates', row => `'template:' || ${row}.id`)}
-  ${fontTriggers('composition_versions', row => `'version:' || ${row}.composition_id || ':' || ${row}.version`)}`
+  ${fontTriggers('composition_versions', row => `'version:' || ${row}.composition_id || ':' || ${row}.version`)}`,
+  // Media library names: the original file name of each upload. Earlier uploads take the name
+  // stored next to their source in a saved project, preferring file-like names ("photo.jpg")
+  // over layer names ("Studio mark"); files never saved in a project fall back to their kind.
+  `CREATE TABLE asset_names (asset TEXT PRIMARY KEY, name TEXT NOT NULL) WITHOUT ROWID;
+  INSERT OR IGNORE INTO asset_names (asset, name)
+    SELECT substr(source.value, 9), substr(trim(label.value), 1, 200)
+    FROM (SELECT project FROM drafts UNION ALL SELECT project FROM templates UNION ALL SELECT project FROM composition_versions) AS saved,
+      json_tree(saved.project) AS source, json_tree(saved.project) AS label
+    WHERE source.key = 'src' AND source.type = 'text' AND source.value GLOB '/assets/?*' AND substr(source.value, 9) NOT GLOB '*/*'
+      AND label.parent = source.parent AND label.key = 'name' AND label.type = 'text' AND trim(label.value) != ''
+    ORDER BY trim(label.value) GLOB '*.*' DESC;`
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

@@ -2,6 +2,7 @@ import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { acceptAssetUpload } from './asset-upload.mjs';
 import { database } from './database.mjs';
+import { fallbackAssetName } from '../src/media-library.js';
 
 export const ASSET_QUOTA_BYTES = 1.5e9;
 export const ORPHAN_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -62,9 +63,11 @@ export function createAssetStorage({ data, quotaBytes = ASSET_QUOTA_BYTES, grace
     const bytes = list => list.reduce((total, file) => total + file.bytes, 0);
     return { quotaBytes, graceMs, files: files.length, bytes: bytes(files), referencedFiles: referenced.length, referencedBytes: bytes(referenced), orphanFiles: orphaned.length, orphanBytes: bytes(orphaned), eligibleFiles: eligible.length, eligibleBytes: bytes(eligible), eligible };
   };
+  const remember = db.prepare('INSERT OR REPLACE INTO asset_names (asset, name) VALUES (?, ?)');
+  const forget = db.prepare('DELETE FROM asset_names WHERE asset = ?');
   async function cleanupInternal({ dryRun = true } = {}) {
     const snapshot = summarize(await inventory());
-    if (!dryRun) for (const file of snapshot.eligible) await rm(path.join(directory, file.name), { force: true });
+    if (!dryRun) for (const file of snapshot.eligible) { await rm(path.join(directory, file.name), { force: true }); forget.run(file.name); }
     return { ...snapshot, dryRun, removedFiles: dryRun ? 0 : snapshot.eligibleFiles, removedBytes: dryRun ? 0 : snapshot.eligibleBytes, eligible: undefined };
   }
   async function ensureCapacity(size) {
@@ -75,9 +78,25 @@ export function createAssetStorage({ data, quotaBytes = ASSET_QUOTA_BYTES, grace
     if (usage.bytes + size > quotaBytes) throw quotaError();
   }
   async function ensureUnderQuota() { const usage = summarize(await inventory()); if (usage.bytes > quotaBytes) throw quotaError(); }
+  // Every stored upload, newest first. GIF video derivatives stay behind their GIF. `used` means
+  // a draft, composition, version or render refers to it; unused files remain subject to cleanup.
+  async function library() {
+    const { files, references: refs } = await inventory();
+    const names = new Map(db.prepare('SELECT asset, name FROM asset_names').all().map(row => [row.asset, row.name]));
+    const stored = new Set(files.map(item => item.name));
+    return files.filter(item => !(item.name.endsWith('.webm') && stored.has(item.name.replace(/\.webm$/, '.gif'))))
+      .sort((a, b) => b.modifiedAt - a.modifiedAt || a.name.localeCompare(b.name))
+      .map(item => ({ id: item.name.slice(0, 36), src: `/assets/${item.name}`, name: names.get(item.name) ?? fallbackAssetName(item.name), bytes: item.bytes, createdAt: Math.round(item.modifiedAt), used: refs.has(item.name) }));
+  }
   return {
     usage: () => serial(async () => { const result = summarize(await inventory()); return { ...result, eligible: undefined }; }),
     cleanup: options => serial(() => cleanupInternal(options)),
-    upload: (req, options) => serial(() => acceptAssetUpload(req, { ...options, directory, beforePublish: ({ size }) => ensureCapacity(size), afterPublish: ensureUnderQuota }))
+    library,
+    // `name` is the uploaded file's own name, shown in the media library.
+    upload: (req, { name, ...options }) => serial(async () => {
+      const asset = await acceptAssetUpload(req, { ...options, directory, beforePublish: ({ size }) => ensureCapacity(size), afterPublish: ensureUnderQuota });
+      if (name) remember.run(`${asset.id}.${options.ext}`, name);
+      return asset;
+    })
   };
 }
