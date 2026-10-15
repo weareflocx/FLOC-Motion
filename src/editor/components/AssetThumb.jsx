@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Cube, MusicNotes } from '@phosphor-icons/react';
 import { cardVideoSource } from '../../card-media.js';
-import { assetKind } from '../../media-library.js';
+import { assetKind } from '../media-library.js';
 
 // Thumbnails load only once scrolled into view, so a large library does not fetch every file.
 function useInView() {

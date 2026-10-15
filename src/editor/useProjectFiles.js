@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { PROJECT_LIMITS, carouselImages } from '../project.js';
-import { assetLayer, cardFromAsset, sourcePatch } from '../media-library.js';
+import { assetLayer, cardFromAsset, sourcePatch } from './media-library.js';
 import { uploadAssets } from './upload-assets.js';
 import { parseProjectFile } from './project-import.js';
 
