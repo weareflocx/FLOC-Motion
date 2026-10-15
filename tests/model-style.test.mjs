@@ -34,7 +34,7 @@ test('material presets keep lighting, motion and embedded clip clocks; lighting 
   const chrome = applyModelPreset(original, 'chrome');
   assert.equal(chrome.mode, 'replace');
   assert.equal(chrome.metalness, 1);
-  assert.equal(chrome.environment, 'none');
+  assert.equal(chrome.environment, original.environment, 'material presets keep the environment');
   assert.equal(chrome.keyIntensity, 6);
   assert.equal(selectedModelPreset(chrome), 'chrome');
   assert.equal(selectedModelPreset({ ...chrome, color: '#ff0040' }), 'custom');
@@ -46,9 +46,12 @@ test('material presets keep lighting, motion and embedded clip clocks; lighting 
   for (const key of ['motionAxis', 'motionSteps', 'motionTiming']) assert.deepEqual(restored[key], original[key]);
   assert.equal(selectedLightingPreset(restored), 'custom');
   const studio = applyLightingPreset(restored, 'studio');
-  assert.deepEqual([studio.environment, studio.keyIntensity, studio.mode, studio.shader], ['studio', 3, 'original', 'standard']);
+  assert.deepEqual([studio.environment, studio.toneMapping, studio.keyIntensity, studio.mode, studio.shader], ['softbox', 'neutral', 1.6, 'original', 'standard']);
   assert.equal(selectedLightingPreset(studio), 'studio');
-  assert.equal(selectedLightingPreset(applyLightingPreset(studio, 'original')), 'original');
+  const classic = applyLightingPreset(studio, 'classic');
+  assert.deepEqual([classic.environment, classic.toneMapping, classic.keyIntensity, classic.keyColor], ['none', 'none', 3, '#ffffff']);
+  assert.equal(selectedLightingPreset(classic), 'classic');
+  for (const preset of ['stage', 'sunset', 'neon', 'classic-reflections']) assert.equal(selectedLightingPreset(applyLightingPreset(classic, preset)), preset);
   assert.throws(() => applyLightingPreset(studio, 'hdr'), /lighting preset/);
 });
 

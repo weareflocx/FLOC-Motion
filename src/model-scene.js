@@ -19,6 +19,7 @@ const CLIP_SAMPLES = 24;
 const SKINNED_SAMPLES = 20000;
 // Envelope radius per decoded source and clip (-1: none), shared by its instances.
 const reaches = new WeakMap();
+const TONE_MAPPINGS = { none: THREE.NoToneMapping, neutral: THREE.NeutralToneMapping, agx: THREE.AgXToneMapping };
 async function loadModel(src) {
   const manager = new THREE.LoadingManager();
   manager.setURLModifier(url => {
@@ -149,6 +150,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     materials.update(next);
     ambient.intensity = next.ambientIntensity;
     key.intensity = next.keyIntensity; fill.intensity = next.fillIntensity; rim.intensity = next.rimIntensity;
+    key.color.set(next.keyColor); fill.color.set(next.fillColor); rim.color.set(next.rimColor);
     rig.rotation.y = THREE.MathUtils.degToRad(next.lightRotation);
     if (!shared.lost) environment.update(next);
     style = next;
@@ -199,7 +201,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       if (renderMode) throw new Error('The graphics context was lost while rendering a 3D model.');
       return;
     }
-    shared.draw(scene, camera, canvas);
+    shared.draw(scene, camera, canvas, TONE_MAPPINGS[style.toneMapping], style.exposure);
   }
   // Canvas fractions covered by the drawn pose: projected local bounds of each
   // visible part, or the whole canvas when geometry reaches behind the camera.

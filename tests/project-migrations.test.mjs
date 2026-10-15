@@ -17,7 +17,7 @@ const fixture = async name => JSON.parse(await readFile(new URL(`./fixtures/proj
 // through every schema step. v7→v8 folds the retired carousel shader and finish
 // fields into the shared effect stack and turns Elastic into Edge stretch.
 // v8→v9 adds frozen legacy appearance; v9→v10 adds neutral shared motion controls; v10→v11 keeps the fixed camera;
-// v11→v12 keeps motion summed into the pose angles.
+// v11→v12 keeps motion summed into the pose angles; v12→v13 keeps untone-mapped white lights.
 const LEGACY = ['v1-legacy-text', 'v1-legacy-defaults', 'v1-linked-formats', 'v1-junk-duplicate-ids'];
 
 test('v8 models receive frozen source-material, lighting and animation defaults without changing other layers', () => {
@@ -35,7 +35,8 @@ test('v8 models receive frozen source-material, lighting and animation defaults 
     motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
     motionAxis: 'auto', motionSteps: 4, motionTiming: { mode: 'continuous', action: 1, pause: 0, curve: 'native', intensity: .5 },
     animationClip: 0, animationSpeed: 1,
-    framing: 'fixed', zoom: 1, perspective: 38, motionSpace: 'euler'
+    framing: 'fixed', zoom: 1, perspective: 38, motionSpace: 'euler',
+    toneMapping: 'none', exposure: 1, keyColor: '#ffffff', fillColor: '#ffffff', rimColor: '#ffffff'
   });
   const { modelStyle, ...unchanged } = model;
   assert.deepEqual(unchanged, source);
@@ -107,6 +108,21 @@ test('v11 models keep motion summed into the pose while new models use screen ax
   assert.deepEqual(migrateProject(migrated), migrated);
   for (const motionSpace of ['world', 'local', '', null]) {
     assert.throws(() => validateProject({ ...migrated, layers: [{ ...model, modelStyle: { ...migrated.layers[0].modelStyle, motionSpace } }] }), /3D/);
+  }
+});
+
+test('v12 models keep the classic light while new models start in the Studio preset', () => {
+  const model = fileLayer({ name: 'V12 model', src: '/assets/12345678-1234-1234-1234-123456789012.glb' }, 12, 'model');
+  assert.deepEqual([model.modelStyle.environment, model.modelStyle.toneMapping], ['softbox', 'neutral']);
+  for (const key of ['toneMapping', 'exposure', 'keyColor', 'fillColor', 'rimColor']) delete model.modelStyle[key];
+  Object.assign(model.modelStyle, { environment: 'studio', ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0 });
+  const input = { ...demoProject(), version: 12, layers: [model] }, before = structuredClone(input);
+  const migrated = migrateProject(input);
+  assert.deepEqual(migrated.layers[0].modelStyle, { ...before.layers[0].modelStyle, toneMapping: 'none', exposure: 1, keyColor: '#ffffff', fillColor: '#ffffff', rimColor: '#ffffff' });
+  assert.deepEqual(input, before);
+  assert.deepEqual(migrateProject(migrated), migrated);
+  for (const modelStyle of [{ toneMapping: 'aces' }, { exposure: 0 }, { exposure: 4.5 }, { keyColor: 'white' }, { environment: 'https://example.com/a.hdr' }, { environment: 'room' }]) {
+    assert.throws(() => validateProject({ ...migrated, layers: [{ ...model, modelStyle: { ...migrated.layers[0].modelStyle, ...modelStyle } }] }), /3D/);
   }
 });
 

@@ -1,11 +1,16 @@
 import { DEFAULT_MOTION, normalizeMotion, evaluateMotionClock } from './motion-timing.js';
 
+// New models start with the Studio lighting preset; migrations freeze older looks.
+const STUDIO_LIGHTING = Object.freeze({
+  environment: 'softbox', environmentIntensity: 1, environmentRotation: 0, toneMapping: 'neutral', exposure: 1,
+  ambientIntensity: .4, keyIntensity: 1.6, fillIntensity: .4, rimIntensity: 1.2, lightRotation: 0,
+  keyColor: '#ffffff', fillColor: '#dfe7ff', rimColor: '#ffffff'
+});
 export const DEFAULT_MODEL_STYLE = Object.freeze({
   mode: 'original', color: '#ffffff', roughness: .5, metalness: 0, clearcoat: 0, iridescence: 0,
   emissive: '#000000', emissiveIntensity: 0,
   shader: 'standard', toonSteps: 4, fresnelColor: '#ffffff', fresnelIntensity: .5, fresnelPower: 3,
-  environment: 'none', environmentIntensity: 1, environmentRotation: 0,
-  ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0,
+  ...STUDIO_LIGHTING,
   motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
   motionAxis: 'auto', motionSpace: 'screen', motionSteps: 4, motionTiming: DEFAULT_MOTION,
   animationClip: 0, animationSpeed: 1,
@@ -18,6 +23,11 @@ export const MODEL_MOTION_AXES = Object.freeze(['auto', 'x', 'y', 'z']);
 // Screen turns and moves about the view's axes; object about the model's own
 // posed axes; euler is the pre-v12 sum of motion and pose angles.
 export const MODEL_MOTION_SPACES = Object.freeze(['screen', 'object', 'euler']);
+// Generated reflection environments ('studio' is the pre-v13 room); see model-environment.js.
+export const MODEL_ENVIRONMENTS = Object.freeze(['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
+// none is the pre-v13 output: lighting clips at white instead of rolling off.
+export const MODEL_TONE_MAPPINGS = Object.freeze(['none', 'neutral', 'agx']);
+const MODEL_COLOR_KEYS = ['color', 'emissive', 'fresnelColor', 'keyColor', 'fillColor', 'rimColor'];
 // Fit keeps the whole motion envelope in the layer; fixed is the pre-v11 camera.
 export const MODEL_FRAMINGS = Object.freeze(['fit', 'fixed']);
 // Pulse scales by up to 12% and Float moves by up to 0.2 normalized units at full amplitude.
@@ -25,7 +35,7 @@ export const MODEL_PULSE_SCALE = .12, MODEL_FLOAT_OFFSET = .2;
 export const MODEL_STYLE_RANGES = Object.freeze({
   roughness: [0, 1], metalness: [0, 1], clearcoat: [0, 1], iridescence: [0, 1], emissiveIntensity: [0, 4],
   toonSteps: [2, 8], fresnelIntensity: [0, 2], fresnelPower: [1, 8],
-  environmentIntensity: [0, 4], environmentRotation: [-180, 180],
+  environmentIntensity: [0, 4], environmentRotation: [-180, 180], exposure: [.25, 4],
   ambientIntensity: [0, 6], keyIntensity: [0, 10], fillIntensity: [0, 10], rimIntensity: [0, 10], lightRotation: [-180, 180],
   motionDuration: [.25, 300], motionSpeed: [-4, 4], motionAmplitude: [0, 1], motionSteps: [1, 24], animationClip: [-1, 65535], animationSpeed: [0, 4],
   zoom: [.25, 4], perspective: [15, 75]
@@ -41,18 +51,27 @@ export const MODEL_MATERIAL_PRESETS = Object.freeze([
   { id: 'chrome', name: 'Chrome', settings: paint('#e5e5e5', .08, 1) },
   { id: 'iridescent', name: 'Iridescent', settings: paint('#7f91a7', .2, 1, 0, 1) }
 ]);
-const rig = Object.freeze({ environmentIntensity: 1, environmentRotation: 0, ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0 });
+const classic = Object.freeze({
+  environment: 'none', environmentIntensity: 1, environmentRotation: 0, toneMapping: 'none', exposure: 1,
+  ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0,
+  keyColor: '#ffffff', fillColor: '#ffffff', rimColor: '#ffffff'
+});
+// Each lighting preset sets every environment, tone and light key, nothing else.
 export const MODEL_LIGHTING_PRESETS = Object.freeze([
-  { id: 'original', name: 'Original', settings: Object.freeze({ ...rig, environment: 'none' }) },
-  { id: 'studio', name: 'Studio reflections', settings: Object.freeze({ ...rig, environment: 'studio' }) }
+  { id: 'studio', name: 'Studio', settings: STUDIO_LIGHTING },
+  { id: 'stage', name: 'Dark stage', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'stage', exposure: 1.1, ambientIntensity: .1, keyIntensity: 2.2, fillIntensity: 0, rimIntensity: 2.5, fillColor: '#ffffff' }) },
+  { id: 'sunset', name: 'Sunset', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'sunset', ambientIntensity: .2, keyIntensity: 1.5, fillIntensity: .4, rimIntensity: 1, keyColor: '#ffb070', fillColor: '#4060ff', rimColor: '#ff8040' }) },
+  { id: 'neon', name: 'Neon', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'neon', ambientIntensity: .05, keyIntensity: 0, fillIntensity: 1.5, rimIntensity: 1.5, fillColor: '#ff2d9a', rimColor: '#2dd5ff' }) },
+  { id: 'classic', name: 'Classic', settings: classic },
+  { id: 'classic-reflections', name: 'Classic reflections', settings: Object.freeze({ ...classic, environment: 'studio' }) }
 ]);
 export function normalizeModelStyle(input) {
   const prototype = input && typeof input === 'object' ? Object.getPrototypeOf(input) : null;
   const plain = prototype === null || (Object.getPrototypeOf(prototype) === null && Object.hasOwn(prototype, 'constructor') && typeof prototype.constructor === 'function' && Function.prototype.toString.call(prototype.constructor) === Function.prototype.toString.call(Object));
   if (input !== undefined && (!input || typeof input !== 'object' || Array.isArray(input) || !plain || Object.getOwnPropertySymbols(input).length || Object.keys(input).some(key => !Object.hasOwn(DEFAULT_MODEL_STYLE, key)))) throw new Error('Invalid 3D model settings.');
   const value = { ...DEFAULT_MODEL_STYLE, ...input };
-  if (!MODEL_MATERIAL_MODES.includes(value.mode) || !MODEL_SHADERS.includes(value.shader) || !MODEL_MOTIONS.includes(value.motion) || !MODEL_MOTION_AXES.includes(value.motionAxis) || !MODEL_MOTION_SPACES.includes(value.motionSpace) || !['none', 'studio'].includes(value.environment) || !MODEL_FRAMINGS.includes(value.framing)) throw new Error('Unknown 3D material, shader, environment, motion or framing.');
-  for (const key of ['color', 'emissive', 'fresnelColor']) if (typeof value[key] !== 'string' || !/^#[0-9a-f]{6}$/i.test(value[key])) throw new Error('Invalid 3D model color.');
+  if (!MODEL_MATERIAL_MODES.includes(value.mode) || !MODEL_SHADERS.includes(value.shader) || !MODEL_MOTIONS.includes(value.motion) || !MODEL_MOTION_AXES.includes(value.motionAxis) || !MODEL_MOTION_SPACES.includes(value.motionSpace) || !MODEL_ENVIRONMENTS.includes(value.environment) || !MODEL_TONE_MAPPINGS.includes(value.toneMapping) || !MODEL_FRAMINGS.includes(value.framing)) throw new Error('Unknown 3D material, shader, environment, tone mapping, motion or framing.');
+  for (const key of MODEL_COLOR_KEYS) if (typeof value[key] !== 'string' || !/^#[0-9a-f]{6}$/i.test(value[key])) throw new Error('Invalid 3D model color.');
   for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
     if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || value[key] < min || value[key] > max || (['toonSteps', 'motionSteps', 'animationClip'].includes(key) && !Number.isInteger(value[key]))) throw new Error(`Invalid 3D model ${key}.`);
   }

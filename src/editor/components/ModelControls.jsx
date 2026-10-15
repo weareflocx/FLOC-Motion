@@ -1,12 +1,14 @@
 import React, { useCallback, useSyncExternalStore } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
-import { MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
+import { MODEL_ENVIRONMENTS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
 import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.js';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
 import { ModelMotionControls } from './ModelMotionControls.jsx';
 
 const names = { original: 'Original', tint: 'Tint', replace: 'Replace', standard: 'Standard', toon: 'Toon', fresnel: 'Fresnel', wireframe: 'Wireframe' };
+const environmentNames = { none: 'None', studio: 'Classic room', softbox: 'Studio softboxes', stage: 'Dark stage', sunset: 'Sunset sky', neon: 'Neon tubes' };
+const toneNames = { none: 'None (classic)', neutral: 'Neutral', agx: 'AgX (soft)' };
 const serverMetadata = () => null;
 
 export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'composition' }) {
@@ -71,25 +73,31 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
         {range('fresnelPower', 'Fresnel power', { step: 1, scale: 1 })}
       </>}
       {metadata?.unlit && <p className="helper">This source includes unlit materials. Original or Tint with Standard preserves their unlit appearance; surface shaders may adapt them to a lit material.</p>}
-      {replacement && pbr && style.metalness >= .5 && style.environment === 'none' && <p className="helper">Metal reflects its surroundings. Choose Studio reflections in Lighting to see it.</p>}
+      {replacement && pbr && style.metalness >= .5 && style.environment === 'none' && <p className="helper">Metal reflects its surroundings. Choose a Lighting preset with an environment, such as Studio, to see it.</p>}
     </Section>
     <Section title="Lighting" collapsible defaultOpen={false} detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
       <Field label="Lighting preset"><select aria-label="Lighting preset" value={lighting} onChange={event => onPatch(layer.id, { modelStyle: applyLightingPreset(style, event.target.value) })}>
         <option value="custom" disabled>Custom</option>
         {MODEL_LIGHTING_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
       </select></Field>
-      <Field label="Reflection environment"><select aria-label="Reflection environment" value={style.environment} onChange={event => patchStyle({ environment: event.target.value })}><option value="none">None</option><option value="studio">Generated studio</option></select></Field>
+      <Field label="Reflection environment"><select aria-label="Reflection environment" value={style.environment} onChange={event => patchStyle({ environment: event.target.value })}>{MODEL_ENVIRONMENTS.map(id => <option key={id} value={id}>{environmentNames[id]}</option>)}</select></Field>
       <fieldset className="layer-properties" disabled={style.environment === 'none' || ['toon', 'wireframe'].includes(style.shader)}>
         {range('environmentIntensity', 'Environment intensity')}
         {range('environmentRotation', 'Environment rotation', { step: 1, scale: 1, suffix: '°' })}
       </fieldset>
-      <p className="helper">Studio reflections are generated locally, not ray-traced reflections between objects. Toon and Wireframe do not reflect the environment. Intensity uses percentages: 100% is a multiplier of 1.</p>
+      <p className="helper">Environments are generated locally, not ray-traced reflections between objects. Toon and Wireframe do not reflect the environment. Intensity uses percentages: 100% is a multiplier of 1.</p>
       {metadata?.unlit && !replacement && style.shader === 'standard' && <p className="helper">Unlit source surfaces do not respond to lights or environment reflections. Lit surfaces in the same model still respond.</p>}
+      <Field label="Tone mapping"><select aria-label="Tone mapping" value={style.toneMapping} onChange={event => patchStyle({ toneMapping: event.target.value })}>{MODEL_TONE_MAPPINGS.map(id => <option key={id} value={id}>{toneNames[id]}</option>)}</select></Field>
+      {range('exposure', 'Exposure')}
+      <p className="helper">Neutral and AgX roll bright light off smoothly instead of clipping it to flat white; AgX is softer and less saturated. None keeps the classic look.</p>
       <fieldset className="layer-properties" disabled={style.shader === 'wireframe'}>
         {range('ambientIntensity', 'Ambient intensity')}
         {range('keyIntensity', 'Key intensity')}
+        <Color label="Key color" value={style.keyColor} onChange={keyColor => patchStyle({ keyColor })}/>
         {range('fillIntensity', 'Fill intensity')}
+        <Color label="Fill color" value={style.fillColor} onChange={fillColor => patchStyle({ fillColor })}/>
         {range('rimIntensity', 'Rim intensity')}
+        <Color label="Rim color" value={style.rimColor} onChange={rimColor => patchStyle({ rimColor })}/>
         {range('lightRotation', 'Light rig rotation', { step: 1, scale: 1, suffix: '°' })}
       </fieldset>
     </Section>

@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 12;
+export const CURRENT_PROJECT_VERSION = 13;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -259,8 +259,24 @@ function v11ToV12(project) {
   return project;
 }
 
+// v12 models had no tone mapping and white lights; their environment and rig
+// defaults were the classic room-less setup. Frozen here.
+const V12_MODEL_LIGHTING = Object.freeze({
+  environment: 'none', environmentIntensity: 1, environmentRotation: 0, toneMapping: 'none', exposure: 1,
+  ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0,
+  keyColor: '#ffffff', fillColor: '#ffffff', rimColor: '#ffffff'
+});
+function v12ToV13(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'model') continue;
+    const style = layer.modelStyle;
+    if (style === undefined || (record(style) && [Object.prototype, null].includes(Object.getPrototypeOf(style)))) layer.modelStyle = { ...V12_MODEL_LIGHTING, ...style };
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

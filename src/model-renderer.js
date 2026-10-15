@@ -30,7 +30,8 @@ function createRenderer() {
     maxSide: Math.min(MAX_MODEL_RESOLUTION, renderer.capabilities.maxTextureSize),
     get lost() { return context.lost; },
     // Returns false while the context is lost; the target keeps its last frame.
-    draw(scene, camera, target) {
+    // Tone mapping is per model: programs are cached per mapping by three.js.
+    draw(scene, camera, target, toneMapping = THREE.NoToneMapping, exposure = 1) {
       const size = target.width;
       if (context.lost || !size) return false;
       // The shared buffer only grows, so models of different sizes alternate freely.
@@ -38,6 +39,7 @@ function createRenderer() {
       renderer.setViewport(0, 0, size, size);
       renderer.setScissor(0, 0, size, size);
       renderer.setScissorTest(true);
+      renderer.toneMapping = toneMapping; renderer.toneMappingExposure = exposure;
       try { renderer.render(scene, camera); } finally { renderer.setScissorTest(false); }
       const output = target.getContext('2d');
       if (!output) return false;

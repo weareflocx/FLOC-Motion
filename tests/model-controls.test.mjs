@@ -88,15 +88,16 @@ test('material presets change only the surface; lighting presets change only the
   h.change('Material preset', 'original');
   assert.equal(h.layer.modelStyle.mode, 'original');
   assert.equal(h.layer.modelStyle.fillIntensity, 5);
-  h.change('Lighting preset', 'original');
+  h.change('Lighting preset', 'classic');
   assert.equal(h.layer.modelStyle.environment, 'none');
+  assert.equal(h.layer.modelStyle.toneMapping, 'none');
   assert.equal(h.layer.modelStyle.fillIntensity, 0);
   assert.equal(h.layer.modelStyle.mode, 'original', 'lighting presets keep the surface');
-  assert.equal(h.find('Lighting preset').props.value, 'original');
+  assert.equal(h.find('Lighting preset').props.value, 'classic');
   h.change('Material preset', 'chrome');
   assert.ok(h.render().some(node => node.type === 'p' && h.text(node).includes('Metal reflects its surroundings')), 'metal without an environment explains how to see reflections');
   h.change('Lighting preset', 'studio');
-  assert.equal(h.layer.modelStyle.environment, 'studio');
+  assert.deepEqual([h.layer.modelStyle.environment, h.layer.modelStyle.toneMapping], ['softbox', 'neutral']);
   assert.equal(h.layer.modelStyle.metalness, 1);
   assert.ok(!h.render().some(node => node.type === 'p' && h.text(node).includes('Metal reflects its surroundings')));
   assert.equal(h.layer.modelStyle.animationSpeed, .5);
@@ -165,9 +166,10 @@ test('automatic motion and embedded playback dependencies remain independent', (
 });
 
 test('environment controls preserve reflection settings while incompatible shaders disable them', () => {
-  const h = inspector();
+  const h = inspector({ modelStyle: { environment: 'none' } });
   assert.equal(h.find('Environment intensity').blocked, true);
-  h.change('Reflection environment', 'studio');
+  assert.deepEqual(h.find('Reflection environment').children.flat().map(option => option.props.value), ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
+  h.change('Reflection environment', 'sunset');
   h.change('Environment intensity', 1.7);
   h.change('Environment rotation', -35);
   h.change('Surface shader', 'toon');

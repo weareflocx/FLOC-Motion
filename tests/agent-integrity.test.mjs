@@ -54,7 +54,8 @@ test('agent discovers installed model controls and saves canonical validated edi
   assert.deepEqual(discovery.model.defaults, DEFAULT_MODEL_STYLE);
   assert.deepEqual(discovery.model.materialPresets.map(preset => preset.id), ['original', 'matte', 'plastic', 'satin', 'chrome', 'iridescent']);
   assert.deepEqual(discovery.model.shaders, ['standard', 'toon', 'fresnel', 'wireframe']);
-  assert.deepEqual(discovery.model.environments, ['none', 'studio']);
+  assert.deepEqual(discovery.model.environments, ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
+  assert.deepEqual(discovery.model.toneMappings, ['none', 'neutral', 'agx']);
   assert.deepEqual(discovery.model.motions, ['none', 'spin', 'rock', 'float', 'pulse']);
   assert.deepEqual(discovery.model.motionAxes, ['auto', 'x', 'y', 'z']);
   assert.deepEqual(discovery.model.motionTiming.defaults, DEFAULT_MODEL_STYLE.motionTiming);

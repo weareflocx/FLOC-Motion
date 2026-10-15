@@ -17,8 +17,9 @@ test('shared model renderer produces real material, reflection, shader and deter
     import { createModelScene } from './model-scene.js';
     import { modelCanvasGeometry } from './model-canvas.js';
     import { createResourceCache } from './scene-resources.js';
-    import { DEFAULT_MODEL_STYLE, MODEL_MATERIAL_PRESETS, applyLightingPreset, applyModelPreset } from './model-style.js';
+    import { DEFAULT_MODEL_STYLE, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_PRESETS, applyLightingPreset, applyModelPreset } from './model-style.js';
     import { getModelMetadata } from './model-metadata.js';
+    const CLASSIC_LIGHTING = MODEL_LIGHTING_PRESETS.find(preset => preset.id === 'classic').settings;
     // Every model shares one renderer, so captures are keyed by the layer being drawn.
     const captures = new Map();
     let drawing;
@@ -47,10 +48,10 @@ test('shared model renderer produces real material, reflection, shader and deter
       const url = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' })); urls.push(url);
       return url;
     }
-    // Material and motion checks use the pre-v11 camera and pre-v12 Euler motion; framing and axis spaces are checked separately.
+    // Material and motion checks use the pre-v11 camera, pre-v12 Euler motion and pre-v13 classic light; framing, axes and light are checked separately.
     async function mount(id, src, modelStyle = undefined, { size = 100, compositionWidth = 192, framing = 'fixed' } = {}) {
       scenes.get(id)?.dispose();
-      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, size, tilt: 13, yaw: 22, roll: 0, modelStyle: { ...DEFAULT_MODEL_STYLE, motionSpace: 'euler', ...modelStyle, framing } };
+      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, size, tilt: 13, yaw: 22, roll: 0, modelStyle: { ...DEFAULT_MODEL_STYLE, ...CLASSIC_LIGHTING, motionSpace: 'euler', ...modelStyle, framing } };
       const instance = await createModelScene(canvas(id), layer, { compositionWidth, resources, renderMode: true, onError: error => errors.push(error.message) });
       layers.set(id, layer); scenes.set(id, instance); drawing = id; instance.draw(0); return instance;
     }
@@ -100,12 +101,28 @@ test('shared model renderer produces real material, reflection, shader and deter
         style('a', applyModelPreset(layers.get('a').modelStyle, preset.id));
         result.presets.push({ id: preset.id, pixels: Array.from(frame('a', .4)), visible: opaque(frame('a', .4)) });
       }
-      style('a', applyLightingPreset(applyModelPreset(layers.get('a').modelStyle, 'chrome'), 'studio')); const studio = frame('a', .4);
+      style('a', applyLightingPreset(applyModelPreset(layers.get('a').modelStyle, 'chrome'), 'classic-reflections')); const studio = frame('a', .4);
       const environment = captures.get('a').scene.environment;
       style('a', { environmentRotation: 90 }); result.environmentRotation = difference(studio, frame('a', .4));
       style('a', { environmentIntensity: 0 }); result.environmentIntensity = difference(studio, frame('a', .4));
       style('a', { environment: 'none', ambientIntensity: 0, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0 }); const keyOnly = frame('a', .4);
       style('a', { fillIntensity: 3, rimIntensity: 2, lightRotation: 70 }); result.lightRig = difference(keyOnly, frame('a', .4));
+      // Tone mapping rolls bright light off instead of clipping it; exposure, every environment and light color change real pixels.
+      const white = p => { let count = 0; for (let i = 0; i < p.length; i += 4) if (p[i] >= 250 && p[i + 1] >= 250 && p[i + 2] >= 250 && p[i + 3] >= 250) count++; return count; };
+      style('a', { ...CLASSIC_LIGHTING, mode: 'replace', color: '#ffffff', roughness: .3, metalness: 0, clearcoat: .7, shader: 'standard' }); const clipped = frame('a', .4);
+      style('a', { toneMapping: 'neutral' }); const neutral = frame('a', .4);
+      style('a', { toneMapping: 'agx' }); const agx = frame('a', .4);
+      result.toneMapping = { clippedWhite: white(clipped), neutralWhite: white(neutral), agxWhite: white(agx), neutral: difference(clipped, neutral), agx: difference(neutral, agx) };
+      style('a', { toneMapping: 'neutral', exposure: 2 }); result.exposure = difference(neutral, frame('a', .4));
+      style('a', { exposure: 1, color: '#e0e0e0', roughness: .05, metalness: 1, clearcoat: 0 });
+      result.environments = ['studio', 'softbox', 'stage', 'sunset', 'neon'].map(environment => { style('a', { environment }); return { environment, pixels: frame('a', .4) }; });
+      result.environmentContrast = result.environments.slice(1).map((item, i) => difference(result.environments[i].pixels, item.pixels));
+      result.environments = result.environments.map(({ environment, pixels }) => ({ environment, visible: opaque(pixels) }));
+      style('a', { environment: 'none', metalness: 0, roughness: .5 }); const whiteKey = frame('a', .4);
+      style('a', { keyColor: '#ff0000' }); const redKey = frame('a', .4);
+      let redder = 0; for (let i = 0; i < redKey.length; i += 4) if (redKey[i + 3] > 250 && redKey[i] - redKey[i + 2] > whiteKey[i] - whiteKey[i + 2] + 20) redder++;
+      result.keyColor = { delta: difference(whiteKey, redKey), redder };
+      style('a', CLASSIC_LIGHTING);
       style('a', { mode: 'replace', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, shader: 'standard' }); const standard = frame('a', .4);
       result.shaders = [];
       for (const shader of ['toon', 'fresnel', 'wireframe']) {
@@ -317,6 +334,11 @@ test('shared model renderer produces real material, reflection, shader and deter
   assert.ok(bounds.left <= drawn.left + 1 && bounds.top <= drawn.top + 1 && bounds.right >= drawn.right - 1 && bounds.bottom >= drawn.bottom - 1, `silhouette bounds contain every drawn pixel: ${JSON.stringify(result.silhouette)}`);
   assert.ok(bounds.right - bounds.left < 192 * .9 && (bounds.right - bounds.left) <= (drawn.right - drawn.left) * 1.5, `silhouette bounds stay close to the drawn model, not its canvas: ${JSON.stringify(result.silhouette)}`);
   assert.equal(result.hitCenter, true); assert.equal(result.hitCorner, false, 'transparent canvas pixels do not hit the model');
+  assert.ok(result.toneMapping.clippedWhite > 300 && result.toneMapping.neutralWhite < result.toneMapping.clippedWhite * .5 && result.toneMapping.agxWhite < result.toneMapping.clippedWhite * .5, `tone mapping keeps highlights from clipping to flat white: ${JSON.stringify(result.toneMapping)}`);
+  visible(result.toneMapping.neutral, 'Neutral tone mapping'); visible(result.toneMapping.agx, 'AgX differs from Neutral'); visible(result.exposure, 'Exposure');
+  for (const environment of result.environments) assert.ok(environment.visible > 1000, `${environment.environment} reflects on metal`);
+  for (const contrast of result.environmentContrast) visible(contrast, 'Distinct environments');
+  visible(result.keyColor.delta, 'Key light color'); assert.ok(result.keyColor.redder > 300, `a red key light tints lit pixels: ${result.keyColor.redder}`);
   assert.deepEqual(result.resolution, [192, 96, 288, 4096], 'canvas follows layer size, keyframed size and composition width, capped');
   assert.ok(result.fixedCrop > 0, 'fixed framing crops a rotated cube diagonal, as before');
   assert.equal(result.fitCrop, 0, 'fit framing keeps every rotation and automatic motion inside the layer');
