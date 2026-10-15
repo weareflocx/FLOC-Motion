@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ArrowsClockwise, Check, Images, Plus, UploadSimple } from '@phosphor-icons/react';
 import { PROJECT_LIMITS } from '../../project.js';
-import { ASSET_DRAG_TYPE, ASSET_KINDS, LIBRARY_FILTERS, assetKind, assetUse, matchesLibrary, projectSources } from '../../media-library.js';
+import { ASSET_DRAG_TYPE, ASSET_KINDS, LIBRARY_FILTERS, assetKind, assetUse, matchesLibrary, projectSources } from '../media-library.js';
 import { IconButton } from '../controls.jsx';
 import { uploadAssets } from '../upload-assets.js';
 import { useMediaLibrary } from '../useMediaLibrary.js';

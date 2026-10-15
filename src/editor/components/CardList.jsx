@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, X } from '@phosphor-icons/react';
-import { ASSET_DRAG_TYPE, isVisualAsset } from '../../media-library.js';
+import { ASSET_DRAG_TYPE, isVisualAsset } from '../media-library.js';
 import { IconButton } from '../controls.jsx';
 import { AssetThumb } from './AssetThumb.jsx';
 

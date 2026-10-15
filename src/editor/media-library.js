@@ -1,5 +1,6 @@
-// Workspace media library: what an uploaded asset is and where it can be used.
-import { FORMATS, PROJECT_LIMITS, carouselImages, fileLayer } from './project.js';
+// Workspace media library: what an uploaded asset is and where it can be used. Editor-only, so it
+// stays outside the renderer engine fingerprint (server/renderer-version.mjs skips src/editor).
+import { FORMATS, PROJECT_LIMITS, carouselImages, fileLayer } from '../project.js';
 
 export const ASSET_KINDS = { image: 'Image', gif: 'GIF', video: 'Video', audio: 'Audio', model: '3D model' };
 export const LIBRARY_FILTERS = [['all', 'All'], ['image', 'Images'], ['video', 'Video'], ['audio', 'Audio'], ['model', '3D']];

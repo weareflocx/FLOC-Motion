@@ -12,7 +12,7 @@ import { usePlaybackTime } from './usePlayback.js';
 import { measureLayerBounds } from './layer-bounds.js';
 import { selectionBounds } from './arrange.js';
 import { workspaceFontsReady } from './workspace-fonts.js';
-import { ASSET_DRAG_TYPE } from '../media-library.js';
+import { ASSET_DRAG_TYPE } from './media-library.js';
 
 export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom = 'fit', panning = false, onViewport, onExitPan }) {
   const [activeProject, setActiveProject] = useState(project);

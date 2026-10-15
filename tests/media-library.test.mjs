@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { demoProject, validateProject, patchLayer, carouselImages, PROJECT_LIMITS } from '../src/project.js';
-import { assetLayer, assetUse, cardFromAsset, matchesLibrary, projectSources, sourcePatch } from '../src/media-library.js';
+import { assetLayer, assetUse, cardFromAsset, matchesLibrary, projectSources, sourcePatch } from '../src/editor/media-library.js';
 
 const src = ext => `/assets/12345678-1234-4234-8234-12345678901${ext.length}.${ext}`;
 const asset = (ext, name = `file.${ext}`) => ({ id: '12345678-1234-4234-8234-123456789012', src: src(ext), name });

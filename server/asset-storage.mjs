@@ -2,7 +2,7 @@ import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { acceptAssetUpload } from './asset-upload.mjs';
 import { database } from './database.mjs';
-import { fallbackAssetName } from '../src/media-library.js';
+import { fallbackAssetName } from '../src/editor/media-library.js';
 
 export const ASSET_QUOTA_BYTES = 1.5e9;
 export const ORPHAN_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
