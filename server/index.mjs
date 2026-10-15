@@ -116,6 +116,8 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     const draftMatch = route.match(/^\/api\/drafts\/([a-f0-9-]{36})$/);
     if (draftMatch && req.method === 'GET') return json(res, await drafts.read(draftMatch[1]));
     if (draftMatch && req.method === 'PUT') return json(res, await drafts.update(draftMatch[1], JSON.parse(await body(req))));
+    const draftArchiveMatch = route.match(/^\/api\/drafts\/([a-f0-9-]{36})\/archive$/);
+    if (draftArchiveMatch && req.method === 'POST') return json(res, { composition: await templates.archiveDraft(draftArchiveMatch[1], { userId: user?.id }) });
     if (route === '/api/templates' && req.method === 'GET') return json(res, { templates: await templates.list() });
     if (route === '/api/templates' && req.method === 'POST') return json(res, await templates.create(JSON.parse(await body(req)), { userId: user?.id }), 201);
     const templateMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})$/);

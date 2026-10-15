@@ -62,6 +62,25 @@ export function createTemplateStore(data, { now = Date.now } = {}) {
   }
   return {
     read: async id => read(id),
+    archiveDraft: async (id, { userId } = {}) => transaction(db, () => {
+      if (!UUID.test(id)) throw new Error('Invalid draft ID.');
+      const draft = db.prepare('SELECT project, revision FROM drafts WHERE id = ?').get(id);
+      if (!draft) return null;
+      const key = `draft-archive:${id}:${draft.revision}`;
+      const marker = db.prepare('SELECT value FROM meta WHERE key = ?').get(key);
+      if (marker) {
+        const saved = db.prepare('SELECT id, name, tags, project, created_at, updated_at FROM templates WHERE id = ?').get(JSON.parse(marker.value).compositionId);
+        return saved ? entry(saved) : null;
+      }
+      const project = validateProject(JSON.parse(draft.project));
+      const fields = metadata({ name: project.name.trim() || 'Untitled', tags: [] });
+      const stamp = new Date(now()).toISOString();
+      const value = write({ id: randomUUID(), ...fields, project, createdAt: stamp, updatedAt: stamp });
+      recordVersion(value.id, value, { kind: 'import', userId });
+      logComposition(userId, 'composition.created', value.id, { name: value.name });
+      db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(key, JSON.stringify({ compositionId: value.id }));
+      return value;
+    }),
     preserveLegacyProject: async () => {
       const recorded = () => db.prepare("SELECT 1 FROM meta WHERE key = 'legacy-project'").get();
       if (recorded()) return;
