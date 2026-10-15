@@ -7,7 +7,7 @@ export function createResourceCache() {
     acquire(key, load, dispose = () => {}) {
       let entry = entries.get(key);
       if (!entry) {
-        entry = { refs: 0, value: Promise.resolve().then(load) };
+        entry = { refs: 0, value: Promise.resolve().then(load), dispose };
         // A failed load is retried by the next scene instead of being cached.
         entry.value.catch(() => { if (entries.get(key) === entry) entries.delete(key); });
         entries.set(key, entry);
@@ -21,7 +21,7 @@ export function createResourceCache() {
           released = true;
           if (--entry.refs > 0) return;
           if (entries.get(key) === entry) entries.delete(key);
-          entry.value.then(dispose, () => {});
+          entry.value.then(entry.dispose, () => {});
         }
       };
     },

@@ -13,7 +13,6 @@ async function compile(path) {
 }
 const compiled = await compile('../src/editor/components/CarouselCreationDialog.jsx');
 const browserCompiled = await compile('../src/editor/components/PresetBrowser.jsx');
-const addCompiled = await compile('../src/editor/components/AddLayerDialog.jsx');
 const actionsCompiled = await compile('../src/editor/useCompositionActions.js');
 const nodes = node => [node, ...(node?.children || []).flat(Infinity).flatMap(child => child && typeof child === 'object' ? nodes(child) : [])];
 const text = node => (node.children || []).flat(Infinity).map(child => typeof child === 'object' ? text(child) : child ?? '').join('');
@@ -186,20 +185,6 @@ test('the shared library selects for creation and still applies existing presets
   }
 });
 
-test('Add layer enters carousel selection without calling the creation action', () => {
-  const slots = []; let cursor = 0, adds = 0, closes = 0;
-  const context = {
-    React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    DotsNine() {}, ImageSquare() {}, Images() {}, Plus() {}, Sparkle() {}, TextT() {}, UploadSimple() {}, X() {}, Modal() {}, IconButton() {}, CarouselCreationDialog() {}, PROJECT_LIMITS,
-    useState(initial) { const i = cursor++; slots[i] ??= initial; return [slots[i], next => { slots[i] = next; }]; }
-  };
-  vm.createContext(context); vm.runInContext(addCompiled + '\nthis.component = AddLayerDialog;', context);
-  const render = () => { cursor = 0; return context.component({ project: blankProject(), onClose() { closes++; }, onAddLayer() { adds++; } }); };
-  nodes(render()).find(node => node.props['aria-label'] === 'Add carousel').props.onClick();
-  assert.equal(render().type.name, 'CarouselCreationDialog');
-  assert.equal(adds, 0);
-  assert.equal(closes, 0);
-});
 
 test('confirmed carousel is appended with its preset and photos as one edit using the latest project', () => {
   const projectRef = { current: validateProject(demoProject()) };

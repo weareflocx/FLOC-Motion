@@ -4,8 +4,9 @@ import { FORMATS, FORMAT_LABELS, PROJECT_LIMITS } from '../../project.js';
 import { IconButton, Modal } from '../controls.jsx';
 import { uploadAssets } from '../upload-assets.js';
 import { SavedTemplates } from './SavedTemplates.jsx';
+import { MODEL_IMPORT_ACCEPT } from '../model-import.js';
 
-const acceptedFiles = '.png,.jpg,.jpeg,.webp,.gif,.avif,.svg,.mp4,.webm,.mp3,.wav,.m4a,.ogg,.glb';
+const acceptedFiles = `.png,.jpg,.jpeg,.webp,.gif,.avif,.svg,.mp4,.webm,.mp3,.wav,.m4a,.ogg,${MODEL_IMPORT_ACCEPT}`;
 
 export function NewCompositionDialog({ project, initialTab = 'aspect', onCreate, onOpen, onClose }) {
   const title = useId();
@@ -25,9 +26,8 @@ export function NewCompositionDialog({ project, initialTab = 'aspect', onCreate,
     event.target.value = '';
     if (!selected.length || busy) return;
     const next = [...files, ...selected];
-    if (next.length > PROJECT_LIMITS.maxLayers) { setError(`Use up to ${PROJECT_LIMITS.maxLayers} files. Each file becomes a layer.`); return; }
     const unsupported = selected.find(file => !acceptedFiles.split(',').includes(`.${file.name.split('.').at(-1).toLowerCase()}`));
-    if (unsupported) { setError(`Unsupported file: ${unsupported.name}. Choose an image, video, audio or GLB file.`); return; }
+    if (unsupported) { setError(`Unsupported file: ${unsupported.name}. Choose an image, video, audio, GLB or OBJ bundle.`); return; }
     const oversized = selected.find(file => file.size > 75e6);
     if (oversized) { setError(`${oversized.name} exceeds the 75 MB file limit.`); return; }
     uploaded.current = null;
@@ -54,7 +54,7 @@ export function NewCompositionDialog({ project, initialTab = 'aspect', onCreate,
     if (!name.trim()) return;
     setBusy(files.length && !uploaded.current ? 'upload' : 'create'); setError('');
     try {
-      if (!uploaded.current) uploaded.current = await uploadAssets(files);
+      if (!uploaded.current) uploaded.current = await uploadAssets(files, { maxFiles: PROJECT_LIMITS.maxLayers, limitMessage: `Use up to ${PROJECT_LIMITS.maxLayers} layers.` });
       setBusy('create');
       await onCreate(name, { format, assets: uploaded.current });
       onClose();
@@ -82,10 +82,10 @@ export function NewCompositionDialog({ project, initialTab = 'aspect', onCreate,
         <p className="helper new-composition-dimensions">{FORMATS[format].join(' × ')} px</p>
       </fieldset>
       <section className="new-composition-files" aria-labelledby={`${title}-files`}>
-        <div className="new-composition-files-heading"><h3 id={`${title}-files`}>Files <span>Optional</span></h3><span>{files.length} / {PROJECT_LIMITS.maxLayers}</span></div>
-        <button type="button" className="outline-button" disabled={Boolean(busy) || files.length >= PROJECT_LIMITS.maxLayers} onClick={() => fileInput.current.click()}><UploadSimple size={17}/>Add files</button>
+        <div className="new-composition-files-heading"><h3 id={`${title}-files`}>Files <span>Optional</span></h3><span>{files.length} selected</span></div>
+        <button type="button" className="outline-button" disabled={Boolean(busy)} onClick={() => fileInput.current.click()}><UploadSimple size={17}/>Add files</button>
         <input ref={fileInput} hidden type="file" accept={acceptedFiles} multiple disabled={Boolean(busy)} onChange={chooseFiles}/>
-        <p className="helper">Images, SVG, GIF, video, audio or GLB · Each file becomes a layer.</p>
+        <p className="helper">Images, SVG, GIF, video, audio, GLB or OBJ · Up to {PROJECT_LIMITS.maxLayers} layers. Select OBJ with its declared MTL and textures for one 3D layer. GLB is preserved.</p>
         {files.length > 0 && <ul className="new-composition-file-list">{files.map((file, index) => <li key={index}><span title={file.name}>{file.name}</span><IconButton label={`Remove file ${index + 1}: ${file.name}`} disabled={Boolean(busy)} onClick={() => removeFile(index)}><X size={15}/></IconButton></li>)}</ul>}
       </section>
       </div>

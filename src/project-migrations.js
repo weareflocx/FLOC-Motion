@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 8;
+export const CURRENT_PROJECT_VERSION = 10;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -199,8 +199,45 @@ function v7ToV8(project) {
   return project;
 }
 
+// v8 models used source materials, the fixed hemisphere/key rig and the first
+// embedded clip. Freeze all settings here so future defaults cannot restyle them.
+const V8_MODEL_STYLE = Object.freeze({
+  mode: 'original', color: '#ffffff', roughness: 0.5, metalness: 0, clearcoat: 0, iridescence: 0,
+  emissive: '#000000', emissiveIntensity: 0,
+  shader: 'standard', toonSteps: 4, fresnelColor: '#ffffff', fresnelIntensity: 0.5, fresnelPower: 3,
+  environment: 'none', environmentIntensity: 1, environmentRotation: 0,
+  ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0,
+  motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
+  animationClip: 0, animationSpeed: 1
+});
+function v8ToV9(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'model') continue;
+    const style = layer.modelStyle;
+    if (style === undefined || (record(style) && [Object.prototype, null].includes(Object.getPrototypeOf(style)))) layer.modelStyle = { ...V8_MODEL_STYLE, ...style };
+  }
+  return project;
+}
+
+// v9 automatic motion used the native continuous clock on its preset's axis.
+// Keep these frozen rather than importing defaults that may change in the future.
+const V9_MODEL_MOTION = Object.freeze({
+  motionAxis: 'auto', motionSteps: 4,
+  motionTiming: Object.freeze({ mode: 'continuous', action: 1, pause: 0, curve: 'native', intensity: .5 })
+});
+function v9ToV10(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'model') continue;
+    const style = layer.modelStyle;
+    if (style === undefined || (record(style) && [Object.prototype, null].includes(Object.getPrototypeOf(style)))) {
+      layer.modelStyle = { ...V9_MODEL_MOTION, motionTiming: { ...V9_MODEL_MOTION.motionTiming }, ...style };
+    }
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');
