@@ -19,7 +19,9 @@ const motionSchema = schema({
 }, Object.keys(DEFAULT_MOTION));
 const modelStyleSchema = schema({
   ...Object.fromEntries(Object.entries(MODEL_STYLE_RANGES).map(([key, [min, max]]) => [key, { ...number(min, max), ...(['toonSteps', 'motionSteps', 'animationClip'].includes(key) ? { type: 'integer' } : {}) }])),
-  ...Object.fromEntries(['color', 'emissive', 'fresnelColor', 'keyColor', 'fillColor', 'rimColor'].map(key => [key, { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }])),
+  ...Object.fromEntries(['color', 'emissive', 'sheenColor', 'fresnelColor', 'keyColor', 'fillColor', 'rimColor'].map(key => [key, { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }])),
+  anisotropy: { ...number(...MODEL_STYLE_RANGES.anisotropy), description: 'Brushed-metal stretch of reflections along anisotropyRotation (degrees); needs model UVs, otherwise ignored.' },
+  iridescenceThicknessMin: { ...number(...MODEL_STYLE_RANGES.iridescenceThicknessMin), description: 'Thin-film thickness in nanometres; must not exceed iridescenceThicknessMax. With iridescenceIOR it sets the iridescent hues.' },
   mode: choices(MODEL_MATERIAL_MODES), shader: choices(MODEL_SHADERS), motion: choices(MODEL_MOTIONS),
   environment: { ...choices(MODEL_ENVIRONMENTS), description: 'Locally generated reflection environment: studio is the classic room, softbox a bright studio, stage black with hard softboxes, sunset a sky with a low sun, neon colored tubes.' },
   toneMapping: { ...choices(MODEL_TONE_MAPPINGS), description: 'none keeps the classic output that clips bright light; neutral and agx (softer) roll highlights off.' },

@@ -103,6 +103,23 @@ test('material presets change only the surface; lighting presets change only the
   assert.equal(h.layer.modelStyle.animationSpeed, .5);
 });
 
+test('material presets are grouped by family and the film thickness range stays ordered', () => {
+  const h = inspector();
+  const groups = h.find('Material preset').children.flat().filter(node => node.type === 'optgroup');
+  assert.deepEqual(groups.map(group => group.props.label), ['Basics', 'Metals', 'Iridescent', 'Fabric']);
+  assert.ok(groups.find(group => group.props.label === 'Metals').children.flat().some(option => option.props.value === 'brushed-aluminium'));
+  h.change('Material preset', 'brushed-aluminium');
+  assert.equal(h.find('Material preset').props.value, 'brushed-aluminium');
+  assert.equal(h.layer.modelStyle.anisotropy, .9);
+  assert.ok(h.render().some(node => node.type === 'summary' && h.text(node).includes('Brushed')));
+  h.change('Material preset', 'pearl');
+  h.change('Film thinnest', 900);
+  assert.deepEqual([h.layer.modelStyle.iridescenceThicknessMin, h.layer.modelStyle.iridescenceThicknessMax], [900, 900]);
+  h.change('Film thickest', 200);
+  assert.deepEqual([h.layer.modelStyle.iridescenceThicknessMin, h.layer.modelStyle.iridescenceThicknessMax], [200, 200]);
+  assert.equal(h.find('Material preset').props.value, 'custom');
+});
+
 test('motion axis space offers Screen and Object, and Legacy only to projects that use it', () => {
   const h = inspector({ modelStyle: { motion: 'spin' } }, 'animation');
   const spaces = () => h.find('Motion axis space').children.flat().map(option => option.props.value);

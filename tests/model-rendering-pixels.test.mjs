@@ -122,6 +122,19 @@ test('shared model renderer produces real material, reflection, shader and deter
       style('a', { keyColor: '#ff0000' }); const redKey = frame('a', .4);
       let redder = 0; for (let i = 0; i < redKey.length; i += 4) if (redKey[i + 3] > 250 && redKey[i] - redKey[i + 2] > whiteKey[i] - whiteKey[i + 2] + 20) redder++;
       result.keyColor = { delta: difference(whiteKey, redKey), redder };
+      // Replacement-surface details each change real pixels under the Studio light.
+      const surfaceBase = { environment: 'softbox', toneMapping: 'neutral', keyColor: '#ffffff', mode: 'replace', shader: 'standard', color: '#c4c5c4', roughness: .3, metalness: 1, clearcoat: 0 };
+      style('a', surfaceBase); const unbrushed = frame('a', .4);
+      style('a', { anisotropy: .9 }); result.brushed = difference(unbrushed, frame('a', .4));
+      style('a', { anisotropy: 0, color: '#f2efe8', metalness: 0, clearcoat: 1, clearcoatRoughness: 0 }); const sharpCoat = frame('a', .4);
+      style('a', { clearcoatRoughness: .7 }); result.coatRoughness = difference(sharpCoat, frame('a', .4));
+      style('a', { clearcoat: 0, clearcoatRoughness: 0, color: '#5c0f2e', roughness: .85 }); const bare = frame('a', .4);
+      style('a', { sheen: 1, sheenColor: '#ff8fbd', sheenRoughness: .45 }); result.sheen = difference(bare, frame('a', .4));
+      style('a', { sheen: 0, color: '#9aa0aa', roughness: .05, metalness: 1, iridescence: 1 }); const film = frame('a', .4);
+      style('a', { iridescenceIOR: 1.5, iridescenceThicknessMin: 300, iridescenceThicknessMax: 600 }); const filmRange = frame('a', .4); result.film = difference(film, filmRange);
+      // A thickness range varies the film across the surface; equal bounds keep one thickness.
+      style('a', { iridescenceThicknessMin: 600 }); result.filmVaries = difference(frame('a', .4), filmRange);
+      style('a', { iridescence: 0, iridescenceIOR: 1.3, iridescenceThicknessMin: 400, iridescenceThicknessMax: 400 });
       style('a', CLASSIC_LIGHTING);
       style('a', { mode: 'replace', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, shader: 'standard' }); const standard = frame('a', .4);
       result.shaders = [];
@@ -273,6 +286,11 @@ test('shared model renderer produces real material, reflection, shader and deter
       const coverage = perspective => { style('fitCube', { perspective }); return opaque(frame('fitCube', 0, { tilt: 20, yaw: 30, roll: 0 })); };
       result.perspectiveCoverage = [coverage(20), coverage(38), coverage(70)];
       style('fitCube', { perspective: 38, zoom: 1.25 }); result.zoomCoverage = opaque(frame('fitCube', 0, { tilt: 20, yaw: 30, roll: 0 }));
+      // Brushing needs UVs: on a mesh without them it is ignored instead of drawing NaN tangents.
+      const flatSrc = await fixture(false, { cube: true, uv: false }), flatPose = { tilt: 25, yaw: 35, roll: 0 };
+      await mount('flatCube', flatSrc, { ...surfaceBase, animationClip: -1 }); const flatPlain = frame('flatCube', 0, flatPose);
+      style('flatCube', { anisotropy: .9 }); const flatBrushed = frame('flatCube', 0, flatPose);
+      result.unbrushedWithoutUv = { delta: difference(flatPlain, flatBrushed).total, visible: opaque(flatBrushed) };
       // More models than the browser's live-context limit share one renderer and all stay visible.
       const many = [];
       for (let i = 0; i < 20; i++) { await mount('many-' + i, src, undefined, { compositionWidth: 96 }); many.push(opaque(frame('many-' + i, .4))); }
@@ -339,6 +357,8 @@ test('shared model renderer produces real material, reflection, shader and deter
   for (const environment of result.environments) assert.ok(environment.visible > 1000, `${environment.environment} reflects on metal`);
   for (const contrast of result.environmentContrast) visible(contrast, 'Distinct environments');
   visible(result.keyColor.delta, 'Key light color'); assert.ok(result.keyColor.redder > 300, `a red key light tints lit pixels: ${result.keyColor.redder}`);
+  visible(result.brushed, 'Brushed anisotropy'); visible(result.coatRoughness, 'Clearcoat roughness'); visible(result.sheen, 'Sheen'); visible(result.film, 'Iridescent film index and thickness'); visible(result.filmVaries, 'Film thickness range varying over the surface');
+  assert.deepEqual(result.unbrushedWithoutUv.delta, 0, 'brushing is ignored on meshes without UVs'); assert.ok(result.unbrushedWithoutUv.visible > 1000);
   assert.deepEqual(result.resolution, [192, 96, 288, 4096], 'canvas follows layer size, keyframed size and composition width, capped');
   assert.ok(result.fixedCrop > 0, 'fixed framing crops a rotated cube diagonal, as before');
   assert.equal(result.fitCrop, 0, 'fit framing keeps every rotation and automatic motion inside the layer');

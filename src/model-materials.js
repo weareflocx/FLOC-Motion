@@ -27,12 +27,31 @@ function fresnel(material) {
   material.customProgramCacheKey = () => 'floc-model-fresnel-v1';
   return uniforms;
 }
+// A smooth, tiling film-thickness field (green channel) so iridescent hues flow over
+// the surface instead of showing a single thickness. Deterministic: no random seed.
+export function filmThicknessMap(size = 128) {
+  const data = new Uint8Array(size * size * 4), turn = Math.PI * 2;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const u = x / size, v = y / size;
+    const value = .5 + .25 * Math.sin(turn * (2 * u + .5 * Math.sin(turn * 3 * v))) + .25 * Math.sin(turn * (3 * v + .5 * Math.sin(turn * 2 * u)));
+    const i = (y * size + x) * 4;
+    data[i + 1] = Math.round(value * 255); data[i + 3] = 255;
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter; texture.minFilter = THREE.LinearMipmapLinearFilter; texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
 export function createModelMaterials(model) {
   const bindings = [], variants = new Map(), owned = new Set(), tint = new THREE.Color();
-  let gradient, gradientSteps;
+  // Brushing and a varying film need a UV frame; materials on meshes without UVs skip them.
+  const withoutUv = new Set();
+  let gradient, gradientSteps, film;
   model.traverse(node => {
     if (!node.material) return;
     bindings.push({ node, source: node.material });
+    if (node.isMesh && !node.geometry.attributes.uv) for (const source of [node.material].flat()) withoutUv.add(source);
   });
   function ramp(steps) {
     if (!gradient) {
@@ -47,6 +66,10 @@ export function createModelMaterials(model) {
       gradientSteps = steps;
     }
     return gradient;
+  }
+  function filmThickness() {
+    if (!film) film = filmThicknessMap();
+    return film;
   }
   function variant(source, style, mesh) {
     const key = `${style.mode}/${mesh ? style.shader : 'standard'}`;
@@ -84,6 +107,17 @@ export function createModelMaterials(model) {
         material.roughness = style.roughness; material.metalness = style.metalness;
         material.clearcoat = style.clearcoat; material.iridescence = style.iridescence;
       }
+      if (material.isMeshPhysicalMaterial) {
+        material.clearcoatRoughness = style.clearcoatRoughness;
+        material.sheen = style.sheen; material.sheenColor.set(style.sheenColor); material.sheenRoughness = style.sheenRoughness;
+        material.anisotropy = withoutUv.has(source) ? 0 : style.anisotropy;
+        material.anisotropyRotation = THREE.MathUtils.degToRad(style.anisotropyRotation);
+        material.iridescenceIOR = style.iridescenceIOR;
+        material.iridescenceThicknessRange[0] = style.iridescenceThicknessMin; material.iridescenceThicknessRange[1] = style.iridescenceThicknessMax;
+        // Without a thickness map three.js uses only the thickest film; a range varies it across the surface.
+        const thicknessMap = style.iridescence > 0 && style.iridescenceThicknessMin < style.iridescenceThicknessMax && !withoutUv.has(source) ? filmThickness() : null;
+        if (material.iridescenceThicknessMap !== thicknessMap) { material.iridescenceThicknessMap = thicknessMap; material.needsUpdate = true; }
+      }
       if (material.emissive) { material.emissive.set(style.emissive); material.emissiveIntensity = style.emissiveIntensity; }
     }
     if (material.isMeshToonMaterial) material.gradientMap = ramp(style.toonSteps);
@@ -105,6 +139,6 @@ export function createModelMaterials(model) {
         node.material = Array.isArray(source) ? source.map(assign) : assign(source);
       }
     },
-    dispose() { for (const material of owned) material.dispose(); owned.clear(); variants.clear(); gradient?.dispose(); }
+    dispose() { for (const material of owned) material.dispose(); owned.clear(); variants.clear(); gradient?.dispose(); film?.dispose(); }
   };
 }

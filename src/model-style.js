@@ -9,6 +9,10 @@ const STUDIO_LIGHTING = Object.freeze({
 export const DEFAULT_MODEL_STYLE = Object.freeze({
   mode: 'original', color: '#ffffff', roughness: .5, metalness: 0, clearcoat: 0, iridescence: 0,
   emissive: '#000000', emissiveIntensity: 0,
+  // Replacement-surface details. With equal film bounds three.js uses the 400 nm film it always
+  // did, and the others are its own defaults, so older projects render unchanged.
+  clearcoatRoughness: 0, sheen: 0, sheenColor: '#ffffff', sheenRoughness: 1, anisotropy: 0, anisotropyRotation: 0,
+  iridescenceIOR: 1.3, iridescenceThicknessMin: 400, iridescenceThicknessMax: 400,
   shader: 'standard', toonSteps: 4, fresnelColor: '#ffffff', fresnelIntensity: .5, fresnelPower: 3,
   ...STUDIO_LIGHTING,
   motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
@@ -27,29 +31,50 @@ export const MODEL_MOTION_SPACES = Object.freeze(['screen', 'object', 'euler']);
 export const MODEL_ENVIRONMENTS = Object.freeze(['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
 // none is the pre-v13 output: lighting clips at white instead of rolling off.
 export const MODEL_TONE_MAPPINGS = Object.freeze(['none', 'neutral', 'agx']);
-const MODEL_COLOR_KEYS = ['color', 'emissive', 'fresnelColor', 'keyColor', 'fillColor', 'rimColor'];
+const MODEL_COLOR_KEYS = ['color', 'emissive', 'sheenColor', 'fresnelColor', 'keyColor', 'fillColor', 'rimColor'];
 // Fit keeps the whole motion envelope in the layer; fixed is the pre-v11 camera.
 export const MODEL_FRAMINGS = Object.freeze(['fit', 'fixed']);
 // Pulse scales by up to 12% and Float moves by up to 0.2 normalized units at full amplitude.
 export const MODEL_PULSE_SCALE = .12, MODEL_FLOAT_OFFSET = .2;
 export const MODEL_STYLE_RANGES = Object.freeze({
   roughness: [0, 1], metalness: [0, 1], clearcoat: [0, 1], iridescence: [0, 1], emissiveIntensity: [0, 4],
+  clearcoatRoughness: [0, 1], sheen: [0, 1], sheenRoughness: [0, 1], anisotropy: [0, 1], anisotropyRotation: [-180, 180],
+  iridescenceIOR: [1, 2.5], iridescenceThicknessMin: [0, 1200], iridescenceThicknessMax: [0, 1200],
   toonSteps: [2, 8], fresnelIntensity: [0, 2], fresnelPower: [1, 8],
   environmentIntensity: [0, 4], environmentRotation: [-180, 180], exposure: [.25, 4],
   ambientIntensity: [0, 6], keyIntensity: [0, 10], fillIntensity: [0, 10], rimIntensity: [0, 10], lightRotation: [-180, 180],
   motionDuration: [.25, 300], motionSpeed: [-4, 4], motionAmplitude: [0, 1], motionSteps: [1, 24], animationClip: [-1, 65535], animationSpeed: [0, 4],
   zoom: [.25, 4], perspective: [15, 75]
 });
-const paintDefaults = Object.fromEntries(['mode', 'color', 'roughness', 'metalness', 'clearcoat', 'iridescence', 'emissive', 'emissiveIntensity'].map(key => [key, DEFAULT_MODEL_STYLE[key]]));
+const SURFACE_KEYS = ['mode', 'color', 'roughness', 'metalness', 'clearcoat', 'iridescence', 'emissive', 'emissiveIntensity',
+  'clearcoatRoughness', 'sheen', 'sheenColor', 'sheenRoughness', 'anisotropy', 'anisotropyRotation', 'iridescenceIOR', 'iridescenceThicknessMin', 'iridescenceThicknessMax'];
+const paintDefaults = Object.fromEntries(SURFACE_KEYS.map(key => [key, DEFAULT_MODEL_STYLE[key]]));
 // Material presets set the surface only; lighting presets set the environment and rig.
-const paint = (color, roughness, metalness, clearcoat = 0, iridescence = 0) => Object.freeze({ ...paintDefaults, mode: 'replace', color, roughness, metalness, clearcoat, iridescence, shader: 'standard' });
+// Metal colors are the measured linear reflectance of each metal, written in sRGB.
+const surface = settings => Object.freeze({ ...paintDefaults, mode: 'replace', shader: 'standard', ...settings });
+const iridescent = (iridescenceIOR, iridescenceThicknessMin, iridescenceThicknessMax) => ({ iridescence: 1, iridescenceIOR, iridescenceThicknessMin, iridescenceThicknessMax });
+export const MODEL_MATERIAL_FAMILIES = Object.freeze([['basic', 'Basics'], ['metal', 'Metals'], ['iridescent', 'Iridescent'], ['fabric', 'Fabric']]);
 export const MODEL_MATERIAL_PRESETS = Object.freeze([
-  { id: 'original', name: 'Original', settings: Object.freeze({ ...paintDefaults, shader: 'standard' }) },
-  { id: 'matte', name: 'Matte', settings: paint('#ffffff', .9, 0) },
-  { id: 'plastic', name: 'Plastic', settings: paint('#ffffff', .3, 0, .7) },
-  { id: 'satin', name: 'Satin metal', settings: paint('#b8b8c0', .4, 1) },
-  { id: 'chrome', name: 'Chrome', settings: paint('#e5e5e5', .08, 1) },
-  { id: 'iridescent', name: 'Iridescent', settings: paint('#7f91a7', .2, 1, 0, 1) }
+  { id: 'original', name: 'Original', family: 'basic', settings: Object.freeze({ ...paintDefaults, shader: 'standard' }) },
+  { id: 'matte', name: 'Matte', family: 'basic', settings: surface({ roughness: .9 }) },
+  { id: 'plastic', name: 'Gloss plastic', family: 'basic', settings: surface({ color: '#f4f4f2', roughness: .28, clearcoat: 1, clearcoatRoughness: .06 }) },
+  { id: 'ceramic', name: 'Ceramic', family: 'basic', settings: surface({ color: '#f2efe8', roughness: .22, clearcoat: 1, clearcoatRoughness: .04 }) },
+  { id: 'lacquer', name: 'Candy lacquer', family: 'basic', settings: surface({ color: '#d1002e', roughness: .35, metalness: .6, clearcoat: 1, clearcoatRoughness: .02 }) },
+  { id: 'rubber', name: 'Rubber', family: 'basic', settings: surface({ color: '#26262a', roughness: .72 }) },
+  { id: 'chrome', name: 'Mirror chrome', family: 'metal', settings: surface({ color: '#c4c5c4', roughness: .03, metalness: 1 }) },
+  { id: 'satin', name: 'Satin steel', family: 'metal', settings: surface({ color: '#c4c5c4', roughness: .35, metalness: 1, anisotropy: .5 }) },
+  { id: 'gold', name: 'Polished gold', family: 'metal', settings: surface({ color: '#ffe39d', roughness: .14, metalness: 1 }) },
+  { id: 'rose-gold', name: 'Rose gold', family: 'metal', settings: surface({ color: '#fdd4c4', roughness: .18, metalness: 1 }) },
+  { id: 'copper', name: 'Copper', family: 'metal', settings: surface({ color: '#fad1c2', roughness: .26, metalness: 1 }) },
+  { id: 'brushed-aluminium', name: 'Brushed aluminium', family: 'metal', settings: surface({ color: '#f5f6f6', roughness: .32, metalness: 1, anisotropy: .9 }) },
+  { id: 'brushed-gold', name: 'Brushed gold', family: 'metal', settings: surface({ color: '#ffe39d', roughness: .3, metalness: 1, anisotropy: .9 }) },
+  { id: 'gunmetal', name: 'Gunmetal', family: 'metal', settings: surface({ color: '#6f6f73', roughness: .28, metalness: 1, clearcoat: .8, clearcoatRoughness: .1 }) },
+  { id: 'iridescent', name: 'Iridescent metal', family: 'iridescent', settings: surface({ color: '#dfe3ea', roughness: .2, metalness: 1, ...iridescent(1.33, 200, 800) }) },
+  { id: 'holographic', name: 'Holographic foil', family: 'iridescent', settings: surface({ color: '#7f86a0', roughness: .2, metalness: 1, ...iridescent(1.5, 300, 600) }) },
+  { id: 'titanium', name: 'Anodized titanium', family: 'iridescent', settings: surface({ color: '#9099b8', roughness: .22, metalness: 1, ...iridescent(1.33, 380, 480) }) },
+  { id: 'oil-slick', name: 'Oil slick', family: 'iridescent', settings: surface({ color: '#08080a', roughness: .3, metalness: .6, ...iridescent(1.7, 250, 800) }) },
+  { id: 'pearl', name: 'Pearl', family: 'iridescent', settings: surface({ color: '#f3eee6', roughness: .32, clearcoat: 1, sheen: .6, sheenColor: '#ffd8ef', ...iridescent(1.45, 300, 650), iridescence: .55 }) },
+  { id: 'velvet', name: 'Velvet', family: 'fabric', settings: surface({ color: '#5c0f2e', roughness: .85, sheen: 1, sheenRoughness: .45, sheenColor: '#ff8fbd' }) }
 ]);
 const classic = Object.freeze({
   environment: 'none', environmentIntensity: 1, environmentRotation: 0, toneMapping: 'none', exposure: 1,
@@ -75,6 +100,7 @@ export function normalizeModelStyle(input) {
   for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
     if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || value[key] < min || value[key] > max || (['toonSteps', 'motionSteps', 'animationClip'].includes(key) && !Number.isInteger(value[key]))) throw new Error(`Invalid 3D model ${key}.`);
   }
+  if (value.iridescenceThicknessMin > value.iridescenceThicknessMax) throw new Error('Invalid 3D model iridescence thickness: the minimum exceeds the maximum.');
   try { value.motionTiming = normalizeMotion(value.motionTiming); }
   catch (error) { throw new Error(`Invalid 3D model motion timing: ${error.message}`); }
   return value;

@@ -1,6 +1,6 @@
 import React, { useCallback, useSyncExternalStore } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
-import { MODEL_ENVIRONMENTS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
+import { MODEL_ENVIRONMENTS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
 import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.js';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
@@ -25,6 +25,7 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
   const replacement = style.mode === 'replace';
   const pbr = replacement && ['standard', 'fresnel'].includes(style.shader);
   const lighting = selectedLightingPreset(style);
+  const details = [style.clearcoat > 0 && style.clearcoatRoughness > 0 && 'Soft coat', style.anisotropy > 0 && 'Brushed', style.sheen > 0 && 'Sheen', style.iridescence > 0 && 'Iridescent film'].filter(Boolean);
 
   return <>
     {rightTab === 'composition' ? <>
@@ -48,7 +49,7 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
     <Section title="Material">
       <Field label="Material preset"><select aria-label="Material preset" value={selectedModelPreset(style)} onChange={event => onPatch(layer.id, { modelStyle: applyModelPreset(style, event.target.value) })}>
         <option value="custom" disabled>Custom</option>
-        {MODEL_MATERIAL_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+        {MODEL_MATERIAL_FAMILIES.map(([family, label]) => <optgroup key={family} label={label}>{MODEL_MATERIAL_PRESETS.filter(preset => preset.family === family).map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</optgroup>)}
       </select></Field>
       {select('mode', 'Material mode', MODEL_MATERIAL_MODES)}
       <p className="helper">Original preserves imported materials. Tint multiplies their base color and keeps maps. Replace uses a new material without imported base maps.</p>
@@ -60,6 +61,21 @@ export function ModelControls({ layer, uploading, onPatch, onPick, rightTab = 'c
         {range('clearcoat', 'Clearcoat')}
         {range('iridescence', 'Iridescence')}
       </fieldset>
+      <details className="orientation-control surface-details" open={details.length > 0}>
+        <summary>Surface details<span>{details.join(' · ') || 'None'}</span></summary>
+        <fieldset className="layer-properties" disabled={!pbr}>
+          {range('clearcoatRoughness', 'Clearcoat roughness')}
+          {range('anisotropy', 'Brushed')}
+          {range('anisotropyRotation', 'Brush direction', { step: 1, scale: 1, suffix: '°' })}
+          {range('sheen', 'Sheen')}
+          <Color label="Sheen color" value={style.sheenColor} onChange={sheenColor => patchStyle({ sheenColor })}/>
+          {range('sheenRoughness', 'Sheen roughness')}
+          {range('iridescenceIOR', 'Film index ×100', { scale: 100, suffix: ' ' })}
+          <Range label="Film thinnest" value={style.iridescenceThicknessMin} min={MODEL_STYLE_RANGES.iridescenceThicknessMin[0]} max={MODEL_STYLE_RANGES.iridescenceThicknessMin[1]} suffix=" nm" onChange={value => patchStyle({ iridescenceThicknessMin: value, iridescenceThicknessMax: Math.max(value, style.iridescenceThicknessMax) })}/>
+          <Range label="Film thickest" value={style.iridescenceThicknessMax} min={MODEL_STYLE_RANGES.iridescenceThicknessMax[0]} max={MODEL_STYLE_RANGES.iridescenceThicknessMax[1]} suffix=" nm" onChange={value => patchStyle({ iridescenceThicknessMax: value, iridescenceThicknessMin: Math.min(value, style.iridescenceThicknessMin) })}/>
+        </fieldset>
+        <p className="helper">Brushed stretches reflections along the surface. Sheen adds a soft fabric glow at grazing angles. Iridescence colors come from a thin film: its index and thickness set the hues, and a range between thinnest and thickest makes them flow across the surface. Brushing and flowing film need a model with UV coordinates; without them, brushing is ignored and the film keeps its thickest value.</p>
+      </details>
       <fieldset className="layer-properties" disabled={!replacement || style.shader === 'wireframe'}>
         <Color label="Emissive color" value={style.emissive} onChange={emissive => patchStyle({ emissive })}/>
         {range('emissiveIntensity', 'Emissive intensity')}

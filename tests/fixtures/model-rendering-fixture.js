@@ -3,11 +3,12 @@ import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 // Browser-only, locally authored self-contained GLB. No downloads or user assets.
 // Returns an ArrayBuffer; callers can upload it or create a disposable Blob URL.
-export async function createModelRenderingFixture({ unlit = false, vertexColors = false, opacity = 1, cube = false } = {}) {
+export async function createModelRenderingFixture({ unlit = false, vertexColors = false, opacity = 1, cube = false, uv = true } = {}) {
   // A unit cube reaches √3 half-extents along its diagonals: fixed framing crops it.
   // Its Grow clip scales it to 1.8× mid-clip.
   if (cube) {
     const box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: '#c8c8c8', roughness: .5 })); box.name = 'Cube';
+    if (!uv) box.geometry.deleteAttribute('uv');
     const grow = new THREE.AnimationClip('Grow', 2, [new THREE.VectorKeyframeTrack('Cube.scale', [0, 1, 2], [1, 1, 1, 1.8, 1.8, 1.8, 1, 1, 1])]);
     try { return await new GLTFExporter().parseAsync(box, { binary: true, animations: [grow] }); }
     finally { box.geometry.dispose(); box.material.dispose(); }
