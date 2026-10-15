@@ -8,7 +8,7 @@ import { createAuthStore, sessionCookie } from '../server/auth-store.mjs';
 import { createDraftStore } from '../server/draft-store.mjs';
 import { createTemplateStore } from '../server/template-store.mjs';
 import { closeDatabase, database } from '../server/database.mjs';
-import { demoProject, validateProject } from '../src/project.js';
+import { blankProject, demoProject, validateProject } from '../src/project.js';
 import { editorSession } from '../src/editor/project-session.js';
 
 const password = 'A long test password';
@@ -98,6 +98,85 @@ test('different compositions and drafts save independently; stale saves to the s
   await assert.rejects(drafts.update(draftA, { revision: 0, project: demoProject() }), error => error.status === 409);
   assert.equal((await createDraftStore(data).read(draftB)).revision, 1);
   await assert.rejects(drafts.read('../access/auth'), /Invalid draft ID/);
+});
+
+test('missing drafts stay blank and archiving them performs no writes', async t => {
+  const data = await folder(t), drafts = createDraftStore(data), templates = createTemplateStore(data), db = database(data);
+  const id = randomUUID(), before = db.prepare('SELECT total_changes() AS count').get().count;
+  assert.deepEqual(await drafts.read(id), { project: validateProject(blankProject()), revision: 0 });
+  assert.equal(await templates.archiveDraft(id), null);
+  assert.deepEqual(await templates.list(), []);
+  assert.equal(db.prepare('SELECT total_changes() AS count').get().count, before);
+  for (const invalid of ['../draft', '00000000-0000-0000-0000-000000000000', 'not-a-uuid']) {
+    await assert.rejects(templates.archiveDraft(invalid), /Invalid draft ID/);
+  }
+  assert.equal(db.prepare('SELECT count(*) AS count FROM meta WHERE key LIKE ?').get('draft-archive:%').count, 0);
+});
+
+test('draft archives preserve the complete persisted snapshot and revision exactly once across restarts', async t => {
+  const data = await folder(t), drafts = createDraftStore(data), templates = createTemplateStore(data), db = database(data);
+  const id = randomUUID(), project = demoProject();
+  project.name = 'Previous working draft';
+  await drafts.update(id, { revision: 0, project });
+  const original = db.prepare('SELECT * FROM drafts WHERE id = ?').get(id);
+  const archived = await templates.archiveDraft(id);
+  assert.equal(archived.name, project.name);
+  assert.deepEqual(archived.project, validateProject(project));
+  assert.deepEqual(archived.tags, []);
+  assert.deepEqual(db.prepare('SELECT * FROM drafts WHERE id = ?').get(id), original);
+  assert.deepEqual((await templates.version(archived.id, 1)).project, validateProject(project));
+  assert.equal((await templates.versions(archived.id)).length, 1);
+  assert.deepEqual(await templates.archiveDraft(id), archived);
+  assert.equal((await templates.list()).length, 1);
+  const marker = db.prepare('SELECT value FROM meta WHERE key = ?').get(`draft-archive:${id}:1`);
+  assert.deepEqual(JSON.parse(marker.value), { compositionId: archived.id });
+  assert.equal(db.prepare("SELECT count(*) AS count FROM audit_log WHERE action = 'composition.created' AND target_id = ?").get(archived.id).count, 1);
+  closeDatabase(data);
+  const restarted = createTemplateStore(data);
+  assert.deepEqual(await restarted.archiveDraft(id), archived);
+  assert.equal((await restarted.list()).length, 1);
+  assert.equal((await restarted.versions(archived.id)).length, 1);
+  assert.deepEqual(await createDraftStore(data).read(id), { project: validateProject(project), revision: 1 });
+});
+
+test('new draft revisions archive independently without changing open compositions or resurrecting deleted archives', async t => {
+  const data = await folder(t), templates = createTemplateStore(data), drafts = createDraftStore(data), id = randomUUID();
+  await drafts.update(id, { revision: 0, project: demoProject() });
+  const first = await templates.archiveDraft(id);
+  const edited = await templates.update(first.id, { name: 'Open library composition', project: { ...first.project, duration: 15 }, updatedAt: first.updatedAt });
+  const secondProject = { ...first.project, name: 'Later draft', duration: 16 };
+  await drafts.update(id, { revision: 1, project: secondProject });
+  const second = await templates.archiveDraft(id);
+  assert.notEqual(second.id, first.id);
+  assert.deepEqual(second.project, validateProject(secondProject));
+  assert.deepEqual(await templates.read(first.id), edited);
+  assert.deepEqual(await drafts.read(id), { project: validateProject(secondProject), revision: 2 });
+  await templates.remove(second.id);
+  closeDatabase(data);
+  const restarted = createTemplateStore(data);
+  assert.equal(await restarted.archiveDraft(id), null);
+  assert.deepEqual((await restarted.list()).map(entry => entry.id), [first.id]);
+  await createDraftStore(data).update(id, { revision: 2, project: secondProject });
+  const third = await restarted.archiveDraft(id);
+  assert.notEqual(third.id, second.id);
+  assert.equal((await restarted.list()).length, 2);
+});
+
+test('draft archive validation and marker failures leave no partial composition, version or audit writes', async t => {
+  const data = await folder(t), templates = createTemplateStore(data), drafts = createDraftStore(data), db = database(data), id = randomUUID();
+  db.prepare('INSERT INTO drafts (id, project, revision) VALUES (?, ?, ?)').run(id, JSON.stringify(null), 1);
+  await assert.rejects(templates.archiveDraft(id));
+  const project = { ...demoProject(), name: '   ' };
+  db.prepare('UPDATE drafts SET project = ? WHERE id = ?').run(JSON.stringify(project), id);
+  db.exec("CREATE TRIGGER reject_draft_archive BEFORE INSERT ON meta WHEN NEW.key LIKE 'draft-archive:%' BEGIN SELECT RAISE(ABORT, 'Archive marker unavailable'); END");
+  await assert.rejects(templates.archiveDraft(id), /Archive marker unavailable/);
+  for (const table of ['templates', 'composition_versions', 'audit_log']) assert.equal(db.prepare(`SELECT count(*) AS count FROM ${table}`).get().count, 0);
+  assert.equal(db.prepare('SELECT count(*) AS count FROM meta WHERE key LIKE ?').get('draft-archive:%').count, 0);
+  assert.deepEqual(await drafts.read(id), { project: validateProject(project), revision: 1 });
+  db.exec('DROP TRIGGER reject_draft_archive');
+  const archived = await templates.archiveDraft(id);
+  assert.equal(archived.name, 'Untitled');
+  assert.deepEqual(archived.project, validateProject(project));
 });
 
 test('the old global draft is preserved once without resurrecting deleted compositions', async t => {

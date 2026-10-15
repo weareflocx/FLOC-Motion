@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createAuthStore } from '../server/auth-store.mjs';
-import { demoProject } from '../src/project.js';
+import { blankProject, demoProject, validateProject } from '../src/project.js';
 import { root } from '../server/runtime-config.mjs';
 
 test('HTTP access requires invited accounts; shared compositions and renderer reads remain usable', { timeout: 30000 }, async t => {
@@ -51,6 +51,27 @@ test('HTTP access requires invited accounts; shared compositions and renderer re
   const secondAccept = await call('/api/auth/accept', { method: 'POST', body: { email: second.email, password: 'Another test password', token } });
   assert.equal(secondAccept.status, 200);
   const secondCookie = secondAccept.headers.get('set-cookie').split(';')[0];
+  assert.equal((await secondAccept.json()).user.role, 'editor');
+  const draftId = randomUUID(), archiveRoute = `/api/drafts/${draftId}/archive`;
+  assert.equal((await call(archiveRoute, { method: 'POST' })).status, 401);
+  assert.equal((await call(archiveRoute, { cookie: secondCookie, method: 'POST', requestOrigin: 'https://outside.example' })).status, 403);
+  assert.equal((await call(archiveRoute, { cookie: secondCookie, method: 'POST', requestOrigin: null })).status, 403);
+  assert.deepEqual(await (await call(`/api/drafts/${draftId}`, { cookie: secondCookie })).json(), { project: validateProject(blankProject()), revision: 0 });
+  const missingArchive = await call(archiveRoute, { cookie: secondCookie, method: 'POST' });
+  assert.equal(missingArchive.status, 200);
+  assert.deepEqual(await missingArchive.json(), { composition: null });
+  assert.deepEqual(await (await call('/api/templates', { cookie })).json(), { templates: [] });
+  const draftProject = { ...demoProject(), name: 'Editor draft' };
+  assert.equal((await call(`/api/drafts/${draftId}`, { cookie: secondCookie, method: 'PUT', body: { revision: 0, project: draftProject } })).status, 200);
+  const archive = await call(archiveRoute, { cookie: secondCookie, method: 'POST' });
+  assert.equal(archive.status, 200);
+  const { composition: archivedDraft } = await archive.json();
+  assert.deepEqual(archivedDraft.project, validateProject(draftProject));
+  assert.deepEqual(await (await call(`/api/templates/${archivedDraft.id}`, { cookie })).json(), archivedDraft);
+  const archivedVersions = await (await call(`/api/templates/${archivedDraft.id}/versions`, { cookie })).json();
+  assert.equal(archivedVersions.versions[0].author.email, second.email);
+  assert.deepEqual(await (await call(`/api/drafts/${draftId}`, { cookie: secondCookie })).json(), { project: validateProject(draftProject), revision: 1 });
+  assert.equal((await call('/api/drafts/00000000-0000-0000-0000-000000000000/archive', { cookie: secondCookie, method: 'POST' })).status, 400);
   const entries = await Promise.all([cookie, secondCookie].map(async (session, index) => {
     const response = await call('/api/templates', { cookie: session, method: 'POST', body: { name: `Composition ${index}`, tags: [], project: demoProject() } });
     assert.equal(response.status, 201); return response.json();

@@ -1,4 +1,4 @@
-import { demoProject, validateProject } from '../src/project.js';
+import { blankProject, validateProject } from '../src/project.js';
 import { database, transaction, UUID } from './database.mjs';
 
 export function createDraftStore(data) {
@@ -6,7 +6,7 @@ export function createDraftStore(data) {
   function read(id) {
     if (!UUID.test(id)) throw new Error('Invalid draft ID.');
     const saved = db.prepare('SELECT project, revision FROM drafts WHERE id = ?').get(id);
-    return saved ? { project: validateProject(JSON.parse(saved.project)), revision: saved.revision } : { project: validateProject(demoProject()), revision: 0 };
+    return saved ? { project: validateProject(JSON.parse(saved.project)), revision: saved.revision } : { project: validateProject(blankProject()), revision: 0 };
   }
   return {
     read: async id => read(id),
