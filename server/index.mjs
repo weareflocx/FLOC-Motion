@@ -133,11 +133,13 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       return json(res, result);
     }
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, effects: EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
+    if (route === '/api/assets' && req.method === 'GET') return json(res, { assets: await storage.library() });
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
-      const asset = await storage.upload(req, { ext, run, convertGif: ensureGifVideo });
-      return json(res, { id: asset.id, src: `/assets/${asset.id}.${ext}`, name: path.basename(name).slice(0, 200), type: types[ext] });
+      const fileName = path.basename(name).slice(0, 200);
+      const asset = await storage.upload(req, { ext, name: fileName, run, convertGif: ensureGifVideo });
+      return json(res, { id: asset.id, src: `/assets/${asset.id}.${ext}`, name: fileName, type: types[ext] });
     }
     if (route === '/api/fonts' && req.method === 'GET') return json(res, { fonts: fonts.list() });
     if (route === '/api/fonts' && req.method === 'POST') {

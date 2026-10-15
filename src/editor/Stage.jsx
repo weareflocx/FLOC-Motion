@@ -12,8 +12,9 @@ import { usePlaybackTime } from './usePlayback.js';
 import { measureLayerBounds } from './layer-bounds.js';
 import { selectionBounds } from './arrange.js';
 import { workspaceFontsReady } from './workspace-fonts.js';
+import { ASSET_DRAG_TYPE } from '../media-library.js';
 
-export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, zoom = 'fit', panning = false, onViewport, onExitPan }) {
+export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom = 'fit', panning = false, onViewport, onExitPan }) {
   const [activeProject, setActiveProject] = useState(project);
   const [sceneReady, setSceneReady] = useState(false);
   const [geometry, setGeometry] = useState({ rect: null, targets: [] });
@@ -180,6 +181,20 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
   }, [positionPreview, project, activeProject, selected, selection, time, playing, synchronized, clock]);
 
   const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, selection, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, enabled: synchronized });
+  // Media library items dropped on the canvas become layers centered on the pointer.
+  const [assetOver, setAssetOver] = useState(false);
+  const carriesAsset = event => Boolean(onDropAsset) && event.dataTransfer.types.includes(ASSET_DRAG_TYPE);
+  const assetDrop = {
+    onDragOver: event => { if (!carriesAsset(event)) return; event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setAssetOver(true); },
+    onDragLeave: event => { if (!event.currentTarget.contains(event.relatedTarget)) setAssetOver(false); },
+    onDrop: event => {
+      if (!carriesAsset(event)) return;
+      event.preventDefault(); setAssetOver(false);
+      const box = root.current.getBoundingClientRect(), clamp = value => Math.max(0, Math.min(100, value));
+      const asset = JSON.parse(event.dataTransfer.getData(ASSET_DRAG_TYPE));
+      onDropAsset(asset, { x: clamp((event.clientX - box.left) / box.width * 100), y: clamp((event.clientY - box.top) / box.height * 100), aspect: asset.aspect });
+    }
+  };
   // Selection chrome is measured at render time, so it is hidden while frames advance without renders.
-  return <div ref={holder} className={`stage-holder${panning ? ' is-panning' : ''}`} tabIndex={0} aria-label={panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : 'Canvas workspace: click empty space or press Escape to deselect'} onPointerDown={event => { if (!panning && event.target === event.currentTarget) { event.currentTarget.focus({ preventScroll: true }); handlers.onPointerDown(event); } }} onKeyDown={event => { if (!panning && event.target === event.currentTarget) handlers.onKeyDown(event); }} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{!playing && ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
+  return <div ref={holder} className={`stage-holder${panning ? ' is-panning' : ''}${assetOver ? ' is-asset-over' : ''}`} {...assetDrop} tabIndex={0} aria-label={panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : 'Canvas workspace: click empty space or press Escape to deselect'} onPointerDown={event => { if (!panning && event.target === event.currentTarget) { event.currentTarget.focus({ preventScroll: true }); handlers.onPointerDown(event); } }} onKeyDown={event => { if (!panning && event.target === event.currentTarget) handlers.onKeyDown(event); }} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{!playing && ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
 }

@@ -1,0 +1,145 @@
+.library-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.library-tools input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 7px 9px;
+}
+
+.library-filters {
+  margin-top: 6px;
+}
+
+.library-filters button {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 2px;
+  font-size: 10px;
+}
+
+.library-error {
+  color: #ff8f8f;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.library-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: grab;
+}
+
+.library-item:hover,
+.library-item:focus-within {
+  border-color: #555;
+}
+
+.library-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #111;
+  color: var(--muted);
+}
+
+.library-thumb>img,
+.library-thumb>video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.library-thumb .asset-kind {
+  font-size: 7px;
+}
+
+.library-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #d6d6d6;
+}
+
+.library-meta {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.library-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+}
+
+.library-actions .icon-button {
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 4px;
+  background: #161616e0;
+}
+
+@media (hover:hover) and (pointer:fine) {
+  .library-actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .library-item:hover .library-actions,
+  .library-item:focus-within .library-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.card-list {
+  margin-bottom: 8px;
+  border-radius: 6px;
+}
+
+/* Up to 24 cards: the list scrolls after about six rows so the card settings stay close. */
+.card-list .asset-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.card-list.is-drop-target,
+.stage-holder.is-asset-over {
+  outline: 1px dashed #ffffffa0;
+  outline-offset: -1px;
+}
+
+.card-list .asset[draggable="true"] {
+  cursor: grab;
+}
+
+.card-list .asset.is-drop-target {
+  box-shadow: inset 0 2px 0 #fff;
+}

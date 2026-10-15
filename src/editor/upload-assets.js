@@ -1,6 +1,9 @@
 import { request } from './request.js';
 import { prepareModelImports } from './model-import.js';
 export const MAX_ASSET_BYTES = 75e6;
+// The media library refreshes after any upload, wherever it started.
+const uploadListeners = new Set();
+export function onAssetsUploaded(listener) { uploadListeners.add(listener); return () => uploadListeners.delete(listener); }
 
 export function validateUploadFiles(files) {
   const oversized = files.find(file => file.size > MAX_ASSET_BYTES);
@@ -27,5 +30,6 @@ export async function uploadAssets(files, { maxFiles, modelOnly = false, limitMe
     });
     assets.push(name === file.name ? asset : { ...asset, name });
   }
+  uploadListeners.forEach(listener => listener(assets));
   return assets;
 }

@@ -60,10 +60,12 @@ const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace(
 test('the inspector edits the selected visual layer opacity, respects locks and excludes audio', () => {
   const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     useState: () => [false, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] }, PROJECT_LIMITS, SectionScope: { Provider: 'section-scope' } };
-  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'MusicNotes', 'UploadSimple', 'PlacementMap', 'FontControls', 'TypographyControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'ModelControls', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls', 'ProjectControls']) context[name] = function() {};
+  for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'FontControls', 'TypographyControls', 'TextRevealControls', 'BackgroundControls', 'MotionControls', 'OrientationControl', 'ModelControls', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls', 'ProjectControls', 'LayerHeader', 'CardList']) context[name] = function() {};
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.render = InspectorPanel;', context);
-  const nodes = node => node && typeof node === 'object' ? [node, ...(node.children || []).flat(Infinity).flatMap(nodes)] : [];
+  // The inspector's own sub-components render inline; imported controls stay stubs.
+  const local = ['Design', 'Motion', 'CarouselDesign', 'FlatTransform'];
+  const nodes = node => !node || typeof node !== 'object' ? [] : typeof node.type === 'function' && local.includes(node.type.name) ? nodes(node.type(node.props)) : [node, ...(node.children || []).flat(Infinity).flatMap(nodes)];
   for (const type of ['background', 'carousel', 'text', 'logo', 'media', 'model', 'effect', 'music']) {
     const layer = { ...validateProject(demoProject()).layers.find(item => item.type === 'text'), type, id: 'selected', template: 'circular', locked: true, opacity: .37 };
     const patches = [];

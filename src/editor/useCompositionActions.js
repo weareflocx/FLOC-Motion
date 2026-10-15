@@ -20,15 +20,19 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     setLeftTab('layers');
   }, [change, projectRef, setLeftTab, setSelected]);
 
-  const reorderImage = useCallback((index, delta) => {
-    const layer = project.layers.find(l => l.id === selected && l.type === 'carousel') || project.layers.find(l => l.type === 'carousel');
+  // Card list edits name their carousel; the inspector's Cards section owns them.
+  const editCards = useCallback((layerId, edit) => {
+    const current = projectRef.current, layer = current.layers.find(l => l.id === layerId && l.type === 'carousel');
     if (!layer || layer.locked) return;
-    const images = [...carouselImages(project, layer)];
-    const next = index + delta;
-    if (next < 0 || next >= images.length) return;
-    [images[index], images[next]] = [images[next], images[index]];
-    change({ ...project, layers: project.layers.map(l => l.id === layer.id ? { ...l, images } : l) });
-  }, [change, project, selected]);
+    const images = edit([...carouselImages(current, layer)]);
+    if (images) change({ ...current, layers: current.layers.map(l => l.id === layer.id ? { ...l, images } : l) });
+  }, [change, projectRef]);
+  const moveImage = useCallback((layerId, from, to) => editCards(layerId, images => {
+    if (from === to || to < 0 || to >= images.length || !images[from]) return null;
+    images.splice(to, 0, ...images.splice(from, 1));
+    return images;
+  }), [editCards]);
+  const removeImage = useCallback((layerId, index) => editCards(layerId, images => images.filter((_, imageIndex) => imageIndex !== index)), [editCards]);
 
   const moveLayer = useCallback((delta, id = selected) => {
     const current = projectRef.current;
@@ -52,13 +56,6 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     const newId = crypto.randomUUID();
     if (change(duplicateLayer(current, id, newId))) setSelected(newId);
   }, [change, projectRef, setSelected]);
-
-  const removeImage = useCallback(index => {
-    const layer = project.layers.find(l => l.id === selected && l.type === 'carousel') || project.layers.find(l => l.type === 'carousel');
-    if (!layer || layer.locked) return;
-    const images = carouselImages(project, layer).filter((_, imageIndex) => imageIndex !== index);
-    change({ ...project, layers: project.layers.map(l => l.id === layer.id ? { ...l, images } : l) });
-  }, [change, project, selected]);
 
   const removeText = useCallback(id => {
     if (project.layers.find(layer => layer.id === id)?.locked) return;
@@ -137,5 +134,5 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     return positions.length ? positionLayers(positions, time) : current;
   }, [positionLayers, projectRef, report]);
 
-  return { addLayer, addText, reorderImage, moveLayer, dropLayer, copyLayer, removeImage, removeText, removeLayers, duplicateLayers, setLayersFlag, positionLayers, arrangeLayers };
+  return { addLayer, addText, moveImage, moveLayer, dropLayer, copyLayer, removeImage, removeText, removeLayers, duplicateLayers, setLayersFlag, positionLayers, arrangeLayers };
 }

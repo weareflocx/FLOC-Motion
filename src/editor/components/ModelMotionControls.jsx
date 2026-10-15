@@ -7,9 +7,9 @@ const motionNames = { none: 'None', spin: 'Spin', rock: 'Rock', float: 'Float', 
 const autoAxes = { spin: 'Y', rock: 'Z', float: 'Y', pulse: 'X / Y / Z' };
 const spaceNames = { screen: 'Screen', object: 'Object', euler: 'Legacy' };
 const spaceHelp = {
-  screen: 'Axes follow the screen: X is horizontal, Y vertical and Z points toward you, whatever the model’s orientation.',
-  object: 'Axes follow the model’s own orientation: a tilted model spins about its own tilted axis.',
-  euler: 'Earlier projects add motion to the orientation angles: X follows the screen, Z the model and Y lies in between. Choose Screen or Object for consistent axes.'
+  screen: 'X is horizontal, Y vertical and Z toward you.',
+  object: 'Axes follow the model’s own tilt.',
+  euler: 'Earlier projects’ mixed axes; choose Screen or Object.'
 };
 
 export function ModelMotionControls({ style, onChange }) {
@@ -29,10 +29,10 @@ export function ModelMotionControls({ style, onChange }) {
       {style.motion !== 'none' && <>
         <Field label="Axis"><select aria-label="Motion axis" value={style.motionAxis} onChange={event => onChange({ ...style, motionAxis: event.target.value })}>{MODEL_MOTION_AXES.map(axis => <option key={axis} value={axis}>{axis === 'auto' ? `Auto · ${autoAxes[style.motion]}` : axis.toUpperCase()}</option>)}</select></Field>
         <Field label="Axis space"><select aria-label="Motion axis space" value={style.motionSpace} onChange={event => onChange({ ...style, motionSpace: event.target.value })}>{MODEL_MOTION_SPACES.filter(space => space !== 'euler' || style.motionSpace === 'euler').map(space => <option key={space} value={space}>{spaceNames[space]}</option>)}</select></Field>
-        <p className="helper">{spaceHelp[style.motionSpace]} Pulse scales the selected axis; Auto scales all three.</p>
+        <p className="helper">{spaceHelp[style.motionSpace]}</p>
         {!spin && <Range label="Motion amplitude" value={style.motionAmplitude} min={MODEL_STYLE_RANGES.motionAmplitude[0]} max={MODEL_STYLE_RANGES.motionAmplitude[1]} step={0.01} scale={100} onChange={motionAmplitude => onChange({ ...style, motionAmplitude })}/>}
       </>}
-      <p className="helper">Automatic motion adds to the authored pose independently of embedded clips.</p>
+      {style.motion === 'none' && <p className="helper">Adds to the pose, independently of embedded clips.</p>}
     </Section>
     {style.motion !== 'none' && <>
       <RhythmControls motion={motion} onChange={changeTiming} actionSummary={<>
@@ -44,7 +44,7 @@ export function ModelMotionControls({ style, onChange }) {
           <Range label="Speed multiplier" value={Math.abs(style.motionSpeed)} min={0} max={MODEL_STYLE_RANGES.motionSpeed[1]} step={0.01} scale={100} onChange={magnitude => onChange({ ...style, motionSpeed: magnitude * (Math.sign(style.motionSpeed) || 1) })}/>
         </>}
         {direction}
-        <p className="helper">{steps ? 'Each action is followed by a pause. Direction controls the turn or oscillation; Paused holds the rest pose.' : '100% is normal speed. Duration is one cycle at normal speed; Paused holds the rest pose.'}</p>
+        <p className="helper">{steps ? 'Each action is followed by a pause.' : '100% is normal speed for one cycle.'}</p>
       </RhythmControls>
       <CharacterControls motion={motion} onChange={changeTiming} onReset={() => onChange(resetModelMotion(style))}/>
     </>}

@@ -7,6 +7,7 @@ import { editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
 import { fitFades } from '../src/project.js';
 import { moveState, choreographyFields } from '../src/choreography.js';
 import { LAYER_COLORS } from '../src/editor/layer-colors.js';
+import { LAYER_KINDS } from '../src/editor/layer-kinds.js';
 
 const source = fs.readFileSync(new URL('../src/timeline.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -16,7 +17,7 @@ function timeline({ locked = false, time = 3, mode = 'choreography', width = 800
   let cursor = 0;
   const layer = { id: 'title', type: 'text', name: 'Title', text: 'Hello', visible: true, locked, start: 2, end: 6, fadeIn: .2, fadeOut: .2,
     choreography: [{ id: 'a', time: 0 }, { id: 'b', time: 1 }, { id: 'c', time: 3 }].map(state => ({ ...state, easing: 'smooth', values: { x: 5, y: 5, size: 40, opacity: 1 } })) };
-  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, editClip, editFade, timeAtPointer, fitFades, moveState, choreographyFields, LAYER_COLORS,
+  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, editClip, editFade, timeAtPointer, fitFades, moveState, choreographyFields, LAYER_COLORS, LAYER_KINDS,
     useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value: value === 0 ? width : value }; return [slots[i].value, next => { slots[i].value = next; }]; } };

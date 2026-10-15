@@ -15,7 +15,8 @@ function EffectRow({ name, scope, label = name, enabled, onToggle, onRemove, rem
   </details>;
 }
 
-export function EffectControls({ layer, onPatch }) {
+// Appearance: the layer's opacity (passed as children) followed by its ordered effect stack.
+export function EffectControls({ layer, onPatch, children }) {
   if (!EFFECT_LAYER_TYPES.includes(layer.type)) return null;
   const effects = layer.effects ?? [];
   const update = (index, patch) => onPatch(layer.id, { effects: effects.map((effect, i) => i === index ? { ...effect, ...patch } : effect) });
@@ -28,7 +29,8 @@ export function EffectControls({ layer, onPatch }) {
   const add = type => onPatch(layer.id, { effects: [...effects, newEffect(type, effects.length)] });
   const percent = (label, effect, index) => <Range label="Amount" ariaLabel={`${label} amount ${index + 1}`} value={effect.amount * 100} min={0} max={100} suffix="%" onChange={amount => update(index, { amount: amount / 100 })}/>;
   const fraction = (label, ariaLabel, effect, key, index) => <Range label={label} ariaLabel={`${ariaLabel} ${index + 1}`} value={effect[key] * 100} min={0} max={100} suffix="%" onChange={value => update(index, { [key]: value / 100 })}/>;
-  return <Section title="Effects" defaultOpen={layer.type === 'effect'} detail={effects.length ? `${effects.length} effect${effects.length === 1 ? '' : 's'}` : 'None'}>
+  return <Section title="Appearance" defaultOpen={layer.type === 'effect'} detail={`${Math.round((layer.opacity ?? 1) * 100)}% · ${effects.length ? `${effects.length} effect${effects.length === 1 ? '' : 's'}` : 'No effects'}`}>
+    {children}
     {layer.type === 'effect' && <Field label="Scope"><select aria-label="Effect scope" value={layer.effectScope ?? 'overlay'} onChange={event => onPatch(layer.id, { effectScope: event.target.value })}>
       <option value="below">Below layers</option>
       <option value="overlay" disabled={effects.some(effect => effect.type !== 'noise')}>Texture overlay</option>

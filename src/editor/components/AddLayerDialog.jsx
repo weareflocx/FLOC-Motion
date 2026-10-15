@@ -7,7 +7,7 @@ import { MODEL_IMPORT_ACCEPT } from '../model-import.js';
 
 const visualFiles = '.png,.jpg,.jpeg,.webp,.gif,.avif,.svg,.mp4,.webm';
 const imageFiles = '.png,.jpg,.jpeg,.webp,.avif,.svg';
-const allFiles = `${visualFiles},.mp3,.wav,.m4a,.ogg,${MODEL_IMPORT_ACCEPT}`;
+export const allFiles = `${visualFiles},.mp3,.wav,.m4a,.ogg,${MODEL_IMPORT_ACCEPT}`;
 const audioFiles = '.mp3,.wav,.m4a,.ogg';
 export function AddLayerDialog({ project, initialTarget = 'layers', uploading, onClose, onPick, onAddText, onAddLayer }) {
   const [creatingCarousel, setCreatingCarousel] = useState(false);

@@ -63,6 +63,56 @@
   }
 }
 
+/* Inspector header: editable name and kind, visibility and lock, and source replacement. */
+.layer-header {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 12px 0 10px;
+}
+
+.layer-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.layer-header-name {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  margin-left: -6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.layer-header-name:hover:not(:disabled),
+.layer-header-name:focus {
+  border-color: #ffffff26;
+  background: #1f1f22;
+}
+
+.layer-header-kind {
+  font-size: 10px;
+  color: #8d8d8d;
+}
+
+.layer-header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.layer-header-source {
+  grid-column: 1/-1;
+}
+
 .layer-row .icon-button {
   min-width: 23px;
   min-height: 26px;

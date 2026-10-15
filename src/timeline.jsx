@@ -4,11 +4,11 @@ import { editClip, editFade, timeAtPointer } from './editor-controls.js';
 import { fitFades } from './project.js';
 import { moveState, choreographyFields } from './choreography.js';
 import { LAYER_COLORS } from './editor/layer-colors.js';
+import { LAYER_KINDS } from './editor/layer-kinds.js';
 import { TimelineTimingControls } from './editor/components/TimelineTimingControls.jsx';
 import './timeline-choreography.css';
 
 const isFade = kind => kind === 'fadeIn' || kind === 'fadeOut';
-const layerTypes = { background: 'Background', carousel: 'Carousel', text: 'Text', logo: 'Logo', music: 'Audio', media: 'Media', model: '3D model', effect: 'Effect' };
 
 export function TimelineTracks({ project, selected, clock, time, icons, mode = 'timing', controlsLayerId = null, rulerControls, onOpenControls, onSelect, onSelectState = onSelect, onSeek, onCommit }) {
   const ruler = useRef(null); const tracks = useRef(null);
@@ -167,7 +167,7 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
       return <div className={`track-row ${selected === l.id ? 'selected' : ''} ${l.locked ? 'locked' : ''}`} key={l.id} style={{ '--layer-color': LAYER_COLORS[l.type] }}>
         <div className="track-heading">
           <div className="track-heading-main">
-            <button type="button" className="track-name" onClick={() => onSelect(l.id)} aria-label={`Select ${l.name} track`} aria-pressed={selected === l.id} title={`${l.name} · ${layerTypes[l.type]}${l.locked ? ' · Locked' : ''}${!l.visible ? ' · Hidden' : ''}`}>
+            <button type="button" className="track-name" onClick={() => onSelect(l.id)} aria-label={`Select ${l.name} track`} aria-pressed={selected === l.id} title={`${l.name} · ${LAYER_KINDS[l.type]}${l.locked ? ' · Locked' : ''}${!l.visible ? ' · Hidden' : ''}`}>
               <span className="track-icon"><Icon size={16}/></span><span className="track-title">{l.name}</span>
               {(l.locked || !l.visible) && <span className="track-state">{l.locked && <LockSimple size={12} aria-hidden="true"/>}{!l.visible && <EyeSlash size={12} aria-hidden="true"/>}</span>}
             </button>
