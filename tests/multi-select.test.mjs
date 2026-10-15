@@ -77,9 +77,9 @@ test('alignment and distribution move measured boxes, and group offsets respect 
 });
 
 function workspace({ layout } = {}) {
-  const slots = []; let cursor = 0, selection = [], notices = [];
+  const slots = []; let cursor = 0, selection = [], notices = [], uuid = 0;
   const context = { ...choreographyOps, ...projectOps, ...historyOps, ...selectionOps, ...arrangeOps, ...boundsOps, safeArea, BRAND,
-    effectLayer() {}, editorSession: () => ({ draftId: 'draft' }), crypto: { randomUUID: () => `copy-${slots.length}-${cursor++}` },
+    effectLayer() {}, editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }), crypto: { randomUUID: () => `copy-${++uuid}` },
     useCallback: fn => fn, useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; if (!(i in slots)) slots[i] = typeof value === 'function' ? value() : value; return [slots[i], next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; }]; } };
@@ -87,6 +87,8 @@ function workspace({ layout } = {}) {
   for (const file of ['choreography-edit.js', 'useProject.js', 'useCompositionActions.js']) vm.runInContext(strip(read(file)), context);
   let api, actions;
   const render = () => { cursor = 0; api = context.useProject(); actions = context.useCompositionActions({ project: api.projectRef.current, projectRef: api.projectRef, selected: selection.at(-1), change: api.change, report: message => notices.push(message), setSelected(id) { selection = [id]; }, setSelection(ids) { selection = ids; } }); };
+  render();
+  api.importDraft(projectOps.demoProject());
   render();
   if (layout) { api.change({ ...api.projectRef.current, layout }); render(); }
   // Rendered boxes in a 1000 px frame: headline is offset from its stored x like rotated text.

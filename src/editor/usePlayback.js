@@ -39,7 +39,7 @@ export function usePlaybackTime(clock, step = 0) {
 }
 
 export function usePlayback({ projectRef, duration, step = 0.1 }) {
-  const [clock] = useState(() => createPlaybackClock({ time: 0.65, duration: () => projectRef.current.duration }));
+  const [clock] = useState(() => createPlaybackClock({ duration: () => projectRef.current.duration }));
   const playing = useSyncExternalStore(clock.subscribe, () => clock.get().playing);
   const time = usePlaybackTime(clock, step);
   useEffect(() => () => clock.setPlaying(false), [clock]);

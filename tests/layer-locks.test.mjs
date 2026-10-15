@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
-import { PROJECT_LIMITS, assertLocksRespected, carouselImages, demoProject, fileLayer, duplicateLayer, linkFormats, patchLayer, patchTemplateContent, reorderLayer, resetFormat, resizeDuration, switchFormat, validateProject } from '../src/project.js';
+import { PROJECT_LIMITS, assertLocksRespected, blankProject, carouselImages, demoProject, fileLayer, duplicateLayer, linkFormats, patchLayer, patchTemplateContent, reorderLayer, resetFormat, resizeDuration, switchFormat, validateProject } from '../src/project.js';
 import { getCatalogEntry, listCatalog } from '../src/catalog.js';
 import { createStyleAlternatives } from '../src/visual-alternatives.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
@@ -18,7 +18,7 @@ const check = (previous, next, options) => assertLocksRespected(previous, valida
 function editor() {
   const slots = []; let cursor = 0, selected = 'headline';
   const context = {
-    PROJECT_LIMITS, assertLocksRespected, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, duplicateLayer, reorderLayer, carouselImages, crypto: webcrypto, ...historyOps,
+    PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, duplicateLayer, reorderLayer, carouselImages, crypto: webcrypto, ...historyOps,
     editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }),
     request: async () => { throw new Error('Offline'); },
     useCallback: fn => fn, useEffect() {},
@@ -30,6 +30,7 @@ function editor() {
     const source = fs.readFileSync(new URL(`../src/editor/${file}`, import.meta.url), 'utf8');
     vm.runInContext(source.replace(/^import .*;\n/gm, '').replace(/export function /g, 'function '), context);
   }
+  context.useProject().importDraft(demoProject());
   return () => {
     cursor = 0;
     const api = context.useProject();

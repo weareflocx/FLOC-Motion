@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, fileLayer, patchLayer, validateProject } from '../project.js';
+import { PROJECT_LIMITS, assertLocksRespected, blankProject, fileLayer, patchLayer, validateProject } from '../project.js';
 import { request } from './request.js';
 import { historyShortcut } from './history-shortcut.js';
 import { applyDiff, diffProjects, pushHistory, restoreHistory, revertDiff, stashHistory } from './history.js';
@@ -12,7 +12,7 @@ import { editorSession } from './project-session.js';
  */
 export function useProject({ userId } = {}) {
   const [session] = useState(() => editorSession(userId));
-  const [project, setProject] = useState(() => validateProject(demoProject()));
+  const [project, setProject] = useState(() => validateProject(blankProject()));
   const projectRef = useRef(project);
   const draftRevisions = useRef(new Map());
   const compositionRef = useRef(null);
@@ -20,8 +20,9 @@ export function useProject({ userId } = {}) {
   const dirty = useRef(false);
   const saveQueue = useRef(Promise.resolve());
   const hydrated = useRef(false);
+  const startup = useRef(null);
   const [loaded, setLoaded] = useState(false);
-  const [status, setStatus] = useState('Loading project');
+  const [status, setStatus] = useState('Opening new document');
   const [error, setError] = useState('');
   // Undo/redo entries are reversible diffs; other documents' stacks wait in
   // `stashes` (keyed by composition id or draft) until they are reopened.
@@ -145,6 +146,35 @@ export function useProject({ userId } = {}) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [undo, redo]);
 
+  // Opening the app is not "reload latest": preserve the prior tab's persisted draft, then
+  // start an independent document. Keep its old storage pointer until preservation succeeds.
+  const startFresh = useCallback(() => {
+    if (hydrated.current) return Promise.resolve(projectRef.current);
+    if (startup.current) return startup.current;
+    startup.current = (async () => {
+      setStatus('Opening new document'); setError('');
+      if (!session.compositionId) await request(`/api/drafts/${session.draftId}/archive`, { method: 'POST' });
+      const next = validateProject(blankProject());
+      session.draftId = crypto.randomUUID();
+      session.compositionId = null;
+      session.remember();
+      projectRef.current = next;
+      compositionRef.current = null;
+      setProject(next); setComposition(null);
+      clearHistory();
+      dirty.current = false;
+      hydrated.current = true;
+      setLoaded(true);
+      setStatus('New document');
+      return next;
+    })().catch(openError => {
+      setError(openError.message);
+      setStatus('Open failed');
+      throw openError;
+    }).finally(() => { startup.current = null; });
+    return startup.current;
+  }, [clearHistory, session]);
+
   const reload = useCallback(async () => {
     const current = projectRef.current;
     const identity = compositionRef.current?.id;
@@ -172,7 +202,7 @@ export function useProject({ userId } = {}) {
     hydrated.current = true;
     setLoaded(true);
     setError('');
-    setStatus(data.composition ? 'All changes saved' : 'Draft saved');
+    setStatus(data.composition ? 'All changes saved' : data.revision ? 'Draft saved' : 'New document');
     return next;
   }, [clearHistory, session]);
 
@@ -234,6 +264,8 @@ export function useProject({ userId } = {}) {
     canvasEdit.current?.();
     const current = projectRef.current;
     const draftId = session.draftId;
+    // Opening New or Compositions from an untouched startup document must not archive a blank.
+    if (!compositionRef.current && !dirty.current && !(draftRevisions.current.get(draftId) > 0)) return;
     await save();
     let archive = null;
     if (!compositionRef.current) {
@@ -277,14 +309,14 @@ export function useProject({ userId } = {}) {
   }, []);
 
   useEffect(() => {
-    reload().catch(loadError => { setError(loadError.message); setStatus('Offline'); });
+    startFresh().catch(() => {});
     const restore = () => {
-      if (!hydrated.current) reload().catch(loadError => setError(loadError.message));
+      if (!hydrated.current) startFresh().catch(() => {});
       else if (dirty.current) save().catch(saveError => setError(saveError.message));
     };
     window.addEventListener('floc-session-restored', restore);
     return () => window.removeEventListener('floc-session-restored', restore);
-  }, [reload, save]);
+  }, [startFresh, save]);
 
   useEffect(() => {
     if (!loaded || !hydrated.current || !dirty.current) return undefined;
@@ -298,6 +330,7 @@ export function useProject({ userId } = {}) {
   return {
     project,
     composition,
+    startFresh,
     openComposition,
     updateCompositionMetadata,
     saveCopy,

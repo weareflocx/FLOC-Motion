@@ -31,8 +31,8 @@ document.head.appendChild(fontStyles);
 
 function App({ user, onSignOut }) {
   const session = useProject({ userId: user.id });
-  const { project, projectRef, composition, loaded, status, error, canvasEditing, change, patch, save, reload, setError } = session;
-  const selection = useSelection({ layers: project.layers, initial: 'carousel' });
+  const { project, projectRef, composition, loaded, status, error, canvasEditing, change, patch, save, reload, startFresh, setError } = session;
+  const selection = useSelection({ layers: project.layers });
   // App-level time holds the playback origin while playing; the stage, timeline playhead and timecode follow the clock directly.
   const playback = usePlayback({ projectRef, duration: project.duration, step: Infinity });
   const { clock, time, setTime, setPlaying } = playback;
@@ -65,7 +65,7 @@ function App({ user, onSignOut }) {
       onOpenContent={() => dialogs.openContent({ project: projectRef.current, copy: false })} onOpenTemplates={dialogs.openTemplates} onExplore={explore}
       canExplore={!dialogs.alternativesBlocked && exploreReady} status={status} agentState={agent.agentState} loaded={loaded} onOpenAgent={() => setAgentOpen(true)}
       onImport={() => files.importInput.current.click()} onDownload={files.downloadProject} onExport={dialogs.openExport}/>
-    <ErrorBanner error={error} status={status} onRetry={() => save().catch(() => {})} onReload={discardLocal} onDismiss={() => setError('')}/>
+    <ErrorBanner error={error} status={status} onRetry={() => (loaded ? save() : startFresh()).catch(() => {})} onReload={discardLocal} onDismiss={() => setError('')}/>
     <EditorWorkspace session={session} selection={selection} playback={playback} view={view} dialogs={dialogs} editing={editing} files={files} actions={actions} group={group}/>
     <EditorDialogs user={user} onSignOut={onSignOut} session={session} playback={playback} setSelected={setSelected} view={view} dialogs={dialogs} files={files} actions={actions}
       exportJob={exportJob} agent={agent} alternatives={alternatives} commands={commands}/>
