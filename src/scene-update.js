@@ -15,11 +15,16 @@ const STRUCTURAL = {
 const sources = (project, layer) => JSON.stringify(carouselImages(project, layer).map(image => image.src));
 // Animated effect amounts change how effect textures are prepared.
 const animatedEffects = layer => animatedFields(layer).filter(field => Object.hasOwn(EFFECT_FIELDS, field)).join();
+// A delayed SVG decode can cross a browser paint before refraction reads the
+// carousel canvases. Their immutable context attributes must retain that frame.
+export const needsRetainedCarouselFrames = project => project.layers.some(layer => layer.type === 'carousel')
+  && project.layers.some(layer => layer.type === 'model' && layer.modelStyle?.shader === 'refractive');
 
 // Returns null when `next` needs a new scene, otherwise what the in-place
 // update must refresh besides layer values.
 export function sceneUpdatePlan(previous, next) {
   if (previous.format !== next.format || previous.layers.length !== next.layers.length) return null;
+  if (needsRetainedCarouselFrames(previous) !== needsRetainedCarouselFrames(next)) return null;
   let effects = false;
   for (const [index, layer] of next.layers.entries()) {
     const before = previous.layers[index];

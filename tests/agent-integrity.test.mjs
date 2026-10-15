@@ -52,9 +52,11 @@ test('agent discovers installed model controls and saves canonical validated edi
   const call = (name, args) => tools.find(tool => tool.name === name).execute(args);
   const discovery = JSON.parse(await call('floc_list_effects'));
   assert.deepEqual(discovery.model.defaults, DEFAULT_MODEL_STYLE);
-  assert.deepEqual(discovery.model.materialPresets.map(preset => preset.id), ['original', 'matte', 'plastic', 'ceramic', 'lacquer', 'rubber', 'chrome', 'satin', 'gold', 'rose-gold', 'copper', 'brushed-aluminium', 'brushed-gold', 'gunmetal', 'iridescent', 'holographic', 'titanium', 'oil-slick', 'pearl', 'velvet', 'clear-glass', 'frosted-glass', 'tinted-glass', 'smoked-glass', 'bubble', 'prism', 'diamond', 'frosted-crystal']);
-  assert.ok(discovery.model.materialPresets.every(preset => ['basic', 'metal', 'iridescent', 'fabric', 'glass', 'crystal'].includes(preset.family)));
-  assert.deepEqual(discovery.model.shaders, ['standard', 'toon', 'fresnel', 'wireframe', 'glass', 'crystal']);
+  assert.deepEqual(discovery.model.materialPresets.map(preset => preset.id), ['original', 'matte', 'plastic', 'ceramic', 'lacquer', 'rubber', 'chrome', 'satin', 'gold', 'rose-gold', 'copper', 'brushed-aluminium', 'brushed-gold', 'gunmetal', 'iridescent', 'holographic', 'titanium', 'oil-slick', 'pearl', 'velvet', 'clear-glass', 'frosted-glass', 'tinted-glass', 'smoked-glass', 'bubble', 'prism', 'diamond', 'frosted-crystal', 'refractive-clear', 'refractive-frosted', 'refractive-prism']);
+  assert.ok(discovery.model.materialPresets.every(preset => ['basic', 'metal', 'iridescent', 'fabric', 'glass', 'crystal', 'refractive'].includes(preset.family)));
+  assert.deepEqual(discovery.model.shaders, ['standard', 'toon', 'fresnel', 'wireframe', 'glass', 'crystal', 'refractive']);
+  assert.deepEqual(discovery.model.refractionSamples, [4, 8, 16]);
+  assert.deepEqual(discovery.model.refractionResolutions, [256, 512, 1024, 2048]);
   assert.deepEqual(discovery.model.environments, ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
   assert.deepEqual(discovery.model.toneMappings, ['none', 'neutral', 'agx']);
   assert.deepEqual(discovery.model.motions, ['none', 'spin', 'rock', 'float', 'pulse']);
@@ -66,12 +68,24 @@ test('agent discovers installed model controls and saves canonical validated edi
   assert.deepEqual(['type', 'minimum', 'maximum'].map(key => modelSchema.properties.motionSteps[key]), ['integer', 1, 24]);
   assert.equal(modelSchema.properties.motionTiming.additionalProperties, false);
   assert.deepEqual(modelSchema.properties.motionTiming.properties.curve.enum, discovery.model.motionTiming.curves.map(([id]) => id));
+  assert.deepEqual(modelSchema.properties.refractionSamples.enum, [4, 8, 16]);
+  assert.deepEqual(modelSchema.properties.refractionResolution.enum, [256, 512, 1024, 2048]);
+  assert.equal(modelSchema.properties.refractionSamples.type, 'integer');
+  assert.equal(modelSchema.properties.refractionResolution.type, 'integer');
   for (const preset of discovery.model.materialPresets) {
     await call('floc_update_layer', { id: 'model', patch: { modelStyle: preset.settings } });
     const snapshot = JSON.parse(saved.at(-1));
     assert.deepEqual(snapshot, validateProject(snapshot));
     assert.deepEqual(snapshot.layers[0].modelStyle, { ...DEFAULT_MODEL_STYLE, ...preset.settings });
     assert.equal(snapshot.layers[0].modelStyle.mode, preset.id === 'original' ? 'original' : 'replace');
+  }
+  await call('floc_update_layer', { id: 'model', patch: { modelStyle: { shader: 'refractive', refractionThickness: 2, refractionSamples: 16, refractionResolution: 2048 } } });
+  const refractiveSource = saved.at(-1);
+  const refractiveImport = await parseProjectFile({ size: Buffer.byteLength(refractiveSource), async text() { return refractiveSource; } });
+  assert.deepEqual([refractiveImport.layers[0].modelStyle.shader, refractiveImport.layers[0].modelStyle.refractionThickness, refractiveImport.layers[0].modelStyle.refractionSamples, refractiveImport.layers[0].modelStyle.refractionResolution], ['refractive', 2, 16, 2048]);
+  for (const settings of [{ refractionThickness: -1 }, { refractionThickness: 2.1 }, { refractionSamples: 12 }, { refractionSamples: '8' }, { refractionResolution: 768 }, { refractionResolution: '1024' }]) {
+    const source = JSON.stringify({ ...refractiveImport, layers: [{ ...refractiveImport.layers[0], modelStyle: { ...refractiveImport.layers[0].modelStyle, ...settings } }] });
+    await assert.rejects(parseProjectFile({ size: Buffer.byteLength(source), async text() { return source; } }));
   }
   await call('floc_update_layer', { id: 'model', patch: { modelStyle: { shader: 'wireframe', motion: 'spin', motionSpeed: -2, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .4, pause: .8, curve: 'back', intensity: .9 }, animationClip: -1 } } });
   assert.equal(project.layers[0].modelStyle.shader, 'wireframe');
@@ -88,6 +102,12 @@ test('agent discovers installed model controls and saves canonical validated edi
     { modelStyle: { roughness: -0.01 } },
     { modelStyle: { ambientIntensity: '3' } },
     { modelStyle: { animationClip: 0.5 } },
+    { modelStyle: { refractionThickness: 2.1 } },
+    { modelStyle: { refractionThickness: NaN } },
+    { modelStyle: { refractionSamples: 12 } },
+    { modelStyle: { refractionSamples: '8' } },
+    { modelStyle: { refractionResolution: 768 } },
+    { modelStyle: { refractionResolution: '1024' } },
     { modelStyle: null },
     { modelStyle: { motionAxis: 'xy' } }, { modelStyle: { motionSteps: 2.5 } },
     { modelStyle: { motionTiming: { action: 0 } } }, { modelStyle: { motionTiming: { curve: 'custom' } } },

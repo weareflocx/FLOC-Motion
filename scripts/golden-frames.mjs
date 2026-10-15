@@ -117,13 +117,13 @@ export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixtu
 export const fixtureHash = fixture => createHash('sha256').update(JSON.stringify({ times: fixture.times, project: { ...fixture.project, version: undefined } })).digest('hex').slice(0, 16);
 export const frameName = (id, time) => `${id}-${time.toFixed(2)}s.png`;
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webm': 'video/webm', '.woff2': 'font/woff2', '.json': 'application/json' };
-function serve(routes, exportRoot) {
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webm': 'video/webm', '.glb': 'model/gltf-binary', '.woff2': 'font/woff2', '.json': 'application/json' };
+function serve(routes, exportRoot, assetDirectory) {
   const server = http.createServer(async (req, res) => {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
       if (routes.has(pathname)) { const [type, body] = routes.get(pathname); res.writeHead(200, { 'Content-Type': type }); return res.end(body); }
-      const [prefix, folder] = pathname.startsWith('/export/') ? ['/export/', exportRoot] : pathname.startsWith('/assets/') ? ['/assets/', FIXTURE_ASSET_DIR] : ['/', path.join(root, 'public')];
+      const [prefix, folder] = pathname.startsWith('/export/') ? ['/export/', exportRoot] : pathname.startsWith('/assets/') ? ['/assets/', assetDirectory] : ['/', path.join(root, 'public')];
       const file = path.join(folder, path.normalize(pathname.slice(prefix.length)));
       if (!file.startsWith(folder + path.sep)) throw new Error('Outside served folder');
       const body = await readFile(file);
@@ -170,13 +170,13 @@ async function imageTools(page) {
 // SwiftShader serializes WebGL inside one browser's GPU process, so
 // parallelism comes from separate browsers.
 const defaultLanes = Math.max(1, Math.min(4, Math.floor(os.availableParallelism() / 2)));
-export async function openGoldenSession({ lanes = defaultLanes } = {}) {
+export async function openGoldenSession({ lanes = defaultLanes, assetDirectory = FIXTURE_ASSET_DIR } = {}) {
   const { default: puppeteer } = await import('puppeteer-core');
   const work = await mkdtemp(path.join(os.tmpdir(), 'floc-golden-'));
   // Exports read workspace assets from the data folder; this session's is temporary.
   const assets = path.join(work, 'data/assets'), dataDir = process.env.FLOC_DATA_DIR;
   await mkdir(assets, { recursive: true });
-  for (const name of await readdir(FIXTURE_ASSET_DIR)) await copyFile(path.join(FIXTURE_ASSET_DIR, name), path.join(assets, name));
+  for (const name of await readdir(assetDirectory)) await copyFile(path.join(assetDirectory, name), path.join(assets, name));
   process.env.FLOC_DATA_DIR = path.dirname(assets);
   const bundle = await build({ stdin: { resolveDir: path.join(root, 'src'), contents: `
     import { createScene, stageMarkup } from './scene.js';
@@ -199,7 +199,7 @@ export async function openGoldenSession({ lanes = defaultLanes } = {}) {
     ['/preview.js', ['text/javascript', bundle.outputFiles[0].text]],
     ['/tools.html', ['text/html', '<!doctype html><title>tools</title>']]
   ]);
-  const server = await serve(routes, work);
+  const server = await serve(routes, work, assetDirectory);
   const origin = `http://127.0.0.1:${server.address().port}`;
   const browsers = await Promise.all(Array.from({ length: lanes }, async () => {
     // WebGL runs on SwiftShader for reproducible pixels; software compositing avoids a second emulated GL pass.
@@ -223,7 +223,7 @@ export async function openGoldenSession({ lanes = defaultLanes } = {}) {
         await page.evaluate(seek, time);
         // Let the compositor present the drawn frame before capturing it.
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const full = await (await page.$(selector)).screenshot({ encoding: 'base64' });
+        const full = await (await page.$(selector)).screenshot({ encoding: 'base64', omitBackground: fixture.settings?.transparent === true });
         frames.push(Buffer.from(await tools.evaluate((value, width) => window.shrink(value, width), full, CAPTURE_WIDTH), 'base64'));
       }
       if (errors.length) throw new Error(errors.join('\n'));
@@ -243,7 +243,7 @@ export async function openGoldenSession({ lanes = defaultLanes } = {}) {
     async captureAll(fixtures) {
       // prepareComposition rebuilds the shared engine bundle, so preparation is serial.
       let chain = Promise.resolve();
-      const prepared = fixtures.map(fixture => chain = chain.catch(() => {}).then(() => prepareComposition(fixture.project, path.join(work, fixture.id))));
+      const prepared = fixtures.map(fixture => chain = chain.catch(() => {}).then(() => prepareComposition(fixture.project, path.join(work, fixture.id), fixture.settings)));
       const jobs = [
         ...fixtures.map(fixture => ({ fixture, kind: 'preview', run: lane => render(lane, `${origin}/preview.html`, '.stage', fixture, project => window.flocPreview(project), time => window.flocSeek(time)) })),
         ...fixtures.map((fixture, i) => ({ fixture, kind: 'exported', run: async lane => { await prepared[i]; return render(lane, `${origin}/export/${fixture.id}/index.html`, '.composition', fixture, exportStart, exportSeek); } }))

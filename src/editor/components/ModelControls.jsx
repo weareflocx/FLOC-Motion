@@ -1,11 +1,11 @@
 import React, { useCallback, useSyncExternalStore } from 'react';
-import { MODEL_ENVIRONMENTS, MODEL_GLASS_SHADERS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
+import { MODEL_ENVIRONMENTS, MODEL_GLASS_SHADERS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_REFRACTION_SAMPLES, MODEL_REFRACTION_RESOLUTIONS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
 import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.js';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
 import { ModelMotionControls } from './ModelMotionControls.jsx';
 
-const names = { original: 'Original', tint: 'Tint', replace: 'Replace', standard: 'Standard', toon: 'Toon', fresnel: 'Fresnel', wireframe: 'Wireframe', glass: 'Glass', crystal: 'Studio glass' };
+const names = { original: 'Original', tint: 'Tint', replace: 'Replace', standard: 'Standard', toon: 'Toon', fresnel: 'Fresnel', wireframe: 'Wireframe', glass: 'Glass', crystal: 'Studio glass', refractive: 'Refractive glass' };
 const environmentNames = { none: 'None', studio: 'Classic room', softbox: 'Studio softboxes', stage: 'Dark stage', sunset: 'Sunset sky', neon: 'Neon tubes' };
 const toneNames = { none: 'None (classic)', neutral: 'Neutral', agx: 'AgX (soft)' };
 const serverMetadata = () => null;
@@ -20,12 +20,14 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
   const patchStyle = changes => onPatch(layer.id, { modelStyle: { ...style, ...changes } });
   const range = (key, label, options = {}) => <Range label={label} value={style[key]} min={MODEL_STYLE_RANGES[key][0]} max={MODEL_STYLE_RANGES[key][1]} step={0.01} scale={100} {...options} onChange={value => patchStyle({ [key]: value })}/>;
   const select = (key, label, values) => <Field label={label}><select aria-label={label} value={style[key]} onChange={event => patchStyle({ [key]: event.target.value })}>{values.map(value => <option key={value} value={value}>{names[value]}</option>)}</select></Field>;
+  const quality = (key, label, values) => <Field label={label}><select aria-label={label} value={style[key]} onChange={event => patchStyle({ [key]: Number(event.target.value) })}>{values.map(value => <option key={value} value={value}>{value}</option>)}</select></Field>;
   const clips = metadata?.clips ?? [];
   const missingClip = metadata !== null && style.animationClip >= 0 && !clips.some(clip => clip.index === style.animationClip) && (clips.length > 0 || style.animationClip > 0);
   const clipActive = metadata !== null && clips.some(clip => clip.index === style.animationClip);
   const replacement = style.mode === 'replace';
   const glass = MODEL_GLASS_SHADERS.includes(style.shader);
-  const pbr = replacement && (['standard', 'fresnel'].includes(style.shader) || glass);
+  const refractive = style.shader === 'refractive';
+  const pbr = replacement && !refractive && (['standard', 'fresnel'].includes(style.shader) || glass);
   const reflects = !['toon', 'wireframe'].includes(style.shader);
   const lighting = selectedLightingPreset(style);
   const details = [style.clearcoat > 0 && style.clearcoatRoughness > 0 && 'Soft coat', style.anisotropy > 0 && 'Brushed', style.sheen > 0 && 'Sheen', style.iridescence > 0 && 'Iridescent film'].filter(Boolean);
@@ -73,7 +75,8 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
       {select('mode', 'Material mode', MODEL_MATERIAL_MODES)}
       {style.mode !== 'original' && <Color label="Material color" value={style.color} onChange={color => patchStyle({ color })}/>}
       {select('shader', 'Surface shader', MODEL_SHADERS)}
-      {!replacement && <p className="helper">Original and Tint keep the imported surface; choose Replace to edit it.</p>}
+      {!replacement && !refractive && <p className="helper">Original and Tint keep the imported surface; choose Replace to edit it.</p>}
+      {refractive && range('roughness', 'Roughness')}
       {pbr && <>
         {range('roughness', 'Roughness')}
         {range('metalness', 'Metalness')}
@@ -93,14 +96,19 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
           <p className="helper">Brushing and a flowing film need model UV coordinates.</p>
         </details>
       </>}
-      {replacement && style.shader !== 'wireframe' && <>
+      {replacement && !refractive && style.shader !== 'wireframe' && <>
         <Color label="Emissive color" value={style.emissive} onChange={emissive => patchStyle({ emissive })}/>
         {range('emissiveIntensity', 'Emissive intensity')}
       </>}
       {glass && <>
         {range('ior', 'Refractive index ×100', { scale: 100, suffix: ' ' })}
         {style.shader === 'glass' ? range('glassOpacity', 'Glass body', { suffix: '%' }) : range('dispersion', 'Dispersion', { suffix: '%' })}
-        <p className="helper">{style.shader === 'glass' ? 'Shows the layers below without bending them.' : 'Refracts its own environment and is opaque.'}</p>
+        {refractive && <>
+          {range('refractionThickness', 'Thickness', { suffix: '%' })}
+          {quality('refractionSamples', 'Refraction samples', MODEL_REFRACTION_SAMPLES)}
+          {quality('refractionResolution', 'Refraction resolution', MODEL_REFRACTION_RESOLUTIONS)}
+        </>}
+        <p className="helper">{refractive ? 'Bends and blurs the actual layers below; higher sample counts and resolutions cost more.' : style.shader === 'glass' ? 'Shows the layers below without bending them.' : 'Refracts its own environment and is opaque.'}</p>
       </>}
       {style.shader === 'toon' && range('toonSteps', 'Toon steps', { step: 1, scale: 1 })}
       {style.shader === 'fresnel' && <>
@@ -108,8 +116,8 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
         {range('fresnelIntensity', 'Fresnel intensity')}
         {range('fresnelPower', 'Fresnel power', { step: 1, scale: 1 })}
       </>}
-      {metadata?.unlit && <p className="helper">Unlit source materials stay unlit in Original and Tint.</p>}
-      {((pbr && style.metalness >= .5) || glass) && style.environment === 'none' && <p className="helper">{glass ? 'Glass' : 'Metal'} needs a Lighting environment, such as Studio, to reflect.</p>}
+      {metadata?.unlit && !refractive && <p className="helper">Unlit source materials stay unlit in Original and Tint.</p>}
+      {((pbr && style.metalness >= .5) || (glass && !refractive)) && style.environment === 'none' && <p className="helper">{glass ? 'Glass' : 'Metal'} needs a Lighting environment, such as Studio, to reflect.</p>}
     </Section>
     <Section title="Lighting" detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
       <Field label="Lighting preset"><select aria-label="Lighting preset" value={lighting} onChange={event => onPatch(layer.id, { modelStyle: applyLightingPreset(style, event.target.value) })}>
