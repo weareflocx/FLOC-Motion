@@ -60,7 +60,7 @@ test('unlocked work around locked layers and lock or visibility toggles still pa
   const p = locked('carousel');
   assert.doesNotThrow(() => check(p, patchLayer(p, 'carousel', { visible: false })));
   assert.doesNotThrow(() => check(p, patchLayer(p, 'carousel', { locked: false })));
-  assert.doesNotThrow(() => check(p, reorderLayer(p, 'signature', 'background', 'below')));
+  assert.doesNotThrow(() => check(p, reorderLayer(p, 'signature', 'background', 'above')));
   assert.doesNotThrow(() => check(p, duplicateLayer(p, 'headline', 'copy')));
   assert.doesNotThrow(() => check(p, { ...p, layers: p.layers.filter(item => item.id !== 'headline') }));
   assert.doesNotThrow(() => check(p, patchLayer(p, 'headline', { text: 'Edited', x: 20 })));
@@ -127,8 +127,8 @@ test('editor changes, alternatives and layer drops respect locks; undo and impor
 
   render().actions.dropLayer('carousel', 'logo', 'above');
   assert.deepEqual(render().projectRef.current.layers.map(item => item.id), before.layers.map(item => item.id));
-  render().actions.dropLayer('signature', 'background', 'below');
-  assert.equal(render().projectRef.current.layers[0].id, 'signature');
+  render().actions.dropLayer('signature', 'background', 'above');
+  assert.equal(render().projectRef.current.layers[1].id, 'signature');
   assert.equal(render().change(resizeDuration(render().projectRef.current, 6), { allow: ['timing'] }).duration, 6);
   assert.equal(layer(render().projectRef.current, 'carousel').end, 6);
 

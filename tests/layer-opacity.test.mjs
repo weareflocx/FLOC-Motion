@@ -23,7 +23,8 @@ test('every visual layer has independent, bounded opacity that survives saving a
       assert.equal(layerAlpha({ ...changed, fadeIn: 0, fadeOut: 0 }, 2), opacity);
       assert.deepEqual(next.layers.filter(item => item.id !== layer.id), project.layers.filter(item => item.id !== layer.id));
       assert.deepEqual(validateProject(JSON.parse(JSON.stringify(next))), next);
-      assert.equal(duplicateLayer(next, layer.id, 'copy').layers.find(item => item.id === 'copy').opacity, opacity);
+      if (layer.type === 'background') assert.throws(() => duplicateLayer(next, layer.id, 'copy'), /background/i);
+      else assert.equal(duplicateLayer(next, layer.id, 'copy').layers.find(item => item.id === 'copy').opacity, opacity);
     }
     for (const opacity of [-.01, 1.01, NaN, Infinity, '50']) assert.throws(() => patchLayer(project, layer.id, { opacity }), /Opacity/);
     assert.throws(() => patchLayer(patchLayer(project, layer.id, { locked: true }), layer.id, { opacity: .5 }), /Unlock/);

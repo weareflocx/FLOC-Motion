@@ -27,7 +27,9 @@ export const TEMPLATES = [
   ...['showcase', 'sphere', 'spinner', 'stack', 'stickers', 'wheel'].map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), description: MOTION_VARIANTS[id].map(v => v[1]).join(' / '), kind: id }))
 ];
 export function blankProject(name = 'Untitled') {
-  return { version: CURRENT_PROJECT_VERSION, name, format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT }, images: [], layers: [] };
+  return { version: CURRENT_PROJECT_VERSION, name, format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT }, images: [], layers: [
+    { id: 'background', type: 'background', name: 'Background', visible: true, locked: false, start: 0, end: 12, color: '#ffffff', mode: 'color', src: '', fit: 'cover', offset: 0, loop: true }
+  ] };
 }
 export function demoProject() {
   return { version: CURRENT_PROJECT_VERSION, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT },
@@ -310,6 +312,19 @@ function lockedView(project, layer, allow) {
 }
 export function assertLocksRespected(previous, next, { allow = [] } = {}) {
   if (allow.some(item => !['timing', 'format', 'content'].includes(item))) fail('Unknown lock exception.');
+  // Backgrounds are editable composition fixtures, not removable/reorderable layers. Retain
+  // legacy stacks as authored: content may move within, but never across, background boundaries.
+  const backgrounds = previous.layers.filter(layer => layer.type === 'background');
+  if (next.layers.filter(layer => layer.type === 'background').length !== backgrounds.length) fail('The composition background cannot be added or removed.');
+  for (const background of backgrounds) {
+    if (!next.layers.some(layer => layer.id === background.id && layer.type === 'background')) fail('The composition background cannot be removed or replaced.');
+    const before = previous.layers.findIndex(layer => layer.id === background.id), after = next.layers.findIndex(layer => layer.id === background.id);
+    for (const layer of previous.layers) {
+      const index = next.layers.findIndex(item => item.id === layer.id);
+      if (index >= 0 && (previous.layers.indexOf(layer) < before) !== (index < after)) fail('The composition background keeps its stacking position.');
+    }
+    if (before === 0 && after !== 0) fail('The composition background stays below the other layers.');
+  }
   const locked = previous.layers.filter(l => l.locked);
   for (const layer of locked) {
     const after = next.layers.find(l => l.id === layer.id);
@@ -352,11 +367,17 @@ export function reorderLayer(project, id, targetId, side = 'above') {
   const layer = p.layers.find(l => l.id === id);
   if (!layer || !p.layers.some(l => l.id === targetId)) fail('Layer not found.');
   if (layer.locked) fail('Unlock the layer before reordering it.');
+  if (layer.type === 'background') fail('The composition background cannot be reordered.');
   if (!['above', 'below'].includes(side)) fail('Unknown layer order.');
   if (id === targetId) return p;
   const layers = p.layers.filter(l => l.id !== id);
   const target = layers.findIndex(l => l.id === targetId);
   layers.splice(target + (side === 'above' ? 1 : 0), 0, layer);
+  // Moving another layer cannot place it underneath a fixed background.
+  for (const background of p.layers.filter(item => item.type === 'background')) {
+    const wasBelow = p.layers.indexOf(layer) < p.layers.indexOf(background);
+    if (wasBelow !== (layers.indexOf(layer) < layers.indexOf(background))) fail('The composition background keeps its stacking position.');
+  }
   return validateProject({ ...p, layers });
 }
 export function duplicateLayer(project, id, newId) {
@@ -365,6 +386,7 @@ export function duplicateLayer(project, id, newId) {
   const source = p.layers[index];
   if (!source) fail('Layer not found.');
   if (source.locked) fail('Unlock the layer before duplicating it.');
+  if (source.type === 'background') fail('The composition background cannot be duplicated.');
   const copy = { ...structuredClone(source), ...(source.type === 'carousel' ? { images: structuredClone(carouselImages(p, source)) } : {}), id: newId, name: `${source.name.slice(0, 95)} copy`, locked: false };
   delete copy.contentField;
   if (p.linkedFormats) {

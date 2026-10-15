@@ -38,34 +38,35 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     const current = projectRef.current;
     const index = current.layers.findIndex(layer => layer.id === id);
     const target = current.layers[index + delta];
-    if (!target || current.layers[index]?.locked) return;
+    if (!target || current.layers[index]?.locked || current.layers[index]?.type === 'background' || target.type === 'background') return;
     if (change(reorderLayer(current, id, target.id, delta > 0 ? 'above' : 'below'))) setSelected(id);
   }, [change, projectRef, selected, setSelected]);
 
   const dropLayer = useCallback((id, targetId, side) => {
     const current = projectRef.current;
-    if (current.layers.find(l => l.id === id)?.locked) return;
-    const next = reorderLayer(current, id, targetId, side);
+    if (current.layers.find(l => l.id === id)?.locked || current.layers.find(l => l.id === id)?.type === 'background') return;
+    let next;
+    try { next = reorderLayer(current, id, targetId, side); } catch (error) { report?.(error.message); return; }
     if (next.layers.every((layer, i) => layer.id === current.layers[i].id)) return;
     if (change(next)) setSelected(id);
-  }, [change, projectRef, setSelected]);
+  }, [change, projectRef, report, setSelected]);
 
   const copyLayer = useCallback(id => {
     const current = projectRef.current;
-    if (current.layers.length >= PROJECT_LIMITS.maxLayers || current.layers.find(l => l.id === id)?.locked) return;
+    if (current.layers.length >= PROJECT_LIMITS.maxLayers || current.layers.find(l => l.id === id)?.locked || current.layers.find(l => l.id === id)?.type === 'background') return;
     const newId = crypto.randomUUID();
     if (change(duplicateLayer(current, id, newId))) setSelected(newId);
   }, [change, projectRef, setSelected]);
 
   const removeText = useCallback(id => {
-    if (project.layers.find(layer => layer.id === id)?.locked) return;
+    if (project.layers.find(layer => layer.id === id)?.locked || project.layers.find(layer => layer.id === id)?.type === 'background') return;
     change({ ...project, layers: project.layers.filter(layer => layer.id !== id) });
     setSelected(project.layers.find(layer => layer.id !== id)?.id ?? null);
   }, [change, project, setSelected]);
 
   const addLayer = useCallback((type, fields = {}) => {
     const current = projectRef.current;
-    if (current.layers.length >= PROJECT_LIMITS.maxLayers) return false;
+    if (type === 'background' || current.layers.length >= PROJECT_LIMITS.maxLayers) return false;
     const source = type === 'effect' ? effectLayer(crypto.randomUUID(), current.duration) : demoProject().layers.find(l => l.type === type);
     if (!source) return;
     const layer = { ...source, ...fields, id: crypto.randomUUID(), type, end: current.duration, ...(type === 'carousel' ? { images: fields.images ?? [], name: `Carousel ${current.layers.filter(l => l.type === type).length + 1}` } : {}) };
@@ -78,11 +79,12 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
   const removeLayers = useCallback(ids => {
     const current = projectRef.current;
     const targets = current.layers.filter(layer => ids.includes(layer.id));
-    const locked = targets.filter(layer => layer.locked), removable = targets.filter(layer => !layer.locked);
+    const locked = targets.filter(layer => layer.locked), removable = targets.filter(layer => !layer.locked && layer.type !== 'background');
     if (!removable.length) { if (locked.length) report?.(lockedNotice('Delete', locked)); return null; }
     const next = change({ ...current, layers: current.layers.filter(layer => !removable.includes(layer)) });
     if (!next) return null;
-    setSelection(locked.length ? locked.map(layer => layer.id) : singleSelection(next.layers[0]?.id));
+    const kept = targets.filter(layer => !removable.includes(layer));
+    setSelection(kept.length ? kept.map(layer => layer.id) : singleSelection(next.layers[0]?.id));
     if (locked.length) report?.(lockedNotice('Delete', locked));
     return next;
   }, [change, projectRef, report, setSelection]);
@@ -90,7 +92,7 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
   const duplicateLayers = useCallback(ids => {
     const current = projectRef.current;
     const targets = current.layers.filter(layer => ids.includes(layer.id));
-    const locked = targets.filter(layer => layer.locked), sources = targets.filter(layer => !layer.locked);
+    const locked = targets.filter(layer => layer.locked), sources = targets.filter(layer => !layer.locked && layer.type !== 'background');
     if (!sources.length) { if (locked.length) report?.(lockedNotice('Duplicate', locked)); return null; }
     if (current.layers.length + sources.length > PROJECT_LIMITS.maxLayers) { report?.(`Duplicating ${sources.length} layers would exceed ${PROJECT_LIMITS.maxLayers} layers.`); return null; }
     const copies = sources.map(layer => ({ source: layer.id, id: crypto.randomUUID() }));

@@ -54,7 +54,7 @@ export function NewCompositionDialog({ project, initialTab = 'aspect', onCreate,
     if (!name.trim()) return;
     setBusy(files.length && !uploaded.current ? 'upload' : 'create'); setError('');
     try {
-      if (!uploaded.current) uploaded.current = await uploadAssets(files, { maxFiles: PROJECT_LIMITS.maxLayers, limitMessage: `Use up to ${PROJECT_LIMITS.maxLayers} layers.` });
+      if (!uploaded.current) uploaded.current = await uploadAssets(files, { maxFiles: PROJECT_LIMITS.maxLayers - 1, limitMessage: `Use up to ${PROJECT_LIMITS.maxLayers - 1} media layers plus the background.` });
       setBusy('create');
       await onCreate(name, { format, assets: uploaded.current });
       onClose();
@@ -85,7 +85,7 @@ export function NewCompositionDialog({ project, initialTab = 'aspect', onCreate,
         <div className="new-composition-files-heading"><h3 id={`${title}-files`}>Files <span>Optional</span></h3><span>{files.length} selected</span></div>
         <button type="button" className="outline-button" disabled={Boolean(busy)} onClick={() => fileInput.current.click()}><UploadSimple size={17}/>Add files</button>
         <input ref={fileInput} hidden type="file" accept={acceptedFiles} multiple disabled={Boolean(busy)} onChange={chooseFiles}/>
-        <p className="helper">Images, SVG, GIF, video, audio, GLB or OBJ · Up to {PROJECT_LIMITS.maxLayers} layers. Select OBJ with its declared MTL and textures for one 3D layer. GLB is preserved.</p>
+        <p className="helper">Images, SVG, GIF, video, audio, GLB or OBJ · Up to {PROJECT_LIMITS.maxLayers - 1} files plus the editable white background. Select OBJ with its declared MTL and textures for one 3D layer. GLB is preserved.</p>
         {files.length > 0 && <ul className="new-composition-file-list">{files.map((file, index) => <li key={index}><span title={file.name}>{file.name}</span><IconButton label={`Remove file ${index + 1}: ${file.name}`} disabled={Boolean(busy)} onClick={() => removeFile(index)}><X size={15}/></IconButton></li>)}</ul>}
       </section>
       </div>

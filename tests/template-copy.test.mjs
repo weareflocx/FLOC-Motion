@@ -183,7 +183,7 @@ test('new composition archives the current draft before replacing it', async () 
   assert.deepEqual(writes.map(item => [item.method, item.url]), [['PUT', '/api/drafts/original-draft'], ['POST', '/api/templates'], ['PUT', `/api/drafts/${h.session.draftId}`]]);
   assert.deepEqual(writes[1].body.project, previous);
   assert.equal(writes[1].body.name, previous.name);
-  assert.equal(h.render().project.layers.length, 0);
+  assert.deepEqual(plain(h.render().project.layers.map(layer => [layer.type, layer.color])), [['background', '#ffffff']]);
   assert.equal(h.render().project.images.length, 0);
   assert.equal(h.render().composition, null);
 });
@@ -194,10 +194,10 @@ test('new composition persists the selected format and mixed files as independen
   const assets = ['png', 'mp4', 'wav', 'glb'].map((ext, i) => ({ id: `asset-${i}`, name: `File ${i}.${ext}`, src: `/assets/00000000-0000-0000-0000-00000000000${i}.${ext}` }));
   const next = await h.render().newComposition('Mixed media', { format: 'portrait', assets });
   assert.equal(next.format, 'portrait');
-  assert.deepEqual(plain(next.layers.map(layer => layer.type)), ['media', 'media', 'music', 'model']);
-  assert.equal(new Set(next.layers.map(layer => layer.id)).size, 4);
+  assert.deepEqual(plain(next.layers.map(layer => layer.type)), ['background', 'media', 'media', 'music', 'model']);
+  assert.equal(new Set(next.layers.map(layer => layer.id)).size, 5);
   assert(next.layers.every(layer => layer.start === 0 && layer.end === next.duration));
-  assert.deepEqual(plain(next.layers.map(layer => layer.src)), assets.map(asset => asset.src));
+  assert.deepEqual(plain(next.layers.slice(1).map(layer => layer.src)), assets.map(asset => asset.src));
   const writes = h.requests.filter(item => item.method !== 'GET');
   assert.deepEqual(writes[1].body.project, h.current);
   assert.deepEqual(writes[2].body.project, plain(next));

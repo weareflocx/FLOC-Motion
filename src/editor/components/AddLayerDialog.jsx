@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cube, DotsNine, ImageSquare, Images, MusicNotes, PaintBucket, Plus, SquaresFour, Sparkle, TextT, UploadSimple, X } from '@phosphor-icons/react';
+import { Cube, DotsNine, ImageSquare, Images, MusicNotes, Plus, SquaresFour, Sparkle, TextT, UploadSimple, X } from '@phosphor-icons/react';
 import { PROJECT_LIMITS, carouselImages } from '../../project.js';
 import { IconButton, Modal } from '../controls.jsx';
 import { CarouselCreationDialog } from './CarouselCreationDialog.jsx';
@@ -44,7 +44,6 @@ export function AddLayerDialog({ project, initialTarget = 'layers', uploading, o
       <div className="add-layer-options">
         <Option Icon={TextT} label="Text" description="A headline or caption" disabled={disabled} onClick={() => create('text')}/>
         <Option Icon={Images} label="Carousel" description="Animated cards from images or video" disabled={disabled} onClick={() => setCreatingCarousel(true)}/>
-        <Option Icon={PaintBucket} label="Background" description="Color, image, video or pattern" disabled={disabled} onClick={() => create('background')}/>
         <Option Icon={DotsNine} label="Adjustment" description="Effects on the layers below" disabled={disabled} onClick={() => create('effect')}/>
         <Option Icon={Sparkle} label="Studio mark" description="The studio logo" disabled={disabled} onClick={() => create('logo')}/>
       </div>

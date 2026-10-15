@@ -21,7 +21,7 @@ export function SelectionSummary({ layers, canAlign, canDistribute, canDuplicate
         <button type="button" className="outline-button" onClick={onToggleVisibility}>{show ? <Eye size={15}/> : <EyeSlash size={15}/>}{show ? 'Show all' : 'Hide all'}</button>
         <button type="button" className="outline-button" onClick={onToggleLock}>{lock ? <LockSimple size={15}/> : <LockSimpleOpen size={15}/>}{lock ? 'Lock all' : 'Unlock all'}</button>
         <button type="button" className="outline-button" disabled={!canDuplicate} onClick={onDuplicate}><Copy size={15}/>Duplicate</button>
-        <button type="button" className="outline-button danger" disabled={locked === layers.length} onClick={onRemove}><Trash size={15}/>Delete</button>
+        <button type="button" className="outline-button danger" disabled={layers.every(layer => layer.locked || layer.type === 'background')} onClick={onRemove}><Trash size={15}/>Delete</button>
       </div>
     </Section>
   </aside>;

@@ -79,7 +79,7 @@ test('layer insertions and moves are stored by id instead of rewriting neighbour
   const inserted = diffProjects(base, duplicateLayer(base, 'carousel', 'carousel-copy'));
   assert.deepEqual(inserted.map(op => op.t), ['order']);
   assert.deepEqual(inserted[0].items.map(item => item.id), ['carousel-copy']);
-  const moved = diffProjects(base, reorderLayer(base, 'signature', 'background', 'below'));
+  const moved = diffProjects(base, reorderLayer(base, 'signature', 'background', 'above'));
   assert.deepEqual(moved.map(op => [op.t, op.items.length]), [['order', 0]]);
 });
 

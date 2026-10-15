@@ -245,9 +245,9 @@ export function useProject({ userId } = {}) {
   }, [save, session]);
 
   const newComposition = useCallback(async (name, { format = 'square', assets = [] } = {}) => {
-    if (assets.length > PROJECT_LIMITS.maxLayers) throw new Error(`Use up to ${PROJECT_LIMITS.maxLayers} layers.`);
     const draft = blankProject(name.trim());
-    const next = validateProject({ ...draft, format, layers: assets.map(asset => fileLayer(asset, draft.duration, crypto.randomUUID())) });
+    if (assets.length + draft.layers.length > PROJECT_LIMITS.maxLayers) throw new Error(`Use up to ${PROJECT_LIMITS.maxLayers - draft.layers.length} media layers.`);
+    const next = validateProject({ ...draft, format, layers: [...draft.layers, ...assets.map(asset => fileLayer(asset, draft.duration, crypto.randomUUID()))] });
     await preserveCurrent();
     importDraft(next);
     // The previous work is safe. Keep a new draft save failure in the normal
