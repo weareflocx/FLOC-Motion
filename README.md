@@ -281,6 +281,16 @@ With two or more layers selected, the canvas toolbar and the inspector align lef
 
 ⌘K / Ctrl+K opens the command palette: fuzzy-search adding layers, playback, Undo/Redo, export, new/save/open composition, version history, Explore styles, timeline and zoom, alignment and selection actions, and Account. Unavailable commands are listed dimmed. Arrow keys move between available commands, Enter runs one and Escape closes the palette. **Export video…** opens the usual export dialog; nothing renders without its confirmation.
 
+### Audio timeline editing
+
+Use **Add audio** in the timeline to import MP3, WAV, M4A or OGG at the playhead. Drag an audio item from **Media**, or an audio file from the computer, onto the timeline to add it at the drop time. Reusing a Media item references its original file rather than uploading another copy.
+
+Audio clips show the actual source waveform, including quiet sections, loops and any silent tail. Drag the left edge to trim the source in-point and the right edge to change its duration; extending an edge recovers available source material. Moving the clip body or editing numeric **Start** changes its composition position without changing the source in-point. After source duration is available, non-looping trim and Duration edits stop at the source end. Existing imported clips are not silently shortened. Pointer and keyboard edits use the same bounds, Escape cancels a drag, locked clips cannot be edited, and each completed gesture is one Undo/Redo operation.
+
+The inspector's **Source offset**, volume, existing shared fade and Loop controls remain available. Loop repeats the source from its in-point to the file end; trimming its left edge changes that loop's in-point. Preview and export read the same stored timing and original audio.
+
+Waveforms are generated locally with FFmpeg, cached in `FLOC_DATA_DIR/cache/audio-waveforms`, and served through authenticated `GET /api/assets/<audio-filename>/waveform` requests as `{ duration, peaks }`. The browser downloads a small peak summary, not decoded PCM, to draw the waveform. Multiple clips reuse the summary; loading or extraction errors do not block playback or editing, and failed waveform loads offer Retry. Originals and project JSON do not contain waveform data.
+
 ### Animated carousel media
 
 Carousel cards accept local images, GIF, MP4 and WebM (75 MB per uploaded file). Mixed media share the existing ordering and templates. Videos loop silently from the carousel layer's start; pause and timeline seeking select the corresponding decoded frame. Repeated cards share a video decoder/texture for each source instead of loading a video per mesh. High-resolution videos and many simultaneous sources can increase preview cost.

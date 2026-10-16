@@ -6,6 +6,7 @@ import { moveState, choreographyFields } from './choreography.js';
 import { LAYER_COLORS } from './editor/layer-colors.js';
 import { LAYER_KINDS } from './editor/layer-kinds.js';
 import { TimelineTimingControls } from './editor/components/TimelineTimingControls.jsx';
+import { AudioWaveform, AudioWaveformStatus, useAudioWaveforms } from './editor/components/AudioWaveform.jsx';
 import './timeline-choreography.css';
 
 const isFade = kind => kind === 'fadeIn' || kind === 'fadeOut';
@@ -13,8 +14,9 @@ const isFade = kind => kind === 'fadeIn' || kind === 'fadeOut';
 export function TimelineTracks({ project, selected, clock, time, icons, mode = 'timing', controlsLayerId = null, rulerControls, onOpenControls, onSelect, onSelectState = onSelect, onSeek, onCommit }) {
   const ruler = useRef(null); const tracks = useRef(null);
   const [laneWidth, setLaneWidth] = useState(0);
+  const { summaries: waveforms, retry: retryWaveform } = useAudioWaveforms(project.layers);
   const context = useRef(null);
-  context.current = { selected, mode };
+  context.current = { selected, mode, project };
   const gesture = useRef(null); const scrub = useRef(null);
   const stateClick = useRef(null);
   const [draft, setDraft] = useState(null);
@@ -34,13 +36,19 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
   }), [clock, project.duration]);
   useEffect(() => {
     const g = gesture.current;
-    if (!g || (g.layer.id === selected && (g.kind === 'state' ? mode === 'choreography' : mode === 'timing'))) return;
+    if (!g || (project.layers.some(layer => layer.id === g.layer.id && !layer.locked && layer.src === g.layer.src) && g.layer.id === selected && (g.kind === 'state' ? mode === 'choreography' : mode === 'timing'))) return;
     gesture.current = null; setDraft(null);
     if (g.target.hasPointerCapture(g.pointerId)) g.target.releasePointerCapture(g.pointerId);
-  }, [selected, mode]);
-  const timing = l => ({ start: l.start, end: l.end, fadeIn: l.fadeIn, fadeOut: l.fadeOut });
-  const edit = (l, kind, delta) => ({ ...timing(l), ...(isFade(kind) ? editFade(l, kind, delta, project.fps) : editClip(l, kind, delta, project.duration, project.fps)) });
-  const changes = (l, kind, next) => isFade(kind) ? next[kind] !== l[kind] && { [kind]: next[kind] } : (next.start !== l.start || next.end !== l.end) && { start: next.start, end: next.end };
+  }, [selected, mode, project]);
+  const timing = l => ({ start: l.start, end: l.end, ...(l.type === 'music' ? { offset: l.offset } : {}), fadeIn: l.fadeIn, fadeOut: l.fadeOut });
+  const edit = (l, kind, delta) => ({ ...timing(l), ...(isFade(kind) ? editFade(l, kind, delta, project.fps) : editClip(l, kind, delta, project.duration, project.fps, waveforms[l.src]?.data?.duration)) });
+  const changes = (l, kind, next) => isFade(kind) ? next[kind] !== l[kind] && { [kind]: next[kind] } : (next.start !== l.start || next.end !== l.end || (l.type === 'music' && next.offset !== l.offset)) && { start: next.start, end: next.end, ...(l.type === 'music' && kind === 'start' ? { offset: next.offset } : {}) };
+  useEffect(() => {
+    const g = gesture.current;
+    if (!g || g.kind === 'state' || g.delta === undefined) return;
+    g.latest = edit(g.layer, g.kind, g.delta);
+    setDraft({ id: g.layer.id, kind: g.kind, ...g.latest });
+  }, [waveforms, project.duration, project.fps]);
   function begin(e, layer, kind) {
     if (layer.locked || e.button !== 0 || gesture.current) return;
     e.preventDefault(); e.stopPropagation(); e.currentTarget.focus({ preventScroll: true }); onSelect(layer.id);
@@ -67,7 +75,8 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
       setDraft({ id: g.layer.id, kind: 'state', stateId: g.state.id, ...timing(g.layer), choreography: g.latest });
       return;
     }
-    g.latest = edit(g.layer, g.kind, (e.clientX - g.x) / g.width * project.duration);
+    g.delta = (e.clientX - g.x) / g.width * project.duration;
+    g.latest = edit(g.layer, g.kind, g.delta);
     setDraft({ id: g.layer.id, kind: g.kind, ...g.latest });
   }
   function finish(e, cancel = false) {
@@ -75,6 +84,7 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
     if (g.kind === 'state') e.stopPropagation();
     const active = context.current;
     if (g.layer.id !== active.selected || (g.kind === 'state' ? active.mode !== 'choreography' : active.mode !== 'timing')) cancel = true;
+    if (!active.project.layers.some(layer => layer.id === g.layer.id && !layer.locked && layer.src === g.layer.src)) cancel = true;
     gesture.current = null; setDraft(null);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     if (g.kind === 'state') {
@@ -86,7 +96,8 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
       }
       return;
     }
-    const patch = !cancel && changes(g.layer, g.kind, g.latest);
+    const latest = g.delta === undefined ? g.latest : edit(g.layer, g.kind, g.delta);
+    const patch = !cancel && changes(g.layer, g.kind, latest);
     if (patch) onCommit(g.layer.id, patch);
   }
   function keys(e, layer, kind) {
@@ -175,10 +186,12 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
               {Object.keys(choreographyFields(l)).length > 0 && <button type="button" className={`track-controls-button ${editingStates ? 'selected' : ''} ${l.choreography?.length ? 'has-states' : ''}`} aria-label={`Choreography for ${l.name}`} title={`Choreography · ${l.choreography?.length || 0} states`} aria-haspopup="dialog" aria-expanded={controlsLayerId === l.id && mode === 'choreography'} aria-controls={controlsLayerId === l.id ? 'timeline-layer-controls' : undefined} onClick={event => onOpenControls?.(l.id, event.currentTarget)}><DiamondsFour size={15} aria-hidden="true"/></button>}
             </div>
           </div>
-          <TimelineTimingControls project={project} layer={{ ...l, ...range }} onPatch={onCommit} onFocus={() => onSelect(l.id)}/>
+          <TimelineTimingControls project={project} layer={{ ...l, ...range }} sourceDuration={waveforms[l.src]?.data?.duration} onPatch={onCommit} onFocus={() => onSelect(l.id)}/>
         </div>
         <div className={`track-lane ${editingStates ? 'choreography-editing' : ''}`} onPointerDown={e => { if (e.button !== 0) return; if (editingStates && e.target.closest('.track-clip')) onSelect(l.id); else if (e.target === e.currentTarget) onSeek(timeAtPointer(e.clientX, e.currentTarget.getBoundingClientRect(), project.duration, project.fps)); }}>
           <div className={`track-clip ${l.type} ${l.type === 'music' && !l.src ? 'empty' : ''} ${!l.visible ? 'muted' : ''} ${draft?.id === l.id && draft.kind !== 'state' ? 'dragging' : ''}`} style={{ left: `${range.start / project.duration * 100}%`, width: `${(range.end - range.start) / project.duration * 100}%` }} role="group" aria-label={`${l.name} timing`} title={`${range.start.toFixed(2)}s — ${range.end.toFixed(2)}s`}>
+            {l.type === 'music' && waveforms[l.src]?.data && <AudioWaveform summary={waveforms[l.src].data} range={{ ...l, ...range }} width={laneWidth * span / project.duration}/>}
+            {l.type === 'music' && <AudioWaveformStatus src={l.src} state={waveforms[l.src]} onRetry={retryWaveform}/>}
             <button className="clip-handle start" aria-label={`Trim start of ${l.name}`} title={`Trim start · ${range.start.toFixed(2)}s`} {...pointerProps(l, 'start')}/>
             {fades && <><svg className="clip-fade in" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeIn) }}><path className="fade-shade" d="M0 0H100C65 0 35 100 0 100Z"/><path className="fade-line" d="M0 100C35 100 65 0 100 0"/></svg><button className="fade-handle in" style={{ '--fade-at': share(fades.fadeIn) }} aria-label={`Fade in of ${l.name}: ${fades.fadeIn.toFixed(2)}s`} title={`Fade in ${fades.fadeIn.toFixed(2)}s`} {...pointerProps(l, 'fadeIn')}/></>}
             <button className="clip-body" aria-label={`Move ${l.name} clip`} {...pointerProps(l, 'move')}>

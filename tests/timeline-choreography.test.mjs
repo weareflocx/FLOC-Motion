@@ -12,17 +12,21 @@ import { LAYER_KINDS } from '../src/editor/layer-kinds.js';
 const source = fs.readFileSync(new URL('../src/timeline.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
 
-function timeline({ locked = false, time = 3, mode = 'choreography', width = 800 } = {}) {
+function timeline({ locked = false, time = 3, mode = 'choreography', width = 800, music = false, sourceDuration = 6, offset = 1, loop = false } = {}) {
   const slots = [], patches = [], seeks = [], selections = [];
   let cursor = 0;
   const layer = { id: 'title', type: 'text', name: 'Title', text: 'Hello', visible: true, locked, start: 2, end: 6, fadeIn: .2, fadeOut: .2,
     choreography: [{ id: 'a', time: 0 }, { id: 'b', time: 1 }, { id: 'c', time: 3 }].map(state => ({ ...state, easing: 'smooth', values: { x: 5, y: 5, size: 40, opacity: 1 } })) };
-  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, editClip, editFade, timeAtPointer, fitFades, moveState, choreographyFields, LAYER_COLORS, LAYER_KINDS,
+  if (music) Object.assign(layer, { type: 'music', name: 'Audio', src: '/assets/5c6e62a1-59b0-4b79-a752-a943d49cd13d.wav', offset, loop, choreography: [], fadeIn: undefined, fadeOut: undefined });
+  const summaries = {};
+  const setSourceDuration = duration => { if (Number.isFinite(duration)) summaries[layer.src] = { status: 'ready', data: { duration, peaks: [0, .1, .8, .2, 0, .3] } }; else delete summaries[layer.src]; };
+  if (music) setSourceDuration(sourceDuration);
+  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, AudioWaveform() {}, AudioWaveformStatus() {}, useAudioWaveforms: () => ({ summaries, retry() {} }), editClip, editFade, timeAtPointer, fitFades, moveState, choreographyFields, LAYER_COLORS, LAYER_KINDS,
     useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value: value === 0 ? width : value }; return [slots[i].value, next => { slots[i].value = next; }]; } };
   vm.createContext(context); vm.runInContext(compiled + '\nthis.component = TimelineTracks;', context);
-  let props = { project: { duration: 8, fps: 24, layers: [layer] }, time, clock: { get: () => ({ time: props.time }) }, mode, selected: layer.id, icons: { text() {} },
+  let props = { project: { duration: 8, fps: 24, layers: [layer] }, time, clock: { get: () => ({ time: props.time }) }, mode, selected: layer.id, icons: { text() {}, music() {} },
     onSelect(id) { selections.push(id); }, onSeek(value) { seeks.push(value); }, onCommit(id, patch) { patches.push({ id, patch }); } };
   const render = (next = {}) => { cursor = 0; props = { ...props, ...next }; return context.component(props); };
   const nodes = node => [node, ...(node?.children || []).flat(Infinity).flatMap(child => child && typeof child === 'object' ? nodes(child) : [])];
@@ -31,7 +35,7 @@ function timeline({ locked = false, time = 3, mode = 'choreography', width = 800
   const captures = new Set();
   const target = { focus() {}, getBoundingClientRect: () => ({ left: 0, width: 800 }), closest: () => ({ getBoundingClientRect: () => ({ left: 0, width: 800 }) }), setPointerCapture(id) { captures.add(id); }, hasPointerCapture: id => captures.has(id), releasePointerCapture(id) { captures.delete(id); } };
   const event = (next = {}) => ({ button: 0, pointerId: 7, clientX: 300, currentTarget: target, preventDefault() {}, stopPropagation() {}, ...next });
-  return { layer, render, find, mark, event, patches, seeks, selections, captures };
+  return { layer, render, find, mark, event, patches, seeks, selections, captures, setSourceDuration };
 }
 
 test('ruler Escape, pointer cancellation and lost capture restore the pre-scrub time', () => {
@@ -255,4 +259,69 @@ test('an active state drag keeps its captured button near neighbors and falls ba
   const crowded = h.find(p => p['aria-label'] === 'Title state at 2.21 seconds');
   assert.equal(crowded.type, 'span');
   assert(crowded.props.className.includes('passive'));
+});
+
+test('audio start gestures draft the source inpoint and commit it atomically once', () => {
+  const h = timeline({ music: true, mode: 'timing' });
+  const handle = h.find(p => p['aria-label'] === 'Trim start of Audio');
+  handle.props.onPointerDown(h.event());
+  handle.props.onPointerMove(h.event({ clientX: 400 }));
+  handle.props.onPointerMove(h.event({ clientX: 450 }));
+  assert.equal(h.patches.length, 0);
+  const waveform = h.find(p => p.summary);
+  assert.equal(waveform.props.range.start, 3.5);
+  assert.equal(waveform.props.range.end, 6);
+  assert.equal(waveform.props.range.offset, 2.5);
+  h.render({ time: 4 });
+  assert.equal(h.find(p => p.summary).props.range.offset, 2.5);
+  handle.props.onPointerUp(h.event());
+  handle.props.onLostPointerCapture(h.event());
+  assert.equal(h.patches.length, 1);
+  assert.deepEqual({ ...h.patches[0].patch }, { start: 3.5, end: 6, offset: 2.5 });
+});
+
+test('audio movement keeps its source fragment and keyboard trims respect source bounds', () => {
+  const h = timeline({ music: true, mode: 'timing' });
+  const move = h.find(p => p['aria-label'] === 'Move Audio clip');
+  move.props.onPointerDown(h.event());
+  move.props.onPointerMove(h.event({ clientX: 400 }));
+  const waveform = h.find(p => p.summary);
+  assert.equal(waveform.props.range.start, 3);
+  assert.equal(waveform.props.range.end, 7);
+  assert.equal(waveform.props.range.offset, 1);
+  move.props.onPointerUp(h.event());
+  assert.equal(Object.hasOwn(h.patches[0].patch, 'offset'), false);
+  h.find(p => p['aria-label'] === 'Trim start of Audio').props.onKeyDown(h.event({ key: 'Home' }));
+  assert.deepEqual({ ...h.patches.at(-1).patch }, { start: 1, end: 6, offset: 0 });
+  h.find(p => p['aria-label'] === 'Trim end of Audio').props.onKeyDown(h.event({ key: 'End' }));
+  assert.deepEqual({ ...h.patches.at(-1).patch }, { start: 2, end: 7 });
+});
+
+test('cancelled or locked audio gestures never save an inpoint draft', () => {
+  for (const cancel of ['escape', 'pointer', 'capture', 'locked']) {
+    const h = timeline({ music: true, mode: 'timing' });
+    const handle = h.find(p => p['aria-label'] === 'Trim start of Audio');
+    handle.props.onPointerDown(h.event());
+    handle.props.onPointerMove(h.event({ clientX: 400 }));
+    if (cancel === 'escape') handle.props.onKeyDown(h.event({ key: 'Escape' }));
+    else if (cancel === 'locked') { h.layer.locked = true; h.render(); }
+    else handle.props[cancel === 'pointer' ? 'onPointerCancel' : 'onLostPointerCapture'](h.event());
+    handle.props.onPointerUp(h.event());
+    assert.equal(h.patches.length, 0);
+    assert.equal(h.find(p => p.summary).props.range.offset, 1);
+  }
+});
+
+test('late source metadata constrains a pending end extension without blocking earlier gestures', () => {
+  const h = timeline({ music: true, sourceDuration: null, mode: 'timing' });
+  let handle = h.find(p => p['aria-label'] === 'Trim end of Audio');
+  handle.props.onPointerDown(h.event());
+  handle.props.onPointerMove(h.event({ clientX: 500 }));
+  assert.equal(h.find(p => p.layer?.id === h.layer.id).props.layer.end, 8);
+  h.setSourceDuration(6);
+  handle = h.find(p => p['aria-label'] === 'Trim end of Audio');
+  handle.props.onPointerUp(h.event());
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.patches[0].patch.end, 7);
+  assert.equal(h.layer.offset, 1);
 });

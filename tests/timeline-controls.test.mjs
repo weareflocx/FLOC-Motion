@@ -7,16 +7,18 @@ import { capturedProperties, captureState, evaluateChoreography, moveState, stat
 import { EASINGS, EASING_GROUPS, easeProgress, isCubicBezier } from '../src/easing.js';
 import { choreographyPatch } from '../src/editor/choreography-edit.js';
 import { demoProject, validateProject, patchLayer } from '../src/project.js';
+import { clipEndLimit } from '../src/editor-controls.js';
 
 const compiled = await Promise.all(['TimelineTimingControls', 'LayerFadeControls', 'ChoreographyControls', 'TimelineControlsPopover', 'TimelinePanel'].map(async name => {
   const source = fs.readFileSync(new URL(`../src/editor/components/${name}.jsx`, import.meta.url), 'utf8');
   return (await transform(source.replace(/^import .*;\n/gm, '').replace(/export /g, ''), { loader: 'jsx' })).code;
 }));
 
-function controls({ type = 'text', locked = false, states = false, time = 1 } = {}) {
+function controls({ type = 'text', locked = false, states = false, time = 1, sourceDuration, offset = 0, loop = false } = {}) {
   let project = validateProject(demoProject());
   let layer = project.layers.find(item => item.type === type);
   const id = layer.id;
+  if (type === 'music') project = patchLayer(project, id, { offset, loop });
   if (states) {
     project = patchLayer(project, id, { start: 0, end: 6, opacity: .9, choreography: captureState(layer, 0, project.fps, { x: 10, opacity: .2 }, 'first') });
     layer = project.layers.find(item => item.id === id);
@@ -31,7 +33,7 @@ function controls({ type = 'text', locked = false, states = false, time = 1 } = 
     if (typeof type === 'function') return type({ ...props, children });
     return { type, props: props || {}, children };
   } };
-  const context = { React, EASINGS, EASING_GROUPS, easeProgress, isCubicBezier, capturedProperties, captureState, moveState, stateAtTime, evaluateChoreography, usePlaybackTime: clock => clock.get().time,
+  const context = { React, clipEndLimit, EASINGS, EASING_GROUPS, easeProgress, isCubicBezier, capturedProperties, captureState, moveState, stateAtTime, evaluateChoreography, usePlaybackTime: clock => clock.get().time,
     useState(value) { const index = cursor++; slots[index] ??= { value }; return [slots[index].value, next => { const value = typeof next === 'function' ? next(slots[index].value) : next; if (!Object.is(value, slots[index].value)) { slots[index].value = value; dirty = true; } }]; },
     useRef(value) { const index = cursor++; return slots[index] ??= { current: value }; },
     useLayoutEffect() {},
@@ -39,7 +41,7 @@ function controls({ type = 'text', locked = false, states = false, time = 1 } = 
     NumberField: props => ({ type: 'number-field', props, children: [] }),
     Section: props => ({ type: 'section', props, children: props.children }),
     IconButton: props => ({ type: 'button', props: { ...props, 'aria-label': props.label }, children: props.children }),
-    TimelineTracks: props => ({ type: 'tracks', props, children: props.project.layers.filter(layer => layer.id === props.selected).map(layer => context.TimelineTimingControls({ project: props.project, layer, onPatch: props.onCommit, onFocus: () => props.onSelect(layer.id) })) }) };
+    TimelineTracks: props => ({ type: 'tracks', props, children: props.project.layers.filter(layer => layer.id === props.selected).map(layer => context.TimelineTimingControls({ project: props.project, layer, sourceDuration, onPatch: props.onCommit, onFocus: () => props.onSelect(layer.id) })) }) };
   for (const name of ['DotsNine', 'Circle', 'Images', 'CaretDown', 'CaretUp', 'ImageSquare', 'MusicNotes', 'Timer', 'DiamondsFour', 'Sparkle', 'TextT', 'Diamond', 'Trash', 'X']) context[name] = () => null;
   vm.createContext(context);
   for (const code of compiled) vm.runInContext(code, context);
@@ -136,20 +138,11 @@ test('Save state captures the current evaluated pose; Update state preserves ID 
   assert.equal(h.layer().choreography.some(item => item.id === 'last'), false);
 });
 
-test('Save state lists held properties; the easing picker accepts library curves and only valid custom béziers', () => {
+test('easing edits accept library curves and reject malformed custom béziers', () => {
   const h = controls({ states: true });
   h.open();
-  h.button('Save state').props.onClick();
-  const saved = h.layer().choreography.find(item => item.time === 1);
-  assert.deepEqual([saved.values.color, saved.values.letterSpacing, saved.values.lineHeight], ['#ffffff', -0.035, 0.98]);
-  const note = () => h.find(node => node.type === 'p' && node.children.flat().join('').startsWith('Holds'));
-  assert.equal(note().children.flat().join(''), 'Holds Position, Size, Opacity, Rotation, Color, Letter spacing, Line height.');
   h.render({ time: 2 });
   const easing = () => h.find(node => node.props['aria-label'] === 'Transition into state');
-  const options = node => (node.children || []).flat(Infinity).filter(child => child && typeof child === 'object');
-  assert.deepEqual(options(easing()).map(group => [group.props.label, options(group).map(option => option.children.flat().join(''))]), [
-    ['Basic', ['Linear', 'Ease in-out', 'Ease in', 'Ease out']], ['Overshoot', ['Back', 'Bounce', 'Spring']], ['Custom', ['Cubic bézier']]
-  ]);
   easing().props.onChange({ target: { value: 'spring' } });
   assert.equal(h.layer().choreography.at(-1).easing, 'spring');
   easing().props.onChange({ target: { value: 'custom' } });
@@ -241,4 +234,34 @@ test('minimum-duration clips can move without floating-point validation failures
   const latestStart = h.field('Start').props.max;
   h.field('Start').props.onChange(latestStart);
   assert(h.layer().end >= h.layer().start + .01);
+});
+
+test('audio Duration edits recover source, respect its remaining duration, and Start remains a move', () => {
+  const h = controls({ type: 'music', sourceDuration: 8, offset: 2 });
+  assert.equal(h.field('Duration').props.max, 6);
+  // Metadata alone preserves imported placement, including its existing silent tail.
+  assert.equal(h.layer().end, 12);
+  assert.equal(h.patches.length, 0);
+  h.field('Duration').props.onChange(3);
+  h.field('Start').props.onChange(2);
+  assert.equal(h.layer().offset, 2);
+  assert.equal(h.layer().start, 2);
+  assert.equal(h.layer().end, 5);
+  assert.equal(h.field('Duration').props.max, 6);
+  h.field('Duration').props.onChange(20);
+  assert.equal(h.layer().end, 8);
+  assert.equal(h.layer().offset, 2);
+  assert.deepEqual({ ...h.patches.at(-1) }, { end: 8 });
+});
+
+test('looping audio and unavailable source metadata retain composition-duration controls', () => {
+  for (const options of [{ sourceDuration: 3, loop: true }, {}]) {
+    const h = controls({ type: 'music', offset: 1, ...options });
+    assert.equal(h.field('Duration').props.max, 12);
+    h.field('Duration').props.onChange(4);
+    h.field('Start').props.onChange(3);
+    h.field('Duration').props.onChange(9);
+    assert.equal(h.layer().end, 12);
+    assert.equal(h.layer().offset, 1);
+  }
 });

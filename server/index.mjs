@@ -22,6 +22,7 @@ import { removeStaleJsonTemps } from './json-store.mjs';
 import { clientAddress, configureHttpServer, requestBody } from './http-boundary.mjs';
 import { createAssetStorage } from './asset-storage.mjs';
 import { createFontLibrary } from './font-library.mjs';
+import { createAudioWaveforms } from './audio-waveform.mjs';
 import { FONT_FILE_TYPES } from '../src/fonts.js';
 const config = runtimeConfig();
 const { port, data } = config;
@@ -34,6 +35,7 @@ const audit = createAuditLog(data);
 onExportEnded(job => audit.exportEnded(job));
 const drafts = createDraftStore(data);
 const fonts = createFontLibrary({ data });
+const waveforms = createAudioWaveforms({ data });
 const renderWorker = createRenderWorker({ data, jobs, token: process.env.FLOC_RENDER_WORKER_TOKEN });
 const personalRenderers = createPersonalRenderers({ data, jobs, version: await rendererVersion() });
 await mkdir(assets, { recursive: true });
@@ -136,6 +138,8 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     }
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, effects: EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/assets' && req.method === 'GET') return json(res, { assets: await storage.library() });
+    const waveformMatch = route.match(/^\/api\/assets\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(?:mp3|wav|m4a|ogg))\/waveform$/);
+    if (waveformMatch && req.method === 'GET') return json(res, await waveforms.get(waveformMatch[1]));
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);

@@ -1,0 +1,49 @@
+.audio-waveform {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  color: #aaa;
+  opacity: .45;
+  pointer-events: none;
+}
+
+.audio-waveform path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.audio-waveform .audio-waveform-baseline {
+  opacity: .25;
+}
+
+.audio-waveform-status {
+  position: absolute;
+  top: 3px;
+  right: 22px;
+  z-index: 2;
+  max-width: calc(100% - 44px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 4px;
+  border-radius: 2px;
+  background: #242424;
+  color: #aaa;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.audio-waveform-status:not(button) {
+  pointer-events: none;
+}
+
+.audio-waveform-status.error {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

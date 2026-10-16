@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { resizeDuration } from '../../project.js';
+import { PROJECT_LIMITS, resizeDuration } from '../../project.js';
 import { CanvasPanel } from './CanvasPanel.jsx';
 import { InspectorPanel } from './InspectorPanel.jsx';
 import { LayerPanel } from './LayerPanel.jsx';
@@ -29,6 +29,10 @@ export function EditorWorkspace({ session, selection: { selected, selection, set
       cards={{ onMove: actions.moveImage, onRemove: actions.removeImage, onAddAsset: (asset, target) => files.placeAssets([asset], target) }}
       onSetRightTab={setRightTab} onPatch={editLayer} onPick={target => dialogs.setAddTarget(target)} onRemoveText={actions.removeText}/>
     <TimelinePanel project={project} selected={selected} clock={clock} time={time} timelineOpen={timelineOpen} onTimeChange={setTime} onSetPlaying={setPlaying} onSetTimelineOpen={setTimelineOpen}
-      onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}/>
+      onSelect={setSelected} onSeek={seek} onPatch={patch} onEditLayer={editLayer}
+      audioDisabled={files.uploading || project.layers.length >= PROJECT_LIMITS.maxLayers}
+      onAddAudio={() => files.pick('layers', '.mp3,.wav,.m4a,.ogg', true, { time: clock.get().time })}
+      onDropAudio={(asset, time) => files.placeAssets([asset], 'layers', { time })}
+      onDropAudioFiles={(audio, time) => files.uploadFiles(audio, 'layers', { time })}/>
   </div>;
 }

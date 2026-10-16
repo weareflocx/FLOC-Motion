@@ -52,3 +52,18 @@ test('reused assets become valid cards, sources and layers centered on a drop po
   assert.deepEqual([music.type, Object.hasOwn(music, 'x')], ['music', false]);
   validateProject({ ...landscape, layers: [...landscape.layers, media, model, music] });
 });
+
+test('audio timeline placement snaps to a frame, keeps the source in-point and clamps to the composition', () => {
+  const project = validateProject(demoProject());
+  for (const [time, expected] of [[2.02, 2], [-3, 0], [100, project.duration - 1 / project.fps]]) {
+    const audio = assetLayer(asset('wav'), project, 'audio-drop', { time });
+    assert.equal(audio.start, expected);
+    assert.equal(audio.end, project.duration);
+    assert.equal(audio.offset, 0);
+    assert.equal(audio.src, src('wav'));
+    validateProject({ ...project, layers: [...project.layers, audio] });
+  }
+  const original = assetLayer(asset('wav'), project, 'audio-drop');
+  const canvasDrop = assetLayer(asset('wav'), project, 'audio-drop', { x: 50, y: 50 });
+  assert.deepEqual(canvasDrop, original, 'canvas placement does not change audio timing');
+});
