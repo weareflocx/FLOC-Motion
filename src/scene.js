@@ -122,7 +122,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     }
   }
   const group = new THREE.Group(); scene.add(group);
-  let disposed = false;
+  let disposed = false, initialized = false;
   let orientation = null;
   // Editor-only previews: `{ id, ...fields }` for one layer or `{ layers: { [id]: fields } }` for a group move.
   let placement = null;
@@ -347,6 +347,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     applySettings();
     await Promise.all(imageNodes.map(img => img.decode().catch(() => { throw new Error('An image could not be decoded.'); })));
     placeLayers(0);
+    initialized = true;
   } catch (error) { dispose(); throw error; }
   function dispose() {
     if (disposed) return;
@@ -361,7 +362,8 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     handles.forEach(handle => handle.release());
   }
   function draw(time, playing = false) {
-    if (disposed) return;
+    // Metadata/context events can arrive before card media and geometry exist.
+    if (disposed || !initialized) return;
     if (context.lost && renderMode) throw new Error('The graphics context was lost while rendering.');
     placeLayers(time);
     models.forEach(model => model.draw(time, placementFor(model.id) ?? undefined));
