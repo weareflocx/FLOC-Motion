@@ -88,7 +88,8 @@ function cardUniforms(texture, imageAspect) {
 function unloadVideo(video) { pauseMedia(video); video.removeAttribute('src'); video.load(); }
 async function loadCardVideo(src) {
   const video = document.createElement('video');
-  video.muted = true; video.playsInline = true; video.preload = 'auto';
+  // Load the first frame without eagerly buffering every carousel video while paused.
+  video.muted = true; video.playsInline = true; video.preload = 'metadata';
   try {
     await waitForVideo(video, 'loadeddata', () => { video.src = cardVideoSource(src); video.load(); }, () => video.readyState >= 2);
     if (!Number.isFinite(video.duration) || video.duration <= 0) throw new Error('Carousel videos must have a finite duration.');
