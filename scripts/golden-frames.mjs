@@ -147,7 +147,7 @@ async function imageTools(page) {
       context.drawImage(image, 0, 0, node.width, node.height);
       return encode(node);
     };
-    window.compare = async (actualBase64, expectedBase64, channel) => {
+    window.compare = async (actualBase64, expectedBase64, channel, alpha = false) => {
       const [actual, expected] = await Promise.all([load(actualBase64), load(expectedBase64)]);
       if (actual.naturalWidth !== expected.naturalWidth || actual.naturalHeight !== expected.naturalHeight) return { size: [actual.naturalWidth, actual.naturalHeight, expected.naturalWidth, expected.naturalHeight] };
       const pixels = image => { const [, context] = canvas(image.naturalWidth, image.naturalHeight); context.drawImage(image, 0, 0); return context.getImageData(0, 0, image.naturalWidth, image.naturalHeight); };
@@ -156,7 +156,8 @@ async function imageTools(page) {
       const diff = diffContext.createImageData(a.width, a.height);
       let differing = 0, maxDelta = 0;
       for (let i = 0; i < a.data.length; i += 4) {
-        const delta = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2]));
+        let delta = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2]));
+        if (alpha) delta = Math.max(delta, Math.abs(a.data[i + 3] - b.data[i + 3]));
         maxDelta = Math.max(maxDelta, delta);
         const gray = (b.data[i] + b.data[i + 1] + b.data[i + 2]) / 12;
         if (delta > channel) { differing++; diff.data.set([255, 0, 64, 255], i); } else diff.data.set([gray, gray, gray, 255], i);
@@ -261,7 +262,7 @@ export async function openGoldenSession({ lanes = defaultLanes, assetDirectory =
       return results;
     },
     async compare(actual, expected, tolerance) {
-      const result = await browsers[0].tools.evaluate((a, b, channel) => window.compare(a, b, channel), actual.toString('base64'), expected.toString('base64'), tolerance.channel);
+      const result = await browsers[0].tools.evaluate((a, b, channel, alpha) => window.compare(a, b, channel, alpha), actual.toString('base64'), expected.toString('base64'), tolerance.channel, tolerance.alpha === true);
       if (result.size) return { ok: false, summary: `size ${result.size[0]}×${result.size[1]} vs ${result.size[2]}×${result.size[3]}` };
       return { ok: result.ratio <= tolerance.ratio, ratio: result.ratio, maxDelta: result.maxDelta, diff: result.diff && Buffer.from(result.diff, 'base64'),
         summary: `${(result.ratio * 100).toFixed(3)}% pixels differ by >${tolerance.channel}/255 (limit ${(tolerance.ratio * 100).toFixed(3)}%), max channel delta ${result.maxDelta}` };

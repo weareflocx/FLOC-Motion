@@ -65,7 +65,7 @@ const output = samples => `
       vec4 r = modelRefractionSample(uvR + offset);
       vec4 g = modelRefractionSample(uvG + offset);
       vec4 b = modelRefractionSample(uvB + offset);
-      through += vec3(r.r * r.a, g.g * g.a, b.b * b.a);
+      through += vec3(r.r, g.g, b.b);
       throughAlpha += max(r.a, max(g.a, b.a));
     }
     through /= ${samples}.0;
@@ -92,6 +92,8 @@ export function createModelRefraction() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.NoColorSpace;
   texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  // Premultiply before interpolation, not after sampling transparent texels.
+  texture.premultiplyAlpha = true;
   texture.generateMipmaps = false;
   const uniforms = {
     modelRefractionBuffer: { value: texture },
@@ -124,7 +126,7 @@ export function createModelRefraction() {
           .replace('#include <opaque_fragment>', 'gl_FragColor = vec4(totalSpecular, 1.0);')
           .replace('#include <premultiplied_alpha_fragment>', output(samples));
       };
-      material.customProgramCacheKey = () => `floc-model-refractive-v2-${samples}`;
+      material.customProgramCacheKey = () => `floc-model-refractive-v3-${samples}`;
     },
     update(style) {
       uniforms.modelRefractionThickness.value = style.refractionThickness * 2;

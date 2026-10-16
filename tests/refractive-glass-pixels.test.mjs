@@ -117,6 +117,17 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
       await setup(.35);
       const sourceOpacity = await mount({ transparent: true, modelStyle: { mode: 'original' } });
       result.sourceOpacity = difference(layerOpacity, sourceOpacity);
+      await mount({ transparent: true, modelStyle: { ior: 1, refractionThickness: 0, roughness: .4 } });
+      const whiteEdges = await change('title', { color: '#ffffff' });
+      let partialPixels = 0, maxColorError = 0;
+      for (let i = 0; i < whiteEdges.length; i += 4) {
+        const x = i / 4 % 360, y = Math.floor(i / 4 / 360), alpha = whiteEdges[i + 3];
+        if ((x - 180) ** 2 + (y - 180) ** 2 < 65 ** 2 && alpha > 32 && alpha < 223) {
+          partialPixels++;
+          for (let channel = 0; channel < 3; channel++) maxColorError = Math.max(maxColorError, Math.abs(whiteEdges[i + channel] * alpha / 255 - alpha));
+        }
+      }
+      result.transparentColor = { partialPixels, maxColorError };
       const animated = await mount({ second: true });
       await engine.seek(1.5); const moving = pixels(); await engine.seek(.5);
       result.multiple = { motion: difference(animated, moving), reverse: difference(animated, pixels()) };
@@ -174,6 +185,10 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
   assert.ok(result.alpha.clearedHalf > result.alpha.cleared * .95, `half-opacity glass keeps half the old ink: ${JSON.stringify(result.alpha)}`);
   assert.ok(result.alpha.overlap > 100 && result.alpha.opaqueHalf > result.alpha.overlap * .95, 'partial-opacity replacement must not reduce two opaque samples to 75% alpha');
   assert.equal(result.sourceOpacity.changed, 0, 'Original preserves imported opacity instead of making the glass opaque');
+  assert.ok(result.transparentColor.partialPixels > 100, 'the frosted white glyph fixture exercises filtered partial-alpha edges');
+  // Compare the displayed color over black: straight RGB magnifies 8-bit
+  // rounding at low alpha, whereas two premultiplied channel steps are bounded.
+  assert.ok(result.transparentColor.maxColorError <= 2, `filtered white keeps its coverage-weighted brightness without dark fringes: ${JSON.stringify(result.transparentColor)}`);
   assert.ok(result.multiple.motion.changed > 100, `a second refractive model follows its own motion: ${JSON.stringify(result.multiple)}`);
   assert.equal(result.multiple.reverse.total, 0, 'multiple glass layers are seek-safe without feedback');
   assert.ok(result.quality.every(changed => changed > 500), 'every quality setting retains the actual refraction');
