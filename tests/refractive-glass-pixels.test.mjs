@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
+import { mkdir, writeFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
 import { browserCandidates } from '../scripts/renderer-runtime.mjs';
 
 const executablePath = [process.env.HYPERFRAMES_BROWSER_PATH, ...browserCandidates()].find(file => file && existsSync(file));
 
-test('refractive glass bends lower scene pixels without ghosting alpha or refracting upper layers', { skip: !executablePath && 'Chrome or Edge is required for refraction verification', timeout: 120000 }, async t => {
+test('Flat refractive presentations preserve lower pixels, alpha and upper-layer exclusion', { skip: !executablePath && 'Chrome or Edge is required for refraction verification', timeout: 120000 }, async t => {
   const bundle = await build({ stdin: { resolveDir: path.resolve('src'), contents: `
     import * as THREE from 'three';
     import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
@@ -54,6 +55,7 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
       }
       if (second) base.layers.push({ ...lens, id: 'second', x: 42, y: 30, size: 36, modelStyle: { ...style, ior: 1.3, motion: 'float', motionAmplitude: .8 } });
       if (upper) base.layers.push({ ...fileLayer({ src: IMAGE, name: 'Above' }, 12, 'above'), x: 40, y: 47, size: 20 });
+      for (const layer of base.layers) if (['text', 'logo', 'media', 'model', 'carousel'].includes(layer.type)) layer.space = 'flat';
       return validateProject(base);
     }
     async function mount(options = {}, renderMode = true, width = 360, height = 360) {
@@ -64,7 +66,7 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
       engine.setResolution(width, height); await engine.seek(.5); return pixels();
     }
     function pixels() {
-      const canvas = root.querySelector('[data-floc-refraction-output]');
+      const canvas = root.querySelector('[data-floc-scene-output]');
       return canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
     }
     async function change(id, patch, time = .5) {
@@ -129,8 +131,10 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
       }
       result.transparentColor = { partialPixels, maxColorError };
       const animated = await mount({ second: true });
+      const animationPng = root.querySelector('[data-floc-scene-output]').toDataURL().split(',')[1];
       await engine.seek(1.5); const moving = pixels(); await engine.seek(.5);
       result.multiple = { motion: difference(animated, moving), reverse: difference(animated, pixels()) };
+      result.multiple.frames = [animationPng, root.querySelector('[data-floc-scene-output]').toDataURL().split(',')[1]];
       result.quality = [];
       for (const refractionSamples of [4, 8, 16]) for (const refractionResolution of [256, 512, 1024, 2048]) {
         await change('lens', { modelStyle: { ...style, refractionSamples, refractionResolution } });
@@ -155,10 +159,7 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
       const beforeMove = await mount({ format: 'portrait', modelStyle: { ior: 1, refractionThickness: 0 } }, true, 180, 320);
       const afterMove = await change('lens', { x: -10, y: 5, size: 110 });
       result.identityPlacement = difference(beforeMove, afterMove, 180);
-      await change('lens', { modelStyle: { ...style, shader: 'standard' } });
-      result.restored = { hiddenSources: root.querySelectorAll('[data-floc-refraction-hidden]').length, display: root.querySelector('[data-floc-refraction-output]').style.display };
       engine.dispose(); urls.forEach(url => URL.revokeObjectURL(url));
-      result.cleaned = !root.querySelector('[data-floc-refraction-output]') && !root.querySelector('[data-floc-refraction-hidden]');
       result.errors = errors; return result;
     };
   ` }, bundle: true, write: false, format: 'iife' });
@@ -173,6 +174,11 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
   await page.setContent('<style>body{margin:0}#stage{position:relative;overflow:hidden;transform:scale(.33);transform-origin:top left}canvas,img,video{display:block}</style><div id="stage"></div>');
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   const result = await page.evaluate(() => window.exerciseRefraction());
+  if (result.multiple.reverse.total) {
+    await mkdir('.data/qa/shared-scene', { recursive: true });
+    await writeFile('.data/qa/shared-scene/glass-first.png', Buffer.from(result.multiple.frames[0], 'base64'));
+    await writeFile('.data/qa/shared-scene/glass-reversed.png', Buffer.from(result.multiple.frames[1], 'base64'));
+  }
   assert.deepEqual(failures, [], 'shaders compile and no external assets are requested');
   assert.deepEqual(result.errors, []);
   assert.ok(result.refraction.changed > 500 && result.refraction.total > 10000, `actual lower pixels must bend: ${JSON.stringify(result.refraction)}`);
@@ -196,6 +202,4 @@ test('refractive glass bends lower scene pixels without ghosting alpha or refrac
   assert.deepEqual(result.carouselCapture.center, [0, 255, 0, 255], 'the actual green carousel card survives asynchronous SVG decoding before the backdrop is sampled');
   assert.equal(result.carouselCapture.parity.total, 0, 'preview retains the same carousel framebuffer that export samples');
   assert.ok(result.identityPlacement.changed < 180 * 320 * .02, `IOR 1 remains an identity when moving/resizing off-canvas in portrait: ${JSON.stringify(result.identityPlacement)}`);
-  assert.deepEqual(result.restored, { hiddenSources: 0, display: 'none' });
-  assert.equal(result.cleaned, true);
 });

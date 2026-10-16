@@ -1,4 +1,5 @@
 import { safeArea } from '../layout.js';
+import { layerPosition, stageScene } from './layer-bounds.js';
 
 const limits = { logo: [2, 500], media: [2, 500], model: [2, 500] };
 
@@ -20,11 +21,11 @@ export function canvasMediaPlacement(x, y) {
 // Snap only within a small pointer distance: continuing past a margin releases it.
 // The visual edges scale about the stored box center, which a 3D model's
 // silhouette need not share.
-export function snapCenteredResize(layer, size, bounds, visualBounds, layout, tolerance) {
+export function snapCenteredResize(layer, size, bounds, visualBounds, layout, tolerance, projectedPivot = null) {
   const area = safeArea(layout);
   const requested = centeredResize(layer, size, bounds);
   const edges = (axis, extent) => [visualBounds[axis], visualBounds[axis] + visualBounds[extent]];
-  const pivot = (axis, extent) => bounds[axis] + bounds[extent] / 2;
+  const pivot = (axis, extent) => projectedPivot?.[axis] ?? bounds[axis] + bounds[extent] / 2;
   let best;
   for (const [axis, extent] of [['x', 'width'], ['y', 'height']]) {
     if (!visualBounds[extent]) continue;
@@ -52,8 +53,12 @@ export function snapCenteredResize(layer, size, bounds, visualBounds, layout, to
 }
 
 export function layerResizeBounds(layer, root) {
+  const scene = stageScene(root);
+  if (scene && !scene.projectedBounds(layer.id)) return null;
   const node = [...(root?.querySelectorAll('[data-floc-layer]') ?? [])].find(node => node.dataset.flocLayer === layer.id);
   if (!node || !root.clientWidth || !root.clientHeight) return null;
+  // Source dimensions are intrinsic object sizing, not picking/projected bounds.
+  // Keeping this local box preserves the authored center under camera orbit and depth.
   const style = node.ownerDocument?.defaultView?.getComputedStyle(node);
-  return { x: parseFloat(node.style.left), y: parseFloat(node.style.top), width: (parseFloat(style?.width) || node.offsetWidth) / root.clientWidth * 100, height: (parseFloat(style?.height) || node.offsetHeight) / root.clientHeight * 100 };
+  return { ...layerPosition(root, layer), width: (parseFloat(style?.width) || node.offsetWidth) / root.clientWidth * 100, height: (parseFloat(style?.height) || node.offsetHeight) / root.clientHeight * 100 };
 }

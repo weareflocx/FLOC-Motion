@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createModelRefraction } from './model-refraction.js';
+import { bindScenePass, createScenePass, setSceneMaterialPass } from './scene-pass.js';
 
 // Imported textures/geometry remain cache-owned. Only these per-instance materials
 // and the generated toon ramp belong to this controller.
@@ -112,11 +113,12 @@ function glass(material, shader) {
   }
   return uniforms;
 }
-export function createModelMaterials(model) {
+export function createModelMaterials(model, { spatial = false } = {}) {
   const bindings = [], variants = new Map(), owned = new Set(), tint = new THREE.Color();
   // Brushing and a varying film need a UV frame; materials on meshes without UVs skip them.
   const withoutUv = new Set();
   let gradient, gradientSteps, film, refraction;
+  const scenePass = createScenePass();
   model.traverse(node => {
     if (!node.material) return;
     bindings.push({ node, source: node.material });
@@ -171,6 +173,7 @@ export function createModelMaterials(model) {
       refraction.attach(material, style.refractionSamples);
     }
     value = { source, material, refractive: shader === 'refractive', rim: shader === 'fresnel' ? fresnel(material) : null, glass: shader === 'glass' || shader === 'crystal' ? glass(material, shader) : null };
+    bindScenePass(material, scenePass, { spatial, authoredOpaque: !['glass', 'refractive'].includes(shader) && !material.transparent, lateAlpha: ['glass', 'refractive'].includes(shader) || material.transmission > 0 });
     table.set(source, value); owned.add(material);
     return value;
   }
@@ -232,8 +235,12 @@ export function createModelMaterials(model) {
       }
       refraction?.update(style);
     },
-    setRefraction(source, rect, resolution) { refraction?.input(source, rect, resolution); },
+    setRefraction(source, rect, resolution, scale = 1, planeMatrix = null) { refraction?.input(source, rect, resolution, scale, planeMatrix); },
     setRefractionMask(value) { refraction?.mask(value); },
+    setScenePass(pass, opacity = 1, id = 0, options = {}) {
+      scenePass.set(pass, opacity, id);
+      if (spatial) for (const { node } of bindings) for (const material of [node.material].flat()) setSceneMaterialPass(material, pass, options);
+    },
     dispose() { for (const material of owned) material.dispose(); owned.clear(); variants.clear(); gradient?.dispose(); film?.dispose(); refraction?.dispose(); }
   };
 }

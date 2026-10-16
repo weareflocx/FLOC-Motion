@@ -106,3 +106,95 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
   assert.notEqual(await run('digest', { ...plain, patternGrain: 1 }, 1), await run('digest', plain, 1));
   assert.deepEqual(errors, []);
 });
+
+test('shared-context backgrounds crop the target viewport and rebuild after root recovery', { skip: !executablePath && 'Chrome or Edge is required for shared WebGL verification', timeout: 60000 }, async t => {
+  const bundle = await build({ stdin: { resolveDir: path.resolve('src'), contents: `
+    import * as THREE from 'three';
+    import { drawProceduralBackground, PROCEDURAL_BACKGROUNDS } from './backgrounds.js';
+    import { createSceneRenderer } from './scene-renderer.js';
+    Object.assign(window, { THREE, createSceneRenderer, drawProceduralBackground, patterns: PROCEDURAL_BACKGROUNDS.map(value => value.id) });
+  ` }, bundle: true, write: false, format: 'iife' });
+  const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--force-color-profile=srgb'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage(), errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setContent('<body></body>');
+  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const result = await page.evaluate(async () => {
+    const { THREE } = window, rendering = window.createSceneRenderer(), { renderer, canvas } = rendering;
+    let rt, texture, unwatch;
+    const pixels = target => target.getContext('2d').getImageData(0, 0, target.width, target.height).data;
+    const difference = (a, b) => {
+      let maximum = 0; for (let i = 0; i < a.length; i++) maximum = Math.max(maximum, Math.abs(a[i] - b[i]));
+      return maximum;
+    };
+    const contextEvent = (type, trigger) => new Promise((resolve, reject) => {
+      const cleanup = () => { clearTimeout(timer); canvas.removeEventListener(type, done); };
+      const done = () => { cleanup(); resolve(); };
+      const timer = setTimeout(() => { cleanup(); reject(new Error('Timed out waiting for ' + type)); }, 3000);
+      canvas.addEventListener(type, done, { once: true });
+      try { trigger(); } catch (error) { cleanup(); reject(error); }
+    });
+    try {
+      rendering.capacity(1024, 768);
+      const target = document.createElement('canvas'); target.width = 192; target.height = 108;
+      const expected = document.createElement('canvas'); expected.width = 192; expected.height = 108;
+      const visible = document.createElement('canvas'); document.body.append(visible);
+      rt = new THREE.WebGLRenderTarget(64, 64);
+      renderer.setRenderTarget(rt); renderer.setViewport(3, 4, 50, 48); renderer.setScissor(5, 6, 40, 36); renderer.setScissorTest(true);
+      const gl = renderer.getContext(), viewport = [...gl.getParameter(gl.VIEWPORT)], scissor = [...gl.getParameter(gl.SCISSOR_BOX)];
+      const differences = [];
+      for (const pattern of window.patterns) {
+        const layer = { pattern, color: '#17223a', patternColor: '#edab71', patternSeed: 29, patternIntensity: .8, patternVignette: .4 };
+        if (!window.drawProceduralBackground(expected, layer, 1.3, 24) || !window.drawProceduralBackground(target, layer, 1.3, 24, renderer)) throw new Error('Background was not drawn: ' + pattern);
+        differences.push({ pattern, maximum: difference(pixels(target), pixels(expected)) });
+      }
+      const state = { target: renderer.getRenderTarget() === rt, viewport: [...gl.getParameter(gl.VIEWPORT)], scissor: [...gl.getParameter(gl.SCISSOR_BOX)], scissorTest: renderer.getScissorTest() };
+      renderer.setRenderTarget(null); renderer.setViewport(0, 0, 1024, 768); renderer.setScissorTest(false);
+      renderer.setClearColor('#ff00ff', 1); renderer.clear();
+      const reuse = new Uint8Array(4); gl.readPixels(20, 20, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, reuse);
+      texture = new THREE.CanvasTexture(target);
+      texture.minFilter = texture.magFilter = THREE.NearestFilter;
+      let requestedTime = .7, restoredDraw = false;
+      const settings = { pattern: 'waves', patternSeed: 12, color: '#121212', patternGrain: .4 };
+      const drawVisible = () => {
+        if (!window.drawProceduralBackground(target, settings, requestedTime, 24, renderer)) return false;
+        texture.needsUpdate = true;
+        rendering.frame(target.width, target.height); rendering.drawCopy(texture); rendering.copyTo(visible);
+        return true;
+      };
+      unwatch = rendering.watch({ restored() { restoredDraw = drawVisible(); } });
+      if (!drawVisible()) throw new Error('Initial visible background was not drawn');
+      window.drawProceduralBackground(expected, settings, requestedTime, 24);
+      const visibleBefore = new Uint8ClampedArray(pixels(visible));
+      const initialMaximum = difference(visibleBefore, pixels(expected));
+      await contextEvent('webglcontextlost', () => renderer.forceContextLoss());
+      const rootLost = rendering.lost;
+      requestedTime = 2.3;
+      const lostDraw = drawVisible(), retainedMaximum = difference(pixels(visible), visibleBefore);
+      // Restoration is not permitted until the browser finishes the loss event.
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await contextEvent('webglcontextrestored', () => renderer.forceContextRestore());
+      window.drawProceduralBackground(expected, settings, requestedTime, 24);
+      const recoveredMaximum = difference(pixels(visible), pixels(expected));
+      const advancedMaximum = difference(pixels(visible), visibleBefore);
+      return { differences, state, viewport, scissor, reuse: [...reuse], rootLost, lostDraw, restoredDraw,
+        initialMaximum, retainedMaximum, recoveredMaximum, advancedMaximum, rootRecovered: !rendering.lost,
+        visibleSize: [visible.width, visible.height], rootSize: [canvas.width, canvas.height] };
+    } finally {
+      unwatch?.(); texture?.dispose(); rt?.dispose(); rendering.dispose();
+    }
+  });
+  for (const { pattern, maximum } of result.differences) assert.ok(maximum <= 1, `${pattern} keeps its actual shader pixels inside the smaller target: ${maximum}`);
+  assert.equal(result.state.target, true); assert.equal(result.state.scissorTest, true);
+  assert.deepEqual(result.state.viewport, result.viewport); assert.deepEqual(result.state.scissor, result.scissor);
+  assert.deepEqual(result.reuse, [255, 0, 255, 255], 'Three can draw normally after the native shader pass');
+  assert.ok(result.initialMaximum <= 1, `The common scene surface crops the source without scaling: ${result.initialMaximum}`);
+  assert.deepEqual(result.visibleSize, [192, 108]); assert.deepEqual(result.rootSize, [1024, 768]);
+  assert.equal(result.rootLost, true); assert.equal(result.lostDraw, false);
+  assert.equal(result.retainedMaximum, 0, 'The visible output retains its last frame while the shared context is lost');
+  assert.equal(result.rootRecovered, true); assert.equal(result.restoredDraw, true);
+  assert.ok(result.recoveredMaximum <= 1, `Root recovery redraws the requested frame on the visible surface: ${result.recoveredMaximum}`);
+  assert.ok(result.advancedMaximum > 1, 'Recovery displays the newly requested frame rather than stale pixels');
+  assert.deepEqual(errors, []);
+});

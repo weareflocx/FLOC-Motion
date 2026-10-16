@@ -10,6 +10,17 @@
   min-height: 32px;
 }
 
+.canvas-scene-view {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  border-right: 1px solid #ffffff20;
+  padding-right: 5px;
+  font-size: 10px;
+  color: #aaa;
+}
+
 .canvas-zoom {
   display: flex;
   flex-shrink: 0;
@@ -19,17 +30,20 @@
   color: #aaa;
 }
 
+.canvas-scene-view>button,
 .canvas-zoom>button:not(.icon-button) {
   min-height: 32px;
   padding: 0 7px;
   border-radius: 5px;
 }
 
+.canvas-scene-view button:hover,
 .canvas-zoom button:hover {
   background: #313131;
   color: #eee;
 }
 
+.canvas-scene-view button[aria-pressed=true],
 .canvas-zoom button[aria-pressed=true] {
   background: #333;
   color: #eee;

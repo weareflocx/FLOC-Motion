@@ -17,6 +17,7 @@ import { ModelControls } from './ModelControls.jsx';
 import { ProjectControls } from './ProjectControls.jsx';
 import { LayerHeader } from './LayerHeader.jsx';
 import { CardList } from './CardList.jsx';
+import { SpatialControls } from './SpatialControls.jsx';
 
 const CARD_RATIOS = [[9 / 16, '9:16'], [0.8, '4:5'], [1 / 1.14, '7:8'], [1, '1:1'], [4 / 3, '4:3'], [16 / 9, '16:9']];
 const FIT_OPTIONS = [['height', 'Each image · same height'], ['width', 'Each image · same width']];
@@ -68,21 +69,23 @@ function CarouselDesign({ layer, images, uploading, cards, onPatch, onPick }) {
       {layer.template === 'circular' && <Range label="Rear fade" value={layer.fade} min={0} max={1} step={0.05} onChange={value => onPatch(layer.id, { fade: value })}/>}
       <Range label="Edge stretch" value={layer.stretch ?? 0} min={0} max={1} step={0.05} onChange={stretch => onPatch(layer.id, { stretch })}/>
     </Section>}
-    <Section title="Transform" detail={`X ${Math.round(layer.x)} · Y ${Math.round(layer.y)} · ${Math.round(layer.perspective ?? 38)}°`}>
+    <Section title="Transform" detail={`X ${Math.round(layer.x)} · Y ${Math.round(layer.y)} · Z ${Math.round(layer.z ?? 0)}`}>
+      <SpatialControls layer={layer} onPatch={onPatch}/>
       <Range label="Position X" value={layer.x} min={10} max={90} onChange={value => onPatch(layer.id, { x: value })}/>
       <Range label="Position Y" value={layer.y} min={10} max={90} onChange={value => onPatch(layer.id, { y: value })}/>
-      <Range label="Perspective" value={layer.perspective ?? 38} min={15} max={75} suffix="°" onChange={perspective => onPatch(layer.id, { perspective })}/>
+      {layer.space === 'flat' && <Range label="Perspective" value={layer.perspective ?? 38} min={15} max={75} suffix="°" onChange={perspective => onPatch(layer.id, { perspective })}/>}
       <OrientationControl key={layer.id} layer={layer} onCommit={fields => onPatch(layer.id, fields)}/>
     </Section>
   </>;
 }
 
-// Position, size and rotation share one Transform section on every flat visual layer.
+// Position, size and orientation share one Transform section on graphic layers.
 function FlatTransform({ layer, onPatch, defaultOpen = false }) {
   const bounds = layer.type === 'text' ? [0, 95] : layer.type === 'background' ? [-100, 100] : [Math.min(-100, layer.x), Math.max(100, layer.x)];
   const boundsY = layer.type === 'text' ? [0, 95] : layer.type === 'background' ? [-100, 100] : [Math.min(-100, layer.y), Math.max(100, layer.y)];
   const sized = ['logo', 'media'].includes(layer.type);
   return <Section title="Transform" defaultOpen={defaultOpen} detail={`X ${Math.round(layer.x ?? 0)} · Y ${Math.round(layer.y ?? 0)}${sized ? ` · ${Math.round(layer.size)}%` : ''} · ${Math.round(layer.roll ?? 0)}°`}>
+    <SpatialControls layer={layer} onPatch={onPatch}/>
     <Range label="Position X" value={layer.x ?? 0} min={bounds[0]} max={bounds[1]} onChange={x => onPatch(layer.id, { x })}/>
     <Range label="Position Y" value={layer.y ?? 0} min={boundsY[0]} max={boundsY[1]} onChange={y => onPatch(layer.id, { y })}/>
     {sized && <Range label="Size" value={layer.size} min={2} max={500} suffix="%" onChange={size => onPatch(layer.id, { size })}/>}

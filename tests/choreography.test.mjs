@@ -55,8 +55,8 @@ test('imports reject malformed states, unsupported fields, duplicate identities 
       assert.throws(() => validateProject(raw), /Only visual layers|cannot have choreography/);
     }
   }
-  const textState = state(getLayer(p, 'headline'), 'first', 0); textState.values.yaw = 20;
-  assert.throws(() => patchLayer(p, 'headline', { choreography: [textState] }), /Invalid choreography values/);
+  const textState = state(getLayer(p, 'headline'), 'first', 0); textState.values.yaw = 181;
+  assert.throws(() => patchLayer(p, 'headline', { choreography: [textState] }), /State yaw/);
 });
 
 test('poses interpolate position, size, opacity and direct orientation with destination easing', () => {

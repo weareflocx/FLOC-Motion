@@ -13,6 +13,7 @@ import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, ap
 import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
 import { PROJECT_LIMITS } from './project-limits.js';
 import { normalizeModelStyle } from './model-style.js';
+import { SPATIAL_LAYER_TYPES, LAYER_SPACES, SCENE_DEPTH_RANGE, normalizeScene, assertPlainSceneRecord } from './scene-settings.js';
 export { PROJECT_LIMITS } from './project-limits.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
@@ -27,12 +28,12 @@ export const TEMPLATES = [
   ...['showcase', 'sphere', 'spinner', 'stack', 'stickers', 'wheel'].map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), description: MOTION_VARIANTS[id].map(v => v[1]).join(' / '), kind: id }))
 ];
 export function blankProject(name = 'Untitled') {
-  return { version: CURRENT_PROJECT_VERSION, name, format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT }, images: [], layers: [
+  return { version: CURRENT_PROJECT_VERSION, name, format: 'square', duration: 12, fps: 24, scene: normalizeScene(), layout: { ...DEFAULT_LAYOUT }, images: [], layers: [
     { id: 'background', type: 'background', name: 'Background', visible: true, locked: false, start: 0, end: 12, color: '#ffffff', mode: 'color', src: '', fit: 'cover', offset: 0, loop: true }
   ] };
 }
 export function demoProject() {
-  return { version: CURRENT_PROJECT_VERSION, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24, layout: { ...DEFAULT_LAYOUT },
+  return { version: CURRENT_PROJECT_VERSION, name: 'Weekly design recap', format: 'square', duration: 12, fps: 24, scene: normalizeScene(), layout: { ...DEFAULT_LAYOUT },
     images: Array.from({ length: 6 }, (_, i) => ({ id: `demo-${i}`, src: `/demo/poster-${i + 1}.svg`, name: `Studio study ${String(i + 1).padStart(2, '0')}` })),
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
@@ -63,7 +64,7 @@ function validateChoreography(layer) {
     if (!isEasing(state.easing)) fail('Unknown choreography easing.');
     if (!state.values || typeof state.values !== 'object' || Array.isArray(state.values) || Object.keys(state.values).some(key => !Object.hasOwn(fields, key) && !Object.hasOwn(optional, key))) fail('Invalid choreography values.');
     for (const [field, [min, max]] of Object.entries(fields)) {
-      if (field === 'roll' && ['text', 'logo', 'media'].includes(layer.type) && state.values.roll === undefined) state.values.roll = layer.roll ?? 0;
+      if (['z', 'tilt', 'yaw', 'roll'].includes(field) && state.values[field] === undefined) state.values[field] = layer[field] ?? 0;
       finite(state.values[field], min, max, `State ${field}`);
     }
     // Optional values may outlive their effect; they apply again when it returns.
@@ -81,7 +82,7 @@ export function validAsset(src, allowEmpty = true) {
 }
 // The closed current shape: unknown keys are dropped after migration. Misplaced
 // effects, scope, opacity, choreography and content fields stay so they still fail.
-const PROJECT_KEYS = new Set(['version', 'name', 'format', 'duration', 'fps', 'layout', 'images', 'layers', 'linkedFormats']);
+const PROJECT_KEYS = new Set(['version', 'name', 'format', 'duration', 'fps', 'scene', 'layout', 'images', 'layers', 'linkedFormats']);
 const IMAGE_KEYS = new Set(['id', 'src', 'name']);
 const LAYER_KEYS = Object.fromEntries(Object.entries({
   text: ['text', 'x', 'y', 'size', 'width', 'color', 'font', 'weight', 'roll', 'rise', ...Object.keys(DEFAULT_TEXT_STYLE)],
@@ -95,7 +96,7 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   music: ['src', 'volume', 'offset', 'fade', 'loop'],
   effect: []
 }).map(([type, keys]) => [type, new Set(['id', 'type', 'name', 'visible', 'locked', 'start', 'end', 'effects', 'effectScope', 'opacity', 'choreography', 'contentField',
-  ...(FADE_LAYERS.includes(type) ? ['fadeIn', 'fadeOut'] : []), ...keys])]));
+  ...(SPATIAL_LAYER_TYPES.includes(type) ? ['space', 'z', 'tilt', 'yaw', 'roll'] : []), ...(FADE_LAYERS.includes(type) ? ['fadeIn', 'fadeOut'] : []), ...keys])]));
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const keepKeys = (value, keys) => { if (record(value)) for (const key of Object.keys(value)) if (!keys.has(key)) delete value[key]; };
 function closeShape(p) {
@@ -112,15 +113,28 @@ function closeShape(p) {
 export function validateProject(input) {
   if (!record(input)) fail('Invalid project.');
   // Check the original objects before structuredClone can erase their prototypes.
+  assertPlainSceneRecord(input, 'project');
+  if (Object.hasOwn(input, 'scene')) normalizeScene(input.scene);
   if (Object.hasOwn(input, 'linkedFormats')) assertLinkedFormatInput(input.linkedFormats);
   for (const layer of Array.isArray(input.layers) ? input.layers : []) {
+    assertPlainSceneRecord(layer, 'layer');
+    for (const state of Array.isArray(layer.choreography) ? layer.choreography : []) {
+      assertPlainSceneRecord(state, 'choreography state');
+      assertPlainSceneRecord(state.values, 'choreography values');
+    }
+    for (const key of ['space', 'z', 'tilt', 'yaw', 'roll']) {
+      if (!Object.hasOwn(layer, key)) continue;
+      if (['space', 'z', 'tilt', 'yaw'].includes(key) && !SPATIAL_LAYER_TYPES.includes(layer.type)) fail('Only spatial visual layers accept spatial settings.');
+      if (key === 'space' ? !LAYER_SPACES.includes(layer[key]) : typeof layer[key] !== 'number' || !Number.isFinite(layer[key])) fail(`Invalid layer ${key}.`);
+    }
     if (layer?.type === 'model') normalizeModelStyle(layer.modelStyle);
     // Legacy curve names are migrated later; inspect only record identity here.
     if (layer?.type === 'carousel') for (const motion of [layer.motion, layer.motionBaseline?.motion]) {
-      if (motion && typeof motion === 'object' && (![Object.prototype, null].includes(Object.getPrototypeOf(motion)) || Object.getOwnPropertySymbols(motion).length)) validateMotion(motion);
+      if (motion && typeof motion === 'object') assertPlainSceneRecord(motion, 'motion settings');
     }
   }
   const p = closeShape(migrateProject(input));
+  p.scene = normalizeScene(p.scene);
   str(p.name, 100, 'project name');
   if (!Object.hasOwn(FORMATS, p.format)) fail('Unknown output format.');
   finite(p.duration, PROJECT_LIMITS.minDuration, PROJECT_LIMITS.maxDuration, 'Duration');
@@ -154,6 +168,14 @@ export function validateProject(input) {
       validateEffects(l.effects);
     }
     if (Object.hasOwn(l, 'effectScope') && l.type !== 'effect') fail('Only effect layers declare effect scope.');
+    if (SPATIAL_LAYER_TYPES.includes(l.type)) {
+      if (l.space === undefined) l.space = 'spatial';
+      if (!LAYER_SPACES.includes(l.space)) fail('Unknown layer space.');
+      for (const field of ['z', 'tilt', 'yaw', 'roll']) if (l[field] === undefined) l[field] = 0;
+      finite(l.z, ...SCENE_DEPTH_RANGE, 'Depth');
+      finite(l.tilt, l.type === 'carousel' ? -65 : -180, l.type === 'carousel' ? 65 : 180, 'Tilt');
+      finite(l.yaw, -180, 180, 'Yaw'); finite(l.roll, -180, 180, 'Rotation');
+    }
     if (['text', 'logo', 'media', 'background'].includes(l.type)) {
       l.roll ??= 0;
       finite(l.roll, -180, 180, 'Rotation');
@@ -330,17 +352,39 @@ export function assertLocksRespected(previous, next, { allow = [] } = {}) {
     const after = next.layers.find(l => l.id === layer.id);
     if (!after || after.type !== layer.type) fail(`Unlock “${layer.name}” before deleting it.`);
     if (lockedView(previous, layer, allow) !== lockedView(next, after, allow)) fail(`Unlock “${layer.name}” before editing it.`);
+    if (!allow.includes('format') && previous.linkedFormats && next.linkedFormats) {
+      for (const [format, snapshot] of Object.entries(previous.linkedFormats.layouts)) {
+        if (format === previous.format) continue;
+        if (canonicalJson(snapshot.layers[layer.id]) !== canonicalJson(next.linkedFormats.layouts[format]?.layers[layer.id])) fail(`Unlock “${layer.name}” before editing its linked framing.`);
+      }
+    }
   }
   const order = next.layers.filter(l => locked.some(item => item.id === l.id));
   const moved = locked.find((layer, index) => order[index].id !== layer.id);
   if (moved) fail(`Unlock “${moved.name}” before reordering it.`);
   return next;
 }
+export function patchScene(project, patch) {
+  assertPlainSceneRecord(patch, 'scene patch');
+  if (Object.keys(patch).some(key => key !== 'camera') || !Object.hasOwn(patch, 'camera')) fail('Scene patches require camera settings.');
+  // Validate the unmerged patch before spreading can erase unsafe descriptors.
+  normalizeScene(patch);
+  const p = validateProject(project);
+  return validateProject({ ...p, scene: { camera: { ...p.scene.camera, ...patch.camera } } });
+}
 export function patchLayer(project, id, patch) {
+  // Apply edits to the current schema so migration cannot overwrite an explicit
+  // Flat → Spatial conversion (or its depth) on a legacy in-memory project.
+  if (project.version !== CURRENT_PROJECT_VERSION) project = validateProject(project);
   if (!project.layers.some(l => l.id === id)) fail('Layer not found.');
-  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid layer patch.');
+  assertPlainSceneRecord(patch, 'layer patch');
   const layer = project.layers.find(l => l.id === id);
-  if (Object.keys(patch).some(key => key !== 'locked' && !(key === 'modelStyle' && layer.type === 'model') && !(key === 'effects' && EFFECT_LAYER_TYPES.includes(layer.type)) && !(key === 'effectScope' && layer.type === 'effect') && !(key === 'roll' && ['text', 'logo', 'media'].includes(layer.type)) && !(layer.type === 'background' && ['x', 'y', 'roll', 'opacity'].includes(key)) && !(key === 'contentField' && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) && !(FADE_LAYERS.includes(layer.type) && ['opacity', 'choreography'].includes(key)) && !(layer.type === 'text' && (key === 'font' || Object.hasOwn(DEFAULT_TEXT_STYLE, key))) && !(layer.type === 'background' && Object.hasOwn(DEFAULT_PROCEDURAL_BACKGROUND, key)) && !(layer.type === 'carousel' && ['images', 'cardFit', 'motion', 'motionBaseline', 'windowZoom', 'windowSpacing', 'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'stretch'].includes(key)) && !Object.hasOwn(layer, key))) fail('Unknown layer property.');
+  if (Object.keys(patch).some(key => !LAYER_KEYS[layer.type]?.has(key)
+    || key === 'effects' && !EFFECT_LAYER_TYPES.includes(layer.type)
+    || key === 'opacity' && !EFFECT_LAYER_TYPES.includes(layer.type)
+    || key === 'choreography' && !FADE_LAYERS.includes(layer.type)
+    || key === 'effectScope' && layer.type !== 'effect'
+    || key === 'contentField' && !Object.hasOwn(CONTENT_PROPERTIES, layer.type))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');
   if (['id', 'type'].some(key => Object.hasOwn(patch, key))) fail('Layer identity cannot be changed.');
   return validateProject({ ...project, layers: project.layers.map(l => {
@@ -413,7 +457,7 @@ export function fileLayer(asset, duration, id) {
   const common = { id, name: asset.name.slice(0, 100), visible: true, locked: false, start: 0, end: duration, src: asset.src };
   if (/\.(mp3|wav|m4a|ogg)$/i.test(asset.src)) return { ...common, type: 'music', volume: 0.6, offset: 0, fade: 0.5, loop: false };
   const model = /\.glb$/i.test(asset.src);
-  return { ...common, type: model ? 'model' : 'media', x: 25, y: 25, size: 50, offset: 0, loop: true, fadeIn: 0, fadeOut: 0, ...(model ? { yaw: 0, tilt: 0, roll: 0, modelStyle: normalizeModelStyle() } : {}) };
+  return { ...common, type: model ? 'model' : 'media', space: 'spatial', z: 0, tilt: 0, yaw: 0, roll: 0, x: 25, y: 25, size: 50, offset: 0, loop: true, fadeIn: 0, fadeOut: 0, ...(model ? { modelStyle: normalizeModelStyle() } : {}) };
 }
 
 export const carouselImages = (project, layer) => layer?.images ?? (layer ? project.images : []);

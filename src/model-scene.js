@@ -9,6 +9,8 @@ import { createModelMaterials } from './model-materials.js';
 import { createModelEnvironment } from './model-environment.js';
 import { modelRenderer, modelResolution } from './model-renderer.js';
 import { registerModelCanvas } from './model-canvas.js';
+import { scenePosition, sceneDimensions, projectedObjectBounds } from './scene-camera.js';
+import { SCENE_PASS } from './scene-pass.js';
 
 // Fixed framing is the pre-v11 camera: 38° from 4.5 units, model scaled to two units.
 const FIXED_DISTANCE = 4.5, FIXED_HALF_FOV = THREE.MathUtils.degToRad(19);
@@ -54,9 +56,10 @@ function disposeModel(gltf) {
   textures.forEach(texture => texture.dispose());
 }
 
-export async function createModelScene(canvas, layer, { compositionWidth = canvas.width, resources = createResourceCache(), renderMode = false, deferRefraction = false, onError = () => {} } = {}) {
+export async function createModelScene(canvas, layer, { compositionWidth = canvas.width, resources = createResourceCache(), renderMode = false, deferRefraction = false, rendering, onError = () => {} } = {}) {
   let style = normalizeModelStyle(layer.modelStyle);
-  const shared = modelRenderer();
+  const shared = rendering ?? modelRenderer();
+  const spatial = layer.space === 'spatial';
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
   camera.position.z = FIXED_DISTANCE;
@@ -65,17 +68,20 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   const key = new THREE.DirectionalLight(0xffffff, 3); key.position.set(3, 4, 5); rig.add(key);
   const fill = new THREE.DirectionalLight(0xffffff, 0); fill.position.set(-4, 2, 2); rig.add(fill);
   const rim = new THREE.DirectionalLight(0xffffff, 0); rim.position.set(2, 3, -4); rig.add(rim);
+  scene.add(key.target, fill.target, rim.target);
   // screen › posed › object › normalizer: automatic motion is applied in the view's
   // frame (screen), the model's posed frame (object), or summed into the pose (euler).
-  const screen = new THREE.Group(), posed = new THREE.Group(), object = new THREE.Group();
-  scene.add(screen); screen.add(posed); posed.add(object);
+  const placementRoot = new THREE.Group(), screen = new THREE.Group(), posed = new THREE.Group(), object = new THREE.Group();
+  scene.add(placementRoot); placementRoot.add(screen); screen.add(posed); posed.add(object);
   const motionGroups = [screen, posed, object];
   const environment = createModelEnvironment(shared.renderer, scene);
   const handle = resources.acquire(`model\n${layer.src}`, () => loadModel(layer.src), disposeModel);
   const motion = { phase: 0, advance: 0, stepped: false, rotationX: 0, rotationY: 0, rotationZ: 0, offsetX: 0, offsetY: 0, offsetZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }, skeletons = new Set();
   const sphere = new THREE.Sphere(), point = new THREE.Vector3(), raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
+  const inversePlacement = new THREE.Matrix4(), inverseCamera = new THREE.Quaternion();
   let mixer, model, source, materials, clips, action, clip, clipIndex, lastTime, lastDraft, drawnBounds, disposed = false, unregister = () => {};
   let width = compositionWidth;
+  let sampled, spatialScale = 1, spatialRadius = 1;
   let refractionMask;
   const refractionOutput = { canvas, mask: null };
   const unwatch = shared.watch({
@@ -103,17 +109,19 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   }
   // Farthest geometry from the pivot in the current clip pose, in normalized units.
   function poseRadius() {
+    placementRoot.updateWorldMatrix(true, true);
+    inversePlacement.copy(placementRoot.matrixWorld).invert();
     let radius = 0;
     model.traverse(node => {
       if (!node.geometry || !(node.isMesh || node.isLine || node.isPoints)) return;
       if (node.isSkinnedMesh) {
         const count = node.geometry.attributes.position.count, step = Math.ceil(count / SKINNED_SAMPLES);
-        for (let i = 0; i < count; i += step) radius = Math.max(radius, node.getVertexPosition(i, point).applyMatrix4(node.matrixWorld).length());
+        for (let i = 0; i < count; i += step) radius = Math.max(radius, node.getVertexPosition(i, point).applyMatrix4(node.matrixWorld).applyMatrix4(inversePlacement).length());
         return;
       }
       if (node.isInstancedMesh) { if (!node.boundingSphere) node.computeBoundingSphere(); sphere.copy(node.boundingSphere); }
       else { if (!node.geometry.boundingSphere) node.geometry.computeBoundingSphere(); sphere.copy(node.geometry.boundingSphere); }
-      sphere.applyMatrix4(node.matrixWorld);
+      sphere.applyMatrix4(node.matrixWorld).applyMatrix4(inversePlacement);
       radius = Math.max(radius, sphere.center.length() + sphere.radius);
     });
     return radius;
@@ -191,7 +199,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       action.reset().play();
       mixer.setTime(sample);
     }
-    const state = evaluateChoreography(layer, time);
+    const state = sampled = evaluateChoreography(layer, time);
     automaticModelMotion(style, elapsed, motion);
     const tilt = THREE.MathUtils.degToRad(draft?.tilt ?? state.tilt), yaw = THREE.MathUtils.degToRad(draft?.yaw ?? state.yaw), roll = THREE.MathUtils.degToRad(draft?.roll ?? state.roll);
     for (const node of motionGroups) { node.rotation.set(0, 0, 0); node.position.set(0, 0, 0); node.scale.set(1, 1, 1); }
@@ -206,6 +214,8 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   function draw(time, draft) {
     lastTime = time; lastDraft = draft;
     pose(time, draft);
+    materials.setScenePass(SCENE_PASS.source);
+    if (spatial) return;
     // A composition draws these later, when its lower-layer framebuffer is ready.
     if (deferRefraction && style.shader === 'refractive') return;
     if (shared.lost) {
@@ -221,7 +231,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     } finally { materials.setRefractionMask(false); }
     shared.draw(scene, camera, canvas, TONE_MAPPINGS[style.toneMapping], style.exposure);
   }
-  function drawRefraction(backdrop, rect, time, draft) {
+  function drawRefraction(backdrop, rect, time, draft, planeMatrix = null) {
     if (style.shader !== 'refractive') throw new Error('Refraction requires a Refractive glass material.');
     lastTime = time; lastDraft = draft; pose(time, draft);
     if (!refractionMask) {
@@ -234,9 +244,36 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       if (renderMode) throw new Error('The graphics context was lost while rendering refractive glass.');
       return refractionOutput;
     }
-    materials.setRefraction(backdrop, rect, style.refractionResolution);
+    materials.setRefraction(backdrop, rect, style.refractionResolution, 1, planeMatrix);
     renderRefraction();
     return refractionOutput;
+  }
+  function prepareSpatial(format, outputCamera) {
+    if (!spatial) return null;
+    const value = lastDraft ? { ...sampled, ...lastDraft } : sampled;
+    const side = sceneDimensions(format).width * value.size / 100;
+    const reach = modelMotionReach(style);
+    const radius = envelopeRadius() * reach.scale + reach.offset;
+    spatialScale = style.zoom * (style.framing === 'fit' ? side * FIT_MARGIN / (2 * radius) : side / (2 * FIXED_DISTANCE * Math.tan(FIXED_HALF_FOV)));
+    spatialRadius = radius * spatialScale;
+    placementRoot.scale.setScalar(spatialScale);
+    scenePosition(format, value.x, value.y, value.z, placementRoot.position);
+    placementRoot.position.x += side / 2; placementRoot.position.y -= side / 2;
+    rig.position.copy(placementRoot.position);
+    for (const light of [key, fill, rim]) light.target.position.copy(placementRoot.position);
+    if (style.motionSpace === 'screen') {
+      inverseCamera.copy(outputCamera.quaternion).invert();
+      screen.quaternion.premultiply(outputCamera.quaternion).multiply(inverseCamera);
+      screen.position.applyQuaternion(outputCamera.quaternion);
+    }
+    scene.updateMatrixWorld(true);
+    return placementRoot;
+  }
+  function renderSpatial(outputCamera, pass, opacity = 1, id = 0, options = {}) {
+    materials.setScenePass(pass, opacity, id, options);
+    shared.renderer.toneMapping = TONE_MAPPINGS[style.toneMapping];
+    shared.renderer.toneMappingExposure = style.exposure;
+    shared.renderer.render(scene, outputCamera);
   }
   // Canvas fractions covered by the drawn pose: projected local bounds of each
   // visible part, or the whole canvas when geometry reaches behind the camera.
@@ -280,7 +317,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     source = await handle.value;
     model = clone(source.scene);
     model.traverse(node => { if (node.skeleton) skeletons.add(node.skeleton); });
-    materials = createModelMaterials(model);
+    materials = createModelMaterials(model, { spatial });
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const extent = Math.max(size.x, size.y, size.z);
@@ -298,6 +335,16 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       updateLayer(value) { const next = normalizeModelStyle(value.modelStyle); applyStyle(next); layer = value; resize(); },
       draw,
       drawRefraction,
+      prepareSpatial,
+      renderSpatial,
+      get spatialRoot() { return placementRoot; },
+      get spatialRadius() { return spatialRadius; },
+      get sourceScene() { return scene; },
+      get currentStyle() { return style; },
+      setScenePass: (...args) => materials.setScenePass(...args),
+      setRefractionMask: value => materials.setRefractionMask(value),
+      setBackdrop(texture) { materials.setRefraction(texture, { x: 0, y: 0, width: 1, height: 1 }, style.refractionResolution, spatialScale); },
+      projectedBounds(outputCamera) { return projectedObjectBounds(placementRoot, outputCamera); },
       // The composition's current pixel width; the canvas follows the layer's size.
       setCompositionWidth(value) { width = value; resize(); },
       dispose

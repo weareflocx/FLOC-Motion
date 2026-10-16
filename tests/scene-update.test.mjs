@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { build } from 'esbuild';
@@ -54,23 +54,11 @@ test('structural edits rebuild the scene', () => {
     carouselImages: patchLayer(base, carousel, { images: [...base.images].reverse() }),
     media: patchLayer(base, idOf(base, 'media'), { src: '/assets/00000000-0000-4000-8000-000000000003.mp4' }),
     model: patchLayer(base, idOf(base, 'model'), { src: '/assets/00000000-0000-4000-8000-000000000004.glb' }),
+    presentation: patchLayer(base, idOf(base, 'model'), { space: 'flat' }),
     backgroundMode: patchLayer(base, idOf(base, 'background'), { mode: 'procedural' }),
     effectScope: patchLayer(base, 'grain', { effectScope: 'overlay' })
   };
   for (const [name, next] of Object.entries(changes)) assert.equal(sceneUpdatePlan(base, next), null, name);
-});
-
-test('refractive carousel capture rebuilds only when immutable framebuffer retention changes', () => {
-  const base = project(), id = idOf(base, 'model'), style = base.layers.find(layer => layer.id === id).modelStyle;
-  const refractive = patchLayer(base, id, { modelStyle: { ...style, shader: 'refractive' } });
-  assert.equal(sceneUpdatePlan(base, refractive), null);
-  assert.equal(sceneUpdatePlan(refractive, base), null);
-  assert.deepEqual(sceneUpdatePlan(refractive, patchLayer(refractive, id, { visible: false })), { effects: false }, 'visibility and the playhead cannot change context attributes');
-  assert.deepEqual(sceneUpdatePlan(refractive, patchLayer(refractive, id, { modelStyle: { ...style, shader: 'refractive', roughness: .45 } })), { effects: false });
-  const two = validateProject({ ...refractive, layers: [...refractive.layers, { ...refractive.layers.find(layer => layer.id === id), id: 'second-model' }] });
-  assert.deepEqual(sceneUpdatePlan(two, patchLayer(two, id, { modelStyle: style })), { effects: false }, 'another refractive model still needs the retained carousel frames');
-  const withoutCarousel = validateProject({ ...base, layers: base.layers.filter(layer => layer.type !== 'carousel') });
-  assert.deepEqual(sceneUpdatePlan(withoutCarousel, patchLayer(withoutCarousel, id, { modelStyle: { ...style, shader: 'refractive' } })), { effects: false }, 'model-only scenes do not need retained carousel buffers');
 });
 
 test('cached resources survive a rebuild and are disposed after the last scene releases them', async () => {
@@ -179,7 +167,13 @@ test('in-place updates draw exactly what a rebuilt scene draws', { skip: !execut
     const live = await capture();
     await page.evaluate(project => window.build(project), project);
     const rebuilt = await capture();
-    assert.equal(await page.evaluate((a, b) => window.differing(a, b), live, rebuilt), 0, JSON.stringify(edit));
+    const changed = await page.evaluate((a, b) => window.differing(a, b), live, rebuilt);
+    if (changed) {
+      await mkdir('.data/qa/shared-scene', { recursive: true });
+      await writeFile('.data/qa/shared-scene/in-place.png', Buffer.from(live, 'base64'));
+      await writeFile('.data/qa/shared-scene/rebuilt.png', Buffer.from(rebuilt, 'base64'));
+    }
+    assert.equal(changed, 0, JSON.stringify(edit));
   }
   assert.equal(await page.evaluate(project => window.update(project), patchLayer(project, 'carousel', { template: 'stack' })), false);
   assert.deepEqual(errors, []);

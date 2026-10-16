@@ -33,6 +33,8 @@ uniform float modelRefractionIOR;
 uniform float modelRefractionDispersion;
 uniform float modelRefractionBlur;
 uniform bool modelRefractionMask;
+uniform bool modelRefractionProjectedPlane;
+uniform mat4 modelRefractionPlaneMatrix;
 
 vec2 modelRefractionUV(vec3 normal, vec3 viewDir, float eta) {
   vec3 ray = refract(-viewDir, normal, 1.0 / eta);
@@ -41,6 +43,11 @@ vec2 modelRefractionUV(vec3 normal, vec3 viewDir, float eta) {
 }
 vec4 modelRefractionSample(vec2 uv) {
   uv = modelRefractionRect.xy + uv * modelRefractionRect.zw;
+  if (modelRefractionProjectedPlane) {
+    vec4 point = modelRefractionPlaneMatrix * vec4(uv, 0.0, 1.0);
+    if (point.w <= 0.0) return vec4(0.0);
+    uv = point.xy / point.w * 0.5 + 0.5;
+  }
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);
   return texture2D(modelRefractionBuffer, uv);
 }
@@ -85,24 +92,18 @@ const output = samples => `
 `;
 
 export function createModelRefraction() {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 1;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Refractive glass needs a 2D canvas for its layer capture.');
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.NoColorSpace;
-  texture.minFilter = texture.magFilter = THREE.LinearFilter;
-  // Premultiply before interpolation, not after sampling transparent texels.
-  texture.premultiplyAlpha = true;
-  texture.generateMipmaps = false;
+  let canvas, context, texture;
+  let thickness = .5, worldScale = 1;
   const uniforms = {
-    modelRefractionBuffer: { value: texture },
+    modelRefractionBuffer: { value: null },
     modelRefractionRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     modelRefractionThickness: { value: 1 },
     modelRefractionIOR: { value: 1.5 },
     modelRefractionDispersion: { value: 0 },
     modelRefractionBlur: { value: 0 },
-    modelRefractionMask: { value: false }
+    modelRefractionMask: { value: false },
+    modelRefractionProjectedPlane: { value: false },
+    modelRefractionPlaneMatrix: { value: new THREE.Matrix4() }
   };
   return {
     attach(material, samples) {
@@ -120,21 +121,39 @@ export function createModelRefraction() {
             if (diffuseColor.a <= 1e-5) discard;
             if (modelRefractionMask) {
               gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(diffuseColor.a, 0.0, 1.0));
+              // floc-refraction-mask-return
               return;
             }`)
           // Only reflections use the model lighting, tone mapping and exposure.
           .replace('#include <opaque_fragment>', 'gl_FragColor = vec4(totalSpecular, 1.0);')
           .replace('#include <premultiplied_alpha_fragment>', output(samples));
       };
-      material.customProgramCacheKey = () => `floc-model-refractive-v3-${samples}`;
+      material.customProgramCacheKey = () => `floc-model-refractive-v5-${samples}`;
     },
     update(style) {
-      uniforms.modelRefractionThickness.value = style.refractionThickness * 2;
+      thickness = style.refractionThickness;
+      uniforms.modelRefractionThickness.value = thickness * 2 * worldScale;
       uniforms.modelRefractionIOR.value = style.ior;
       uniforms.modelRefractionDispersion.value = style.dispersion;
       uniforms.modelRefractionBlur.value = style.roughness ** 2 * .14;
     },
-    input(source, rect, resolution) {
+    input(source, rect, resolution, scaleInWorld = 1, planeMatrix = null) {
+      uniforms.modelRefractionProjectedPlane.value = Boolean(planeMatrix);
+      if (planeMatrix) uniforms.modelRefractionPlaneMatrix.value.copy(planeMatrix);
+      worldScale = scaleInWorld;
+      uniforms.modelRefractionThickness.value = thickness * 2 * worldScale;
+      uniforms.modelRefractionRect.value.set(rect.x, 1 - rect.y - rect.height, rect.width, rect.height);
+      if (source.isTexture) { uniforms.modelRefractionBuffer.value = source; return; }
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        context = canvas.getContext('2d');
+        if (!context) throw new Error('Refractive glass needs a 2D canvas for its layer capture.');
+        texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.NoColorSpace;
+        texture.minFilter = texture.magFilter = THREE.LinearFilter;
+        texture.premultiplyAlpha = true;
+        texture.generateMipmaps = false;
+      }
       const scale = Math.min(1, resolution / Math.max(source.width, source.height));
       const width = Math.max(1, Math.round(source.width * scale));
       const height = Math.max(1, Math.round(source.height * scale));
@@ -143,10 +162,10 @@ export function createModelRefraction() {
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.clearRect(0, 0, width, height);
       context.drawImage(source, 0, 0, width, height);
-      uniforms.modelRefractionRect.value.set(rect.x, 1 - rect.y - rect.height, rect.width, rect.height);
+      uniforms.modelRefractionBuffer.value = texture;
       texture.needsUpdate = true;
     },
     mask(value) { uniforms.modelRefractionMask.value = value; },
-    dispose() { texture.dispose(); canvas.width = canvas.height = 1; }
+    dispose() { texture?.dispose(); if (canvas) canvas.width = canvas.height = 1; }
   };
 }

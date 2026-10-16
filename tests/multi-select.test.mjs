@@ -83,10 +83,11 @@ function workspace({ layout } = {}) {
     useCallback: fn => fn, useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; if (!(i in slots)) slots[i] = typeof value === 'function' ? value() : value; return [slots[i], next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; }]; } };
-  vm.createContext(context);
-  for (const file of ['choreography-edit.js', 'useProject.js', 'useCompositionActions.js']) vm.runInContext(strip(read(file)), context);
+  // Hooks and imported validators share a realm in the editor; keep their plain records together here too.
+  const code = ['choreography-edit.js', 'useProject.js', 'useCompositionActions.js'].map(file => strip(read(file))).join('\n');
+  const { useProject, useCompositionActions } = new Function(...Object.keys(context), `${code}\nreturn { useProject, useCompositionActions };`)(...Object.values(context));
   let api, actions;
-  const render = () => { cursor = 0; api = context.useProject(); actions = context.useCompositionActions({ project: api.projectRef.current, projectRef: api.projectRef, selected: selection.at(-1), change: api.change, report: message => notices.push(message), setSelected(id) { selection = [id]; }, setSelection(ids) { selection = ids; } }); };
+  const render = () => { cursor = 0; api = useProject(); actions = useCompositionActions({ project: api.projectRef.current, projectRef: api.projectRef, selected: selection.at(-1), change: api.change, report: message => notices.push(message), setSelected(id) { selection = [id]; }, setSelection(ids) { selection = ids; } }); };
   render();
   api.importDraft(projectOps.demoProject());
   render();
@@ -99,6 +100,15 @@ function workspace({ layout } = {}) {
     { dataset: { flocLayer: 'logo' }, style: { left: '87%', top: '6%' }, getBoundingClientRect: () => box(870, 60, 70, 70) }
   ];
   const root = { getBoundingClientRect: () => box(0, 0, 1000, 1000), querySelectorAll: () => nodes };
+  boundsOps.registerStageScene(root, {
+    projectedBounds(id) {
+      const node = nodes.find(item => item.dataset.flocLayer === id);
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      return { x: rect.left / 10, y: rect.top / 10, width: rect.width / 10, height: rect.height / 10 };
+    },
+    projectPointer: (u, v) => ({ x: u * 100, y: v * 100, z: 0 })
+  });
   return { root, render, notices, get api() { return api; }, get actions() { return actions; }, get project() { return api.projectRef.current; }, get selection() { return selection; } };
 }
 
@@ -151,21 +161,34 @@ test('group duplicate, lock and visibility are single changes that skip or repor
   const w = workspace();
   w.api.patch('logo', { locked: true }); w.render();
   const count = w.project.layers.length, history = w.api.history.length;
+  const originalIds = new Set(w.project.layers.map(layer => layer.id));
+  const lockedLogo = w.project.layers.find(layer => layer.id === 'logo');
   w.actions.duplicateLayers(['headline', 'signature', 'logo']); w.render();
   assert.equal(w.project.layers.length, count + 2);
   assert.equal(w.api.history.length, history + 1);
   assert.deepEqual(w.selection.map(id => w.project.layers.find(layer => layer.id === id).name), ['Headline copy', 'Signature copy']);
+  const duplicateSelection = [...w.selection];
+  const duplicateIds = w.project.layers.filter(layer => !originalIds.has(layer.id)).map(layer => layer.id);
+  assert.deepEqual(new Set(w.selection), new Set(duplicateIds), 'only the newly duplicated layers become selected');
+  assert.ok(w.selection.every(id => !w.project.layers.find(layer => layer.id === id).locked));
+  assert.deepEqual(w.project.layers.find(layer => layer.id === 'logo'), lockedLogo, 'duplication leaves the locked member unchanged');
   assert.match(w.notices.at(-1), /Duplicate skipped the locked layer/);
 
   w.actions.setLayersFlag(['headline', 'logo'], 'locked'); w.render();
   assert.deepEqual(['headline', 'logo'].map(id => w.project.layers.find(layer => layer.id === id).locked), [true, true]);
+  assert.equal(w.api.history.length, history + 2, 'locking the mixed group is one change');
   w.actions.setLayersFlag(['headline', 'logo'], 'locked'); w.render();
   assert.deepEqual(['headline', 'logo'].map(id => w.project.layers.find(layer => layer.id === id).locked), [false, false]);
+  assert.equal(w.api.history.length, history + 3, 'unlocking the group is one change');
   w.api.patch('logo', { locked: true }); w.render();
+  const beforeVisibility = w.project, visibilityHistory = w.api.history.length;
   w.actions.setLayersFlag(['headline', 'logo'], 'visible'); w.render();
   assert.deepEqual(['headline', 'logo'].map(id => w.project.layers.find(layer => layer.id === id).visible), [false, false], 'visibility toggles locked members too');
+  assert.equal(w.api.history.length, visibilityHistory + 1);
   w.api.undo(); w.render();
   assert.deepEqual(['headline', 'logo'].map(id => w.project.layers.find(layer => layer.id === id).visible), [true, true]);
+  assert.deepEqual(w.project, beforeVisibility, 'one undo restores visibility without changing locks or duplicates');
+  assert.deepEqual(w.selection, duplicateSelection, 'group flags preserve the duplicated selection and primary layer');
 });
 
 test('layer list clicks select, ⌘/Ctrl-click toggles and Shift-click requests a range in list order', async () => {

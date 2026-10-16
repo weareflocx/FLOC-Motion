@@ -28,7 +28,7 @@ function inspector(initial = {}, component = 'model') {
     React: { Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }) },
     useCallback: callback => callback,
     useSyncExternalStore: (subscribe, snapshot) => snapshot(),
-    UploadSimple: 'icon', OrientationControl: 'orientation', Color: 'color', Field: 'field', NumberField: 'number', Range: 'range', Section: 'section'
+    UploadSimple: 'icon', SpatialControls: 'spatial-controls', OrientationControl: 'orientation', Color: 'color', Field: 'field', NumberField: 'number', Range: 'range', Section: 'section'
   };
   vm.createContext(context); vm.runInContext(controls + (component === 'carousel' ? carouselControls : ''), context);
   function nodes(node, disabled = false) {

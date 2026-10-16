@@ -2,17 +2,18 @@ import { choreographyFields, evaluateChoreography } from './choreography.js';
 import { fontDefinition, textFontValid, workspaceFontId } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
 import { PROJECT_LIMITS } from './project-limits.js';
+import { LAYER_SPACES, SCENE_DEPTH_RANGE, normalizeScene, assertPlainSceneRecord } from './scene-settings.js';
 
 // These are the only per-format properties. Content, timing and motion stay
 // on the effective project; choreography caches only the local pose by state ID.
 // Opacity and every optional state value (color, typography, shader and effect
 // amounts) are shared by all formats.
 export const FORMAT_LOCAL_FIELDS = Object.freeze({
-  text: ['x', 'y', 'roll', 'size', 'width', 'font', 'weight', 'lineHeight', 'letterSpacing', 'textAlign', 'choreography'],
-  logo: ['x', 'y', 'roll', 'size', 'choreography'],
-  media: ['x', 'y', 'roll', 'size', 'choreography'],
-  model: ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'choreography'],
-  carousel: ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'gap', 'radius', 'perspective', 'cardAspect', 'choreography'],
+  text: ['space', 'z', 'tilt', 'yaw', 'x', 'y', 'roll', 'size', 'width', 'font', 'weight', 'lineHeight', 'letterSpacing', 'textAlign', 'choreography'],
+  logo: ['space', 'z', 'tilt', 'yaw', 'x', 'y', 'roll', 'size', 'choreography'],
+  media: ['space', 'z', 'tilt', 'yaw', 'x', 'y', 'roll', 'size', 'choreography'],
+  model: ['space', 'z', 'x', 'y', 'size', 'tilt', 'yaw', 'roll', 'choreography'],
+  carousel: ['space', 'z', 'x', 'y', 'size', 'tilt', 'yaw', 'roll', 'gap', 'radius', 'perspective', 'cardAspect', 'choreography'],
   background: ['fit', 'x', 'y', 'roll'],
   music: [],
   effect: ['choreography']
@@ -25,15 +26,15 @@ const record = value => value && typeof value === 'object' && !Array.isArray(val
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const LOCAL_BOUNDS = {
   background: { x: [-100, 100], y: [-100, 100], roll: [-180, 180] },
-  text: { roll: [-180, 180], x: [0, 95], y: [0, 95], size: [12, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5] },
-  logo: { roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
-  media: { roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
-  model: { x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
-  carousel: { x: [10, 90], y: [10, 90], size: [0.5, 2.5], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] }
+  text: { z: SCENE_DEPTH_RANGE, tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], x: [0, 95], y: [0, 95], size: [12, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5] },
+  logo: { z: SCENE_DEPTH_RANGE, tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
+  media: { z: SCENE_DEPTH_RANGE, tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
+  model: { z: SCENE_DEPTH_RANGE, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
+  carousel: { z: SCENE_DEPTH_RANGE, x: [10, 90], y: [10, 90], size: [0.5, 2.5], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] }
 };
 const ALL_FIELDS = new Set(Object.values(FORMAT_LOCAL_FIELDS).flat());
-const ALL_BOUNDS = { x: [-100, 100], y: [-100, 100], size: [0.5, 180], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] };
-const POSE_FIELDS = new Set(['x', 'y', 'size', 'tilt', 'yaw', 'roll']);
+const ALL_BOUNDS = { z: SCENE_DEPTH_RANGE, x: [-1000, 1000], y: [-1000, 1000], size: [0.5, 500], width: [5, 100], lineHeight: [0.5, 3], letterSpacing: [-0.15, 0.5], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] };
+const POSE_FIELDS = new Set(['x', 'y', 'z', 'size', 'tilt', 'yaw', 'roll']);
 const numeric = (value, bounds) => typeof value === 'number' && Number.isFinite(value) && value >= bounds[0] && value <= bounds[1];
 const validID = id => typeof id === 'string' && id.trim() && id.length <= 80 && !dangerous(id);
 const formatRatios = (source, target, formats) => {
@@ -44,10 +45,10 @@ const formatRatios = (source, target, formats) => {
 
 // Check the original objects before structuredClone can erase their prototypes.
 export function assertLinkedFormatInput(linked) {
-  if (!record(linked)) fail('Invalid linked format settings.');
+  assertPlainSceneRecord(linked, 'linked format settings');
   const visit = value => {
     if (value && typeof value === 'object') {
-      if (!record(value)) fail('Invalid linked format object.');
+      assertPlainSceneRecord(value, 'linked format object');
       for (const [key, child] of Object.entries(value)) {
         if (dangerous(key)) fail('Unsafe linked format property.');
         visit(child);
@@ -71,6 +72,8 @@ function validateLocalFields(local, layer, pose = false) {
         if (!validID(id)) fail('Invalid linked state ID.');
         validateLocalFields(values, layer, true);
       }
+    } else if (key === 'space') {
+      if (!LAYER_SPACES.includes(value)) fail('Unknown linked layer space.');
     } else if (key === 'font') {
       if (typeof value !== 'string' || !(fontDefinition(value) || workspaceFontId(value))) fail('Unknown linked text font.');
     } else if (key === 'weight') {
@@ -85,8 +88,9 @@ function validateLocalFields(local, layer, pose = false) {
 }
 
 function validateSnapshot(snapshot, layers) {
-  if (!record(snapshot) || Object.keys(snapshot).some(key => !['layout', 'layers'].includes(key))
-    || !record(snapshot.layout) || !record(snapshot.layers)) fail('Invalid linked format layout.');
+  if (!record(snapshot) || Object.keys(snapshot).some(key => !['layout', 'layers', 'scene'].includes(key))
+    || !record(snapshot.layout) || !record(snapshot.layers) || !Object.hasOwn(snapshot, 'scene')) fail('Invalid linked format layout.');
+  normalizeScene(snapshot.scene);
   const layout = snapshot.layout;
   if (Object.keys(layout).some(key => !Object.hasOwn(DEFAULT_LAYOUT, key))
     || typeof layout.enabled !== 'boolean' || typeof layout.guides !== 'boolean'
@@ -117,11 +121,11 @@ export function captureFormatSnapshot(project) {
     }
     layers[layer.id] = local;
   }
-  return { layout: { ...project.layout }, layers };
+  return { scene: normalizeScene(project.scene), layout: { ...project.layout }, layers };
 }
 
 export function applyFormatSnapshot(project, format, snapshot) {
-  return { ...project, format, layout: { ...snapshot.layout }, layers: project.layers.map(layer => {
+  return { ...project, format, scene: normalizeScene(snapshot.scene), layout: { ...snapshot.layout }, layers: project.layers.map(layer => {
     const local = snapshot.layers[layer.id];
     if (!local) return { ...layer };
     const { choreography, ...fields } = local;
@@ -185,7 +189,7 @@ function fillSnapshot(project, format, cached, formats, validate) {
     }));
     layers[id] = { ...defaults, ...local, ...(choreography === undefined ? {} : { choreography }) };
   }
-  const candidate = applyFormatSnapshot(project, format, { layout: cached.layout, layers });
+  const candidate = applyFormatSnapshot(project, format, { scene: cached.scene, layout: cached.layout, layers });
   delete candidate.linkedFormats;
   return validate(candidate);
 }

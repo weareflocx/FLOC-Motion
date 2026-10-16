@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 13;
+export const CURRENT_PROJECT_VERSION = 14;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -275,8 +275,40 @@ function v12ToV13(project) {
   return project;
 }
 
+// Every old visual remains an independently framed Flat presentation. Frozen
+// camera/pose defaults keep migration independent of future creation defaults.
+function v13ToV14(project) {
+  const scene = () => ({ camera: { projection: 'orthographic', zoom: 1, perspective: 38, yaw: 0, pitch: 0, roll: 0, targetX: 50, targetY: 50, targetZ: 0 } });
+  project.scene = scene();
+  const spatial = ['text', 'logo', 'media', 'model', 'carousel'];
+  const graphics = ['text', 'logo', 'media'];
+  const migratePose = (values, layer, local = layer) => {
+    if (!record(values)) return;
+    values.z = 0;
+    if (graphics.includes(layer.type)) { values.tilt = 0; values.yaw = 0; values.roll ??= local.roll ?? layer.roll ?? 0; }
+  };
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || !spatial.includes(layer.type)) continue;
+    layer.space = 'flat';
+    migratePose(layer, layer);
+    for (const state of Array.isArray(layer.choreography) ? layer.choreography : []) migratePose(state?.values, layer);
+  }
+  for (const snapshot of Object.values(project.linkedFormats?.layouts ?? {})) {
+    if (!record(snapshot)) continue;
+    snapshot.scene = scene();
+    for (const [id, local] of Object.entries(snapshot.layers ?? {})) {
+      const layer = project.layers?.find(layer => layer.id === id);
+      if (!record(local) || !spatial.includes(layer?.type)) continue;
+      local.space = 'flat';
+      migratePose(local, layer, local);
+      for (const values of Object.values(local.choreography ?? {})) migratePose(values, layer, local);
+    }
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13, v13ToV14];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

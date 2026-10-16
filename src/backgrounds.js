@@ -1,4 +1,4 @@
-import { backgroundRenderer } from './background-renderer.js';
+import { backgroundRenderer, disposeBackgroundRenderer } from './background-renderer.js';
 
 export const PROCEDURAL_BACKGROUNDS = [
   { id: 'grid', name: 'Grid' },
@@ -70,10 +70,12 @@ export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { ti
 
 // Draws one frame onto a 2D canvas. Returns false while the graphics context
 // is lost (the canvas keeps its previous frame); throws without WebGL 2.
-export function drawProceduralBackground(canvas, layer, elapsed, fps = 24) {
+export function drawProceduralBackground(canvas, layer, elapsed, fps = 24, renderer = null) {
   if (!canvas.width || !canvas.height) return true;
-  return backgroundRenderer(IDS).draw(canvas, backgroundUniforms(layer, elapsed, canvas.width, canvas.height, fps));
+  return backgroundRenderer(IDS, renderer).draw(canvas, backgroundUniforms(layer, elapsed, canvas.width, canvas.height, fps));
 }
+
+export function disposeProceduralBackgrounds(renderer) { disposeBackgroundRenderer(renderer); }
 
 // Re-renders the stage after a context restore; `failed` reports a context
 // that never returns. Returns the unsubscribe function.

@@ -375,6 +375,7 @@ export function createEffects(root, project, formats, layerAlpha) {
       nodes.forEach(node => { node.style.display = 'none'; });
       if (below.length) {
         const group = wrap(below, index);
+        group.dataset.flocAdjustment = layer.id;
         adjustmentTargets.set(layer.id, [group]); below = [group];
       }
     } else if (layer.type !== 'music') below.push(...nodes);
@@ -473,12 +474,13 @@ export function createEffects(root, project, formats, layerAlpha) {
         if (effect.type === 'optical-warp') {
           const amount = value.amount;
           if (!amount) return [];
-          const width = target.nodes[0].offsetWidth, height = target.nodes[0].offsetHeight;
+          const node = target.nodes[0];
+          const width = Number(node.dataset.flocFilterWidth) || node.offsetWidth, height = Number(node.dataset.flocFilterHeight) || node.offsetHeight;
           if (!width || !height) return [];
-          const node = target.nodes[0], horizontal = effect.axis === 'horizontal';
+          const horizontal = effect.axis === 'horizontal';
           // A final full-stage lens cannot expose its off-stage padding. Keep
           // padding for smaller/transformed layers and later spatial filters.
-          const clipped = filter.pointwiseTail && width === root.offsetWidth && height === root.offsetHeight && node.offsetLeft === 0 && node.offsetTop === 0 && (!node.style.transform || node.style.transform === 'none');
+          const clipped = filter.pointwiseTail && (node.dataset.flocFilterFullFrame === 'true' || width === root.offsetWidth && height === root.offsetHeight && node.offsetLeft === 0 && node.offsetTop === 0 && (!node.style.transform || node.style.transform === 'none'));
           const geometry = `${width}:${height}:${amount}:${clipped}`;
           if (filter.geometry !== geometry) {
             const map = opticalWarpMaps({ ...effect, amount }, width, height, clipped);

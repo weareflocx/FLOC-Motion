@@ -1,6 +1,4 @@
-import { FORMATS } from './project.js';
-
-let nextCompositor = 0;
+// Native DOM sources and the existing SVG effect graph feed the shared scene.
 const NS = 'http://www.w3.org/2000/svg';
 const number = (value, fallback = 0) => Number.isFinite(parseFloat(value)) ? parseFloat(value) : fallback;
 const tokens = filter => filter.match(/url\([^)]*\)|[a-z-]+\([^)]*\)/gi) ?? [];
@@ -182,10 +180,10 @@ function clipPath(context, value, width, height) {
   throw new Error(`Unsupported composition clip path: ${value}`);
 }
 
-function drawMedia(context, node, style, width, height) {
-  const sourceWidth = node.videoWidth || node.naturalWidth || node.width, sourceHeight = node.videoHeight || node.naturalHeight || node.height;
-  if (!sourceWidth || !sourceHeight || node.tagName === 'IMG' && !node.complete || node.tagName === 'VIDEO' && node.readyState < 2) return;
-  const fit = style.objectFit;
+function drawMedia(context, node, style, width, height, matrix, sx, sy, source = node) {
+  const sourceWidth = source.videoWidth || source.naturalWidth || source.width, sourceHeight = source.videoHeight || source.naturalHeight || source.height;
+  if (!sourceWidth || !sourceHeight || source.tagName === 'IMG' && !source.complete || source.tagName === 'VIDEO' && source.readyState < 2) return;
+  const fit = source === node ? style.objectFit : 'fill';
   let w = width, h = height;
   if (fit === 'contain' || fit === 'cover' || fit === 'none' || fit === 'scale-down') {
     let scale = fit === 'cover' ? Math.max(width / sourceWidth, height / sourceHeight) : Math.min(width / sourceWidth, height / sourceHeight);
@@ -194,53 +192,41 @@ function drawMedia(context, node, style, width, height) {
     w = sourceWidth * scale; h = sourceHeight * scale;
   }
   const position = style.objectPosition.split(/\s+/);
-  const x = length(position[0], width - w), y = length(position[1] ?? position[0], height - h);
-  context.save(); context.beginPath(); context.rect(0, 0, width, height); context.clip();
-  context.drawImage(node, x, y, w, h); context.restore();
+  let x = length(position[0], width - w), y = length(position[1] ?? position[0], height - h);
+  let left = 0, top = 0, right = width, bottom = height;
+  if (matrix.a === 1 && matrix.b === 0 && matrix.c === 0 && matrix.d === 1) {
+    // Blink paints replaced elements into device-pixel-snapped rectangles.
+    // Keep that paint rectangle distinct from the fractional CSS filter box.
+    left = Math.round(matrix.e * sx) / sx - matrix.e;
+    top = Math.round(matrix.f * sy) / sy - matrix.f;
+    right = Math.round((matrix.e + width) * sx) / sx - matrix.e;
+    bottom = Math.round((matrix.f + height) * sy) / sy - matrix.f;
+    const imageRight = Math.round((matrix.e + x + w) * sx) / sx - matrix.e;
+    const imageBottom = Math.round((matrix.f + y + h) * sy) / sy - matrix.f;
+    x = Math.round((matrix.e + x) * sx) / sx - matrix.e;
+    y = Math.round((matrix.f + y) * sy) / sy - matrix.f;
+    w = imageRight - x; h = imageBottom - y;
+  }
+  context.save(); context.beginPath(); context.rect(left, top, right - left, bottom - top); context.clip();
+  if (w > 0 && h > 0) context.drawImage(source, x, y, w, h);
+  context.restore();
 }
 
-export function createRefractionCompositor(root, { width, height }) {
-  const document = root.ownerDocument, view = document.defaultView, id = nextCompositor++;
-  const output = document.createElement('canvas');
-  output.setAttribute('data-floc-refraction-output', ''); output.setAttribute('aria-hidden', 'true');
-  output.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:none';
-  const hiding = document.createElement('style');
-  // Filters suppress paint without removing HTML hit targets, unlike visibility.
-  // This never overwrites the source opacity, position or inline effect graph.
-  hiding.textContent = `[data-floc-refraction-hidden="${id}"]{filter:opacity(0)!important}`;
-  root.append(output, hiding);
-  const filters = createFilterCapture(root, id), text = createTextCapture(document);
-  const backdrop = document.createElement('canvas'), hidden = new Map();
-  let surfaces = new WeakMap();
-  let enabled = false, disposed = false, nativeWidth = 1, nativeHeight = 1, sx = 1, sy = 1;
+
+let nextCapture = 0;
+export function createSceneCapture(root, { width, height }) {
+  const document = root.ownerDocument, view = document.defaultView;
+  const filters = createFilterCapture(root, `scene-${nextCapture++}`), text = createTextCapture(document);
+  let surfaces = new WeakMap(), disposed = false, sx = 1, sy = 1;
   function setResolution(w, h) {
     width = Math.max(1, Math.round(w)); height = Math.max(1, Math.round(h));
-    if (backdrop.width !== width) backdrop.width = width;
-    if (backdrop.height !== height) backdrop.height = height;
   }
   setResolution(width, height);
-  function restoreSources() {
-    for (const [node, previous] of hidden) {
-      if (previous === null) node.removeAttribute('data-floc-refraction-hidden');
-      else node.setAttribute('data-floc-refraction-hidden', previous);
-    }
-    hidden.clear();
-  }
-  function hideSources() {
-    const sources = [...root.children].filter(node => node.hasAttribute('data-floc-layer') || node.querySelector('[data-floc-layer]'));
-    for (const [node, previous] of hidden) if (!sources.includes(node)) {
-      if (previous === null) node.removeAttribute('data-floc-refraction-hidden'); else node.setAttribute('data-floc-refraction-hidden', previous);
-      hidden.delete(node);
-    }
-    for (const node of sources) {
-      if (!hidden.has(node)) hidden.set(node, node.getAttribute('data-floc-refraction-hidden'));
-      node.setAttribute('data-floc-refraction-hidden', String(id));
-    }
-  }
-  function setEnabled(value) {
-    enabled = Boolean(value) && !disposed;
-    if (enabled) hideSources(); else restoreSources();
-    output.style.display = enabled ? 'block' : 'none';
+  function prepare() {
+    const style = view.getComputedStyle(root);
+    sx = width / Math.max(1, number(style.width, root.clientWidth));
+    sy = height / Math.max(1, number(style.height, root.clientHeight));
+    filters.prune();
   }
   function surface(node, kind, bounds, phase) {
     let cache = surfaces.get(node);
@@ -258,109 +244,113 @@ export function createRefractionCompositor(root, { width, height }) {
     context.setTransform(sx, 0, 0, sy, -x * sx, -y * sy);
     return { canvas, context, x, y, width: w / sx, height: h / sy };
   }
-  function describe(node, layers) {
-    if (['SVG', 'STYLE', 'AUDIO'].includes(node.tagName.toUpperCase()) || node === output) return null;
+  function describe(node, omitTransform = false) {
+    if (['SVG', 'STYLE', 'AUDIO'].includes(node.tagName.toUpperCase()) || node.hasAttribute('data-floc-scene-output')) return null;
     const style = view.getComputedStyle(node);
     if (style.display === 'none' || style.visibility === 'hidden') return null;
     const w = number(style.width, node.offsetWidth), h = number(style.height, node.offsetHeight);
     if (!(w > 0 && h > 0)) return null;
-    const origin = style.transformOrigin.split(/\s+/), matrix = new view.DOMMatrix(style.transform === 'none' ? undefined : style.transform);
-    if (!matrix.is2D) throw new Error('Refraction composition requires affine 2D source transforms.');
+    const origin = style.transformOrigin.split(/\s+/);
+    const matrix = new view.DOMMatrix(omitTransform || style.transform === 'none' ? undefined : style.transform);
+    if (!matrix.is2D) throw new Error('Flat scene capture requires affine 2D source transforms.');
     const ox = length(origin[0], w), oy = length(origin[1], h);
-    const transform = new view.DOMMatrix().translate(number(style.left, node.offsetLeft), number(style.top, node.offsetTop)).translate(ox, oy).multiply(matrix).translate(-ox, -oy);
-    const layer = !node.hasAttribute('data-floc-background-content') ? layers.get(node.dataset.flocLayer) : null;
-    const children = layer?.type === 'text' ? [] : [...node.children].map(child => describe(child, layers)).filter(Boolean).sort((a, b) => number(a.style.zIndex) - number(b.style.zIndex));
-    let bounds = { x: 0, y: 0, right: w, bottom: h };
-    if (style.overflow === 'visible') for (const child of children) bounds = union(bounds, transformedBounds(child.bounds, child.transform));
-    const filter = node.style.filter || (hidden.has(node) ? 'none' : style.filter);
-    for (const token of tokens(filter)) {
+    const transform = omitTransform ? matrix : new view.DOMMatrix().translate(number(style.left, node.offsetLeft), number(style.top, node.offsetTop)).translate(ox, oy).multiply(matrix).translate(-ox, -oy);
+    const isText = !node.children.length && [...node.childNodes].some(child => child.nodeType === 3);
+    const children = isText ? [] : [...node.children].map(child => describe(child)).filter(Boolean).sort((a, b) => number(a.style.zIndex) - number(b.style.zIndex));
+    const filter = node.style.filter || style.filter;
+    const desc = { node, style, width: w, height: h, transform, children, isText, filter };
+    desc.bounds = boundsFor(desc);
+    return desc;
+  }
+  function boundsFor(desc) {
+    let bounds = { x: 0, y: 0, right: desc.width, bottom: desc.height };
+    if (desc.style.overflow === 'visible') for (const child of desc.children) bounds = union(bounds, transformedBounds(child.bounds, child.transform));
+    for (const token of tokens(desc.filter)) {
       const source = filters.sourceFor(token);
-      if (source) bounds = union(bounds, filterRegion(source, w, h));
+      if (source) bounds = union(bounds, filterRegion(source, desc.width, desc.height));
       else if (token.startsWith('blur(')) {
         const padding = number(token.slice(5)) * 3;
         bounds = { x: bounds.x - padding, y: bounds.y - padding, right: bounds.right + padding, bottom: bounds.bottom + padding };
       }
     }
-    return { node, layer, style, width: w, height: h, transform, children, bounds, filter };
+    return bounds;
   }
   function drawSurface(context, value) { context.drawImage(value.canvas, value.x, value.y, value.width, value.height); }
-  function filtered(desc, raw, kind) {
+  function filtered(desc, raw) {
     if (!desc.filter || desc.filter === 'none') return raw;
-    const value = surface(desc.node, kind, desc.bounds, desc.phase), context = value.context;
-    // Filter coordinates have been adapted to backing-store pixels; keep the
-    // draw itself in that same space, with no hidden CTM scaling of blur radii.
+    const value = surface(desc.node, 'filtered', desc.bounds, desc.phase), context = value.context;
     context.resetTransform();
     context.filter = filters.filter(desc.filter, desc, sx, sy, value.x, value.y);
     context.drawImage(raw.canvas, Math.round((raw.x - value.x) * sx), Math.round((raw.y - value.y) * sy));
-    context.filter = 'none'; return value;
+    context.filter = 'none';
+    return value;
   }
-  function draw(project, time, renderModel) {
-    if (disposed || !enabled) return;
-    [nativeWidth, nativeHeight] = FORMATS[project.format]; sx = width / nativeWidth; sy = height / nativeHeight;
-    // Above source layers, below the editor's guide plane (z-index 100).
-    output.style.zIndex = String(project.layers.length);
-    hideSources(); filters.prune();
-    const layers = new Map(project.layers.map(layer => [layer.id, layer]));
-    const descriptions = [...root.children].filter(node => hidden.has(node)).map(node => describe(node, layers)).filter(Boolean).sort((a, b) => number(a.style.zIndex) - number(b.style.zIndex));
-    // Keep the previous frame visible between a viewport resize and its seek.
-    if (output.width !== width) output.width = width;
-    if (output.height !== height) output.height = height;
-    const context = output.getContext('2d'); context.resetTransform(); context.clearRect(0, 0, width, height); context.setTransform(sx, 0, 0, sy, 0, 0);
-    const rootSurface = { canvas: output, context, x: 0, y: 0, width: nativeWidth, height: nativeHeight };
-    const identity = new view.DOMMatrix();
-    function paint(desc, destination, global, ancestors) {
-      const opacity = number(desc.style.opacity, 1);
-      if (opacity <= 0) return;
-      const matrix = global.multiply(desc.transform);
-      // Rasterize translated text on the final output pixel grid. Otherwise a
-      // fractional layer origin resamples an already-antialiased glyph bitmap
-      // a second time, unlike native DOM text, softening/moving its edges.
-      if (desc.layer?.type === 'text' && matrix.a === 1 && matrix.b === 0 && matrix.c === 0 && matrix.d === 1) desc.phase = { x: matrix.e, y: matrix.f };
-      const raw = surface(desc.node, 'raw', desc.bounds, desc.phase);
-      const refractive = desc.layer?.type === 'model' && desc.layer.modelStyle?.shader === 'refractive' && desc.layer.visible && time >= desc.layer.start && time < desc.layer.end;
-      let mask = null;
-      if (refractive) {
-        const background = backdrop.getContext('2d'); background.resetTransform(); background.clearRect(0, 0, width, height);
-        for (const entry of ancestors) {
-          const m = entry.matrix; background.setTransform(sx * m.a, sy * m.b, sx * m.c, sy * m.d, sx * m.e, sy * m.f); drawSurface(background, entry.surface);
-        }
-        const position = matrix.transformPoint({ x: 0, y: 0 });
-        const rendered = renderModel(desc.layer.id, backdrop, { x: position.x / nativeWidth, y: position.y / nativeHeight, width: desc.width / nativeWidth, height: desc.height / nativeHeight });
-        if (!rendered?.canvas || !rendered?.mask) throw new Error(`Refractive model ${desc.layer.id} did not provide beauty and coverage canvases.`);
-        raw.context.drawImage(rendered.canvas, 0, 0, desc.width, desc.height);
-        mask = surface(desc.node, 'mask', desc.bounds); mask.context.drawImage(rendered.mask, 0, 0, desc.width, desc.height);
-      } else if (desc.layer?.type === 'text') text.draw(raw.context, desc.node, desc.style, desc.width);
-      else {
-        if (desc.style.backgroundColor !== 'rgba(0, 0, 0, 0)' && desc.style.backgroundColor !== 'transparent') {
-          raw.context.fillStyle = desc.style.backgroundColor; raw.context.fillRect(0, 0, desc.width, desc.height);
-        }
-        if (['CANVAS', 'IMG', 'VIDEO'].includes(desc.node.tagName)) drawMedia(raw.context, desc.node, desc.style, desc.width, desc.height);
-        raw.context.save();
-        if (desc.style.overflow !== 'visible') { raw.context.beginPath(); raw.context.rect(0, 0, desc.width, desc.height); raw.context.clip(); }
-        const stack = [...ancestors, { surface: raw, matrix }];
-        for (const child of desc.children) paint(child, raw, matrix, stack);
-        raw.context.restore();
+  function paint(desc, destination, global, includeOpacity = true, source = null, omitClip = false) {
+    const matrix = global.multiply(desc.transform);
+    // Native images/canvases also rasterize on the final output pixel grid.
+    // A layer-local bitmap followed by a fractional placement filters it twice.
+    if (matrix.a === 1 && matrix.b === 0 && matrix.c === 0 && matrix.d === 1) desc.phase = { x: matrix.e, y: matrix.f };
+    const raw = surface(desc.node, 'raw', desc.bounds, desc.phase), context = raw.context;
+    if (source) drawMedia(context, desc.node, desc.style, desc.width, desc.height, matrix, sx, sy, source);
+    else if (desc.isText) text.draw(context, desc.node, desc.style, desc.width);
+    else {
+      if (desc.style.backgroundColor !== 'rgba(0, 0, 0, 0)' && desc.style.backgroundColor !== 'transparent') {
+        context.fillStyle = desc.style.backgroundColor; context.fillRect(0, 0, desc.width, desc.height);
       }
-      const beauty = filtered(desc, raw, 'filtered'), coverage = mask ? filtered(desc, mask, 'filtered-mask') : null;
-      const target = destination.context, m = desc.transform;
-      target.save(); target.transform(m.a, m.b, m.c, m.d, m.e, m.f);
-      clipPath(target, desc.style.clipPath, desc.width, desc.height);
-      target.globalAlpha = opacity;
-      if (coverage) {
-        target.globalCompositeOperation = 'destination-out'; drawSurface(target, coverage);
-        target.globalCompositeOperation = 'lighter'; drawSurface(target, beauty);
-      } else drawSurface(target, beauty);
-      target.restore();
+      if (['CANVAS', 'IMG', 'VIDEO'].includes(desc.node.tagName)) drawMedia(context, desc.node, desc.style, desc.width, desc.height, matrix, sx, sy);
+      context.save();
+      if (desc.style.overflow !== 'visible') { context.beginPath(); context.rect(0, 0, desc.width, desc.height); context.clip(); }
+      for (const child of desc.children) paint(child, raw, matrix);
+      context.restore();
     }
-    for (const desc of descriptions) paint(desc, rootSurface, identity, [{ surface: rootSurface, matrix: identity }]);
+    const beauty = filtered(desc, raw), target = destination.context, m = desc.transform;
+    target.save(); target.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+    if (!omitClip) clipPath(target, desc.style.clipPath, desc.width, desc.height);
+    target.globalAlpha = includeOpacity ? number(desc.style.opacity, 1) : 1;
+    drawSurface(target, beauty); target.restore();
+  }
+  function captureLayer(id, { local = false, source = null, bounds = null, opacity = true } = {}) {
+    if (disposed) return null;
+    prepare();
+    let node = [...root.querySelectorAll('[data-floc-layer]')].find(node => node.dataset.flocLayer === id && !node.hasAttribute('data-floc-background-content'));
+    if (!node) return null;
+    // Effect groups for multiple source nodes belong to this layer, unlike
+    // Below wrappers which are applied explicitly by the scene render graph.
+    while (node.parentElement !== root && !node.parentElement?.hasAttribute('data-floc-adjustment') && node.parentElement?.querySelectorAll('[data-floc-layer]').length && [...node.parentElement.querySelectorAll('[data-floc-layer]')].every(child => child.dataset.flocLayer === id)) node = node.parentElement;
+    const desc = describe(node, local || Boolean(source && bounds));
+    if (!desc) return null;
+    if (source && bounds) {
+      desc.width = bounds.width; desc.height = bounds.height; desc.children = []; desc.isText = false;
+      desc.transform = new view.DOMMatrix().translate(local ? 0 : bounds.x, local ? 0 : bounds.y);
+      desc.bounds = boundsFor(desc);
+    }
+    const placed = transformedBounds(desc.bounds, desc.transform);
+    const value = surface(node, 'output', placed);
+    paint(desc, value, new view.DOMMatrix(), opacity, source, Boolean(source && bounds));
+    return { canvas: value.canvas, x: value.x, y: value.y, width: value.width, height: value.height };
+  }
+  function captureAdjustment(id, canvas) {
+    if (disposed) return canvas;
+    prepare();
+    const node = [...root.querySelectorAll('[data-floc-adjustment]')].find(node => node.dataset.flocAdjustment === id);
+    if (!node) return canvas;
+    const style = view.getComputedStyle(node), w = width / sx, h = height / sy;
+    const desc = { node, style, width: w, height: h, filter: node.style.filter || style.filter, children: [] };
+    desc.bounds = { x: 0, y: 0, right: w, bottom: h };
+    const raw = surface(node, 'adjustment-raw', desc.bounds);
+    raw.context.drawImage(canvas, 0, 0, w, h);
+    const beauty = filtered(desc, raw);
+    if (beauty.canvas === raw.canvas) return raw.canvas;
+    // Adjustment output is always a full-frame canvas, not padded filter bounds.
+    const result = surface(node, 'adjustment-output', desc.bounds);
+    drawSurface(result.context, beauty);
+    return result.canvas;
   }
   return {
-    draw, setResolution, setEnabled,
+    setResolution, captureLayer, captureAdjustment,
     dispose() {
       if (disposed) return;
-      setEnabled(false); disposed = true; filters.dispose(); text.dispose(); output.remove(); hiding.remove();
-      surfaces = new WeakMap();
-      output.width = output.height = backdrop.width = backdrop.height = 1;
+      disposed = true; filters.dispose(); text.dispose(); surfaces = new WeakMap();
     },
   };
 }
