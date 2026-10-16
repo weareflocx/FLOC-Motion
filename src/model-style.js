@@ -16,6 +16,7 @@ export const DEFAULT_MODEL_STYLE = Object.freeze({
   // Glass shaders only: index of refraction, how much of the tinted body covers the layers
   // below (Glass) and the spectral spread of refracted light (Studio glass).
   ior: 1.5, glassOpacity: .08, dispersion: 0,
+  refractionThickness: .5, refractionSamples: 8, refractionResolution: 1024,
   shader: 'standard', toonSteps: 4, fresnelColor: '#ffffff', fresnelIntensity: .5, fresnelPower: 3,
   ...STUDIO_LIGHTING,
   motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
@@ -24,10 +25,12 @@ export const DEFAULT_MODEL_STYLE = Object.freeze({
   framing: 'fit', zoom: 1, perspective: 38
 });
 export const MODEL_MATERIAL_MODES = Object.freeze(['original', 'tint', 'replace']);
-// glass lets the layers below show through a tinted, reflective body; crystal refracts the
-// model's own reflection environment and is opaque.
-export const MODEL_SHADERS = Object.freeze(['standard', 'toon', 'fresnel', 'wireframe', 'glass', 'crystal']);
-export const MODEL_GLASS_SHADERS = Object.freeze(['glass', 'crystal']);
+// glass reveals lower layers without bending; crystal refracts its own environment;
+// refractive samples the actual lower-layer composition.
+export const MODEL_SHADERS = Object.freeze(['standard', 'toon', 'fresnel', 'wireframe', 'glass', 'crystal', 'refractive']);
+export const MODEL_GLASS_SHADERS = Object.freeze(['glass', 'crystal', 'refractive']);
+export const MODEL_REFRACTION_SAMPLES = Object.freeze([4, 8, 16]);
+export const MODEL_REFRACTION_RESOLUTIONS = Object.freeze([256, 512, 1024, 2048]);
 export const MODEL_MOTIONS = Object.freeze(['none', 'spin', 'rock', 'float', 'pulse']);
 export const MODEL_MOTION_AXES = Object.freeze(['auto', 'x', 'y', 'z']);
 // Screen turns and moves about the view's axes; object about the model's own
@@ -47,6 +50,7 @@ export const MODEL_STYLE_RANGES = Object.freeze({
   clearcoatRoughness: [0, 1], sheen: [0, 1], sheenRoughness: [0, 1], anisotropy: [0, 1], anisotropyRotation: [-180, 180],
   iridescenceIOR: [1, 2.5], iridescenceThicknessMin: [0, 1200], iridescenceThicknessMax: [0, 1200],
   ior: [1, 2.5], glassOpacity: [0, 1], dispersion: [0, 1],
+  refractionThickness: [0, 2],
   toonSteps: [2, 8], fresnelIntensity: [0, 2], fresnelPower: [1, 8],
   environmentIntensity: [0, 4], environmentRotation: [-180, 180], exposure: [.25, 4],
   ambientIntensity: [0, 6], keyIntensity: [0, 10], fillIntensity: [0, 10], rimIntensity: [0, 10], lightRotation: [-180, 180],
@@ -55,13 +59,13 @@ export const MODEL_STYLE_RANGES = Object.freeze({
 });
 const SURFACE_KEYS = ['mode', 'color', 'roughness', 'metalness', 'clearcoat', 'iridescence', 'emissive', 'emissiveIntensity',
   'clearcoatRoughness', 'sheen', 'sheenColor', 'sheenRoughness', 'anisotropy', 'anisotropyRotation', 'iridescenceIOR', 'iridescenceThicknessMin', 'iridescenceThicknessMax',
-  'ior', 'glassOpacity', 'dispersion', 'shader'];
+  'ior', 'glassOpacity', 'dispersion', 'refractionThickness', 'refractionSamples', 'refractionResolution', 'shader'];
 const paintDefaults = Object.fromEntries(SURFACE_KEYS.filter(key => key !== 'shader').map(key => [key, DEFAULT_MODEL_STYLE[key]]));
 // Material presets set the surface only; lighting presets set the environment and rig.
 // Metal colors are the measured linear reflectance of each metal, written in sRGB.
 const surface = settings => Object.freeze({ ...paintDefaults, mode: 'replace', shader: 'standard', ...settings });
 const iridescent = (iridescenceIOR, iridescenceThicknessMin, iridescenceThicknessMax) => ({ iridescence: 1, iridescenceIOR, iridescenceThicknessMin, iridescenceThicknessMax });
-export const MODEL_MATERIAL_FAMILIES = Object.freeze([['basic', 'Basics'], ['metal', 'Metals'], ['iridescent', 'Iridescent'], ['fabric', 'Fabric'], ['glass', 'Glass'], ['crystal', 'Studio glass']]);
+export const MODEL_MATERIAL_FAMILIES = Object.freeze([['basic', 'Basics'], ['metal', 'Metals'], ['iridescent', 'Iridescent'], ['fabric', 'Fabric'], ['glass', 'Glass'], ['crystal', 'Studio glass'], ['refractive', 'Refractive glass']]);
 export const MODEL_MATERIAL_PRESETS = Object.freeze([
   { id: 'original', name: 'Original', family: 'basic', settings: Object.freeze({ ...paintDefaults, shader: 'standard' }) },
   { id: 'matte', name: 'Matte', family: 'basic', settings: surface({ roughness: .9 }) },
@@ -90,7 +94,10 @@ export const MODEL_MATERIAL_PRESETS = Object.freeze([
   { id: 'bubble', name: 'Soap bubble', family: 'glass', settings: surface({ shader: 'glass', roughness: 0, metalness: .2, ior: 1.33, glassOpacity: 0, ...iridescent(1.33, 250, 850) }) },
   { id: 'prism', name: 'Prism', family: 'crystal', settings: surface({ shader: 'crystal', roughness: 0, ior: 1.6, dispersion: .6 }) },
   { id: 'diamond', name: 'Diamond', family: 'crystal', settings: surface({ shader: 'crystal', roughness: 0, ior: 2.42, dispersion: 1 }) },
-  { id: 'frosted-crystal', name: 'Frosted crystal', family: 'crystal', settings: surface({ shader: 'crystal', color: '#eef3f7', roughness: .4, ior: 1.5, dispersion: .2 }) }
+  { id: 'frosted-crystal', name: 'Frosted crystal', family: 'crystal', settings: surface({ shader: 'crystal', color: '#eef3f7', roughness: .4, ior: 1.5, dispersion: .2 }) },
+  { id: 'refractive-clear', name: 'Clear refraction', family: 'refractive', settings: surface({ shader: 'refractive', roughness: .04, ior: 1.5, refractionThickness: .5 }) },
+  { id: 'refractive-frosted', name: 'Frosted refraction', family: 'refractive', settings: surface({ shader: 'refractive', color: '#f2f5f8', roughness: .45, ior: 1.5, refractionThickness: .6 }) },
+  { id: 'refractive-prism', name: 'Prismatic refraction', family: 'refractive', settings: surface({ shader: 'refractive', roughness: .02, ior: 1.6, dispersion: .6, refractionThickness: .75 }) }
 ]);
 const classic = Object.freeze({
   environment: 'none', environmentIntensity: 1, environmentRotation: 0, toneMapping: 'none', exposure: 1,
@@ -116,6 +123,8 @@ export function normalizeModelStyle(input) {
   for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
     if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || value[key] < min || value[key] > max || (['toonSteps', 'motionSteps', 'animationClip'].includes(key) && !Number.isInteger(value[key]))) throw new Error(`Invalid 3D model ${key}.`);
   }
+  if (!MODEL_REFRACTION_SAMPLES.includes(value.refractionSamples)) throw new Error('Invalid 3D model refractionSamples.');
+  if (!MODEL_REFRACTION_RESOLUTIONS.includes(value.refractionResolution)) throw new Error('Invalid 3D model refractionResolution.');
   if (value.iridescenceThicknessMin > value.iridescenceThicknessMax) throw new Error('Invalid 3D model iridescence thickness: the minimum exceeds the maximum.');
   try { value.motionTiming = normalizeMotion(value.motionTiming); }
   catch (error) { throw new Error(`Invalid 3D model motion timing: ${error.message}`); }

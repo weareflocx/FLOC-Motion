@@ -10,7 +10,8 @@ import { drawProceduralBackground, watchProceduralBackgrounds } from './backgrou
 import { textTypography, textRevealClip } from './text-style.js';
 import { createEffects } from './effects.js';
 import { createResourceCache, watchContextLoss } from './scene-resources.js';
-import { sceneUpdatePlan } from './scene-update.js';
+import { needsRetainedCarouselFrames, sceneUpdatePlan } from './scene-update.js';
+import { createRefractionCompositor } from './refraction-compositor.js';
 
 export function stageMarkup(p, path = src => src) {
   const [w, h] = FORMATS[p.format];
@@ -95,13 +96,13 @@ async function loadCardVideo(src) {
   return video;
 }
 
-async function createLayerScene(root, p, { renderMode = false, onMediaError = () => {}, cardFrames = {}, resources } = {}) {
+async function createLayerScene(root, p, { renderMode = false, captureCanvases = false, onMediaError = () => {}, cardFrames = {}, resources } = {}) {
   const [width, height] = FORMATS[p.format];
   const carousel = p.layers.find(l => l.type === 'carousel');
   let layer = carousel || { ...demoProject().layers.find(l => l.type === 'carousel'), visible: false };
   const canvas = (carousel ? root.querySelector(`[id="carousel-${CSS.escape(carousel.id)}"]`) : null) || document.createElement('canvas');
-  // Export captures read the canvas after drawing; the preview only composites it.
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: renderMode });
+  // Exports and refraction can read this canvas after an async effect decode.
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: renderMode || captureCanvases });
   renderer.setPixelRatio(1); renderer.setSize(width, height, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0, 0);
@@ -314,7 +315,7 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
   try {
     await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontFamily(l.font)}"`)));
     await document.fonts.ready;
-    for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, { compositionWidth: width, resources, renderMode, onError: onMediaError }));
+    for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, { compositionWidth: width, resources, renderMode, deferRefraction: true, onError: onMediaError }));
     const sources = [...new Set((carousel ? p.images : []).map(img => img.src))];
     const results = await Promise.allSettled(sources.map(cardTexture));
     textures.push(...results.filter(result => result.status === 'fulfilled').map(result => result.value));
@@ -472,7 +473,12 @@ async function createLayerScene(root, p, { renderMode = false, onMediaError = ()
     placementBounds.clear();
     textStyles.clear();
   }
-  return { update, seek, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); models.forEach(model => model.setCompositionWidth(w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
+  function drawRefraction(id, backdrop, rect) {
+    const model = models.find(model => model.id === id);
+    if (!model) throw new Error('Refractive model layer not found.');
+    return model.drawRefraction(backdrop, rect, requestedTime, placementFor(id) ?? undefined);
+  }
+  return { update, seek, drawRefraction, hitTest(x, y) { if (disposed) return false; scene.updateMatrixWorld(true); const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(x * 2 - 1, 1 - y * 2), camera); return ray.intersectObjects(meshes.filter(mesh => mesh.visible)).length > 0; }, setResolution(w, h) { if (!disposed && (canvas.width !== w || canvas.height !== h)) { renderer.setSize(w, h, false); models.forEach(model => model.setCompositionWidth(w)); } }, setOrientation(value) { orientation = value; }, setPlacement(value) { placement = value; }, dispose };
 }
 
 // The first engine also owns every non-carousel layer; each further carousel
@@ -518,10 +524,12 @@ const fontsLoaded = (previous, next) => next.layers.every((layer, i) => layer.ty
 
 export async function createScene(root, project, options = {}) {
   // Preview sessions pass a shared cache so rebuilds reuse decoded media.
-  options = { ...options, resources: options.resources ?? createResourceCache() };
+  options = { ...options, captureCanvases: needsRetainedCarouselFrames(project), resources: options.resources ?? createResourceCache() };
   let currentProject = project;
   let currentTime = 0;
   let disposed = false;
+  let seekEpoch = 0, refraction;
+  let [outputWidth, outputHeight] = FORMATS[project.format];
   const engines = [];
   let effects = createEffects(root, project, FORMATS, layerAlpha);
   const backgrounds = project.layers.filter(layer => layer.type === 'background' && layer.mode === 'procedural').map(layer => ({ id: layer.id, canvas: root.querySelector(`[id="background-${CSS.escape(layer.id)}"]`) })).filter(background => background.canvas);
@@ -566,6 +574,7 @@ export async function createScene(root, project, options = {}) {
       if (!patch) return false;
       patch();
       currentProject = next;
+      seekEpoch++;
       const parts = engineProjects(next);
       engines.forEach((engine, i) => engine.scene.update(parts[i].project));
       if (plan.effects) { effects.dispose(); effects = createEffects(root, next, FORMATS, layerAlpha); }
@@ -573,13 +582,28 @@ export async function createScene(root, project, options = {}) {
       return true;
     },
     seek: (time, playing) => {
+      const epoch = ++seekEpoch;
       drawBackgrounds(time);
-      const ready = Promise.all([...engines.map(engine => engine.scene.seek(time, playing)), effects.seek(time)]);
-      return options.renderMode && backgroundFailure ? Promise.reject(backgroundFailure) : ready;
+      const needsRefraction = currentProject.layers.some(layer => layer.type === 'model' && layer.modelStyle?.shader === 'refractive' && layerAlpha(layer, time) > 0);
+      const frames = Promise.all(engines.map(engine => engine.scene.seek(time, playing)));
+      // A capture sees every carousel/model/media frame and its current effect geometry.
+      const ready = needsRefraction ? frames.then(() => effects.seek(time)) : Promise.all([frames, effects.seek(time)]);
+      if (!needsRefraction && !refraction) return options.renderMode && backgroundFailure ? Promise.reject(backgroundFailure) : ready;
+      return ready.then(() => {
+        if (disposed || epoch !== seekEpoch) return;
+        if (options.renderMode && backgroundFailure) throw backgroundFailure;
+        if (needsRefraction) {
+          refraction ??= createRefractionCompositor(root, { width: outputWidth, height: outputHeight });
+          refraction.setEnabled(true);
+          refraction.draw(currentProject, time, (id, backdrop, rect) => engines[0].scene.drawRefraction(id, backdrop, rect));
+        } else refraction.setEnabled(false);
+      });
     },
     hitTest: (x, y, id) => engines.find(engine => engine.id === id)?.scene.hitTest(x, y) ?? false,
     setResolution: (w, h) => {
       if (disposed) return;
+      outputWidth = w; outputHeight = h;
+      refraction?.setResolution(w, h);
       engines.forEach(engine => engine.scene.setResolution(w, h));
       root.querySelectorAll('canvas[data-floc-layer]').forEach(canvas => {
         if (currentProject.layers.some(layer => layer.id === canvas.dataset.flocLayer && layer.type === 'effect') && (canvas.width !== w || canvas.height !== h)) { canvas.width = w; canvas.height = h; }
@@ -589,6 +613,6 @@ export async function createScene(root, project, options = {}) {
     },
     setOrientation: value => engines.forEach(engine => engine.scene.setOrientation(value?.id === engine.id ? value : null)),
     setPlacement: value => engines.forEach(engine => engine.scene.setPlacement(value)),
-    dispose: () => { disposed = true; unwatchBackgrounds(); effects.dispose(); engines.forEach(engine => engine.scene.dispose()); }
+    dispose: () => { disposed = true; seekEpoch++; unwatchBackgrounds(); refraction?.dispose(); effects.dispose(); engines.forEach(engine => engine.scene.dispose()); }
   };
 }

@@ -64,6 +64,40 @@ test('model settings reject code, remote resources, invalid clocks and invalid c
   assert.equal(crossRealm.motionAxis, 'x');
 });
 
+test('refraction accepts only canonical bounded thickness and discrete quality settings', () => {
+  const legacy = normalizeModelStyle({ shader: 'glass', glassOpacity: .35, roughness: .2 });
+  assert.deepEqual([legacy.shader, legacy.glassOpacity, legacy.roughness], ['glass', .35, .2]);
+  assert.deepEqual([legacy.refractionThickness, legacy.refractionSamples, legacy.refractionResolution], [.5, 8, 1024]);
+  for (const refractionThickness of [0, .5, 2]) for (const refractionSamples of [4, 8, 16]) for (const refractionResolution of [256, 512, 1024, 2048]) {
+    const settings = { shader: 'refractive', refractionThickness, refractionSamples, refractionResolution };
+    const style = normalizeModelStyle(settings);
+    for (const [key, value] of Object.entries(settings)) assert.equal(style[key], value);
+    assert.deepEqual(normalizeModelStyle(JSON.parse(JSON.stringify(style))), style);
+  }
+  for (const [key, values] of Object.entries({
+    refractionThickness: [-.01, 2.01, Infinity, NaN, '.5', null],
+    refractionSamples: [0, 5, 7.5, 12, 32, '8', null],
+    refractionResolution: [0, 257, 768, 1024.5, 4096, '1024', null]
+  })) for (const value of values) assert.throws(() => normalizeModelStyle({ [key]: value }), new RegExp(key));
+});
+
+test('refractive presets select true refraction and preserve all nonsurface settings', () => {
+  const original = normalizeModelStyle({ environment: 'neon', exposure: 2, motion: 'rock', motionAxis: 'z', animationClip: -1, zoom: 1.7, perspective: 52 });
+  for (const id of ['refractive-clear', 'refractive-frosted', 'refractive-prism']) {
+    const style = applyModelPreset(original, id);
+    assert.equal(style.shader, 'refractive');
+    assert.equal(style.mode, 'replace');
+    assert.equal(selectedModelPreset(style), id);
+    for (const key of ['environment', 'exposure', 'motion', 'motionAxis', 'animationClip', 'zoom', 'perspective']) assert.equal(style[key], original[key]);
+    assert.deepEqual([style.refractionSamples, style.refractionResolution], [8, 1024]);
+    assert.equal(selectedModelPreset({ ...style, refractionSamples: 16 }), 'custom');
+    const lighting = applyLightingPreset(style, 'sunset');
+    for (const key of ['shader', 'roughness', 'ior', 'dispersion', 'refractionThickness', 'refractionSamples', 'refractionResolution']) assert.equal(lighting[key], style[key]);
+  }
+  assert.equal(applyModelPreset(original, 'clear-glass').shader, 'glass');
+  assert.equal(applyModelPreset(original, 'prism').shader, 'crystal');
+});
+
 test('all axes affect exactly their selected transform and reused samples clear stale motion', () => {
   const out = {};
   for (const motion of ['spin', 'rock', 'float', 'pulse']) for (const axis of ['x', 'y', 'z']) {

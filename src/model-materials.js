@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createModelRefraction } from './model-refraction.js';
 
 // Imported textures/geometry remain cache-owned. Only these per-instance materials
 // and the generated toon ramp belong to this controller.
@@ -115,7 +116,7 @@ export function createModelMaterials(model) {
   const bindings = [], variants = new Map(), owned = new Set(), tint = new THREE.Color();
   // Brushing and a varying film need a UV frame; materials on meshes without UVs skip them.
   const withoutUv = new Set();
-  let gradient, gradientSteps, film;
+  let gradient, gradientSteps, film, refraction;
   model.traverse(node => {
     if (!node.material) return;
     bindings.push({ node, source: node.material });
@@ -140,7 +141,7 @@ export function createModelMaterials(model) {
     return film;
   }
   function variant(source, style, mesh) {
-    const key = `${style.mode}/${mesh ? style.shader : 'standard'}`;
+    const key = `${style.mode}/${mesh ? style.shader : 'standard'}${mesh && style.shader === 'refractive' ? `/${style.refractionSamples}` : ''}`;
     let table = variants.get(key);
     if (!table) { table = new Map(); variants.set(key, table); }
     let value = table.get(source);
@@ -156,7 +157,7 @@ export function createModelMaterials(model) {
       }
     } else if (shader === 'wireframe') material = adapt(source, new THREE.MeshBasicMaterial(), preserve);
     else if (shader === 'toon') material = adapt(source, new THREE.MeshToonMaterial(), preserve);
-    else if (shader === 'glass' || shader === 'crystal') {
+    else if (shader === 'glass' || shader === 'crystal' || shader === 'refractive') {
       material = adapt(source, new THREE.MeshPhysicalMaterial(), preserve);
       // Original and Tint keep the imported surface finish, which glass reflects and refracts.
       if (preserve && source.isMeshStandardMaterial) for (const key of ['roughness', 'metalness', 'roughnessMap', 'metalnessMap']) material[key] = source[key];
@@ -165,7 +166,11 @@ export function createModelMaterials(model) {
     else if (shader === 'fresnel' && !source.isMeshStandardMaterial) material = adapt(source, new THREE.MeshPhysicalMaterial(), true);
     else material = source.clone();
     if (shader === 'wireframe') material.wireframe = true;
-    value = { source, material, rim: shader === 'fresnel' ? fresnel(material) : null, glass: shader === 'glass' || shader === 'crystal' ? glass(material, shader) : null };
+    if (shader === 'refractive') {
+      refraction ??= createModelRefraction();
+      refraction.attach(material, style.refractionSamples);
+    }
+    value = { source, material, refractive: shader === 'refractive', rim: shader === 'fresnel' ? fresnel(material) : null, glass: shader === 'glass' || shader === 'crystal' ? glass(material, shader) : null };
     table.set(source, value); owned.add(material);
     return value;
   }
@@ -204,6 +209,15 @@ export function createModelMaterials(model) {
       glass.modelGlassBody.value = style.glassOpacity;
       glass.modelGlassDispersion.value = style.dispersion;
     }
+    if (value.refractive) {
+      // This surface is dielectric transmission. Other preset surface details stay inactive.
+      material.roughness = style.roughness;
+      material.ior = style.ior;
+      material.metalness = 0; material.metalnessMap = null;
+      material.clearcoat = 0; material.iridescence = 0; material.iridescenceThicknessMap = null;
+      material.sheen = 0; material.anisotropy = 0;
+      material.emissiveIntensity = 0; material.emissiveMap = null;
+    }
   }
   return {
     update(style) {
@@ -216,7 +230,10 @@ export function createModelMaterials(model) {
         };
         node.material = Array.isArray(source) ? source.map(assign) : assign(source);
       }
+      refraction?.update(style);
     },
-    dispose() { for (const material of owned) material.dispose(); owned.clear(); variants.clear(); gradient?.dispose(); film?.dispose(); }
+    setRefraction(source, rect, resolution) { refraction?.input(source, rect, resolution); },
+    setRefractionMask(value) { refraction?.mask(value); },
+    dispose() { for (const material of owned) material.dispose(); owned.clear(); variants.clear(); gradient?.dispose(); film?.dispose(); refraction?.dispose(); }
   };
 }

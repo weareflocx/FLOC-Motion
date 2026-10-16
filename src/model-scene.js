@@ -54,7 +54,7 @@ function disposeModel(gltf) {
   textures.forEach(texture => texture.dispose());
 }
 
-export async function createModelScene(canvas, layer, { compositionWidth = canvas.width, resources = createResourceCache(), renderMode = false, onError = () => {} } = {}) {
+export async function createModelScene(canvas, layer, { compositionWidth = canvas.width, resources = createResourceCache(), renderMode = false, deferRefraction = false, onError = () => {} } = {}) {
   let style = normalizeModelStyle(layer.modelStyle);
   const shared = modelRenderer();
   const scene = new THREE.Scene();
@@ -76,10 +76,18 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   const sphere = new THREE.Sphere(), point = new THREE.Vector3(), raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
   let mixer, model, source, materials, clips, action, clip, clipIndex, lastTime, lastDraft, drawnBounds, disposed = false, unregister = () => {};
   let width = compositionWidth;
+  let refractionMask;
+  const refractionOutput = { canvas, mask: null };
   const unwatch = shared.watch({
     restored: () => {
       if (disposed) return;
-      try { environment.invalidate(); environment.update(style); if (lastTime !== undefined) draw(lastTime, lastDraft); }
+      try {
+        environment.invalidate(); environment.update(style);
+        if (lastTime !== undefined) {
+          draw(lastTime, lastDraft);
+          if (style.shader === 'refractive' && refractionMask) renderRefraction();
+        }
+      }
       catch (error) { onError(error); }
     },
     failed: () => { if (!disposed) onError(new Error(`${layer.name} lost its graphics context. Reload the editor to show it again.`)); }
@@ -172,6 +180,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     skeletons.forEach(skeleton => skeleton.dispose());
     environment.dispose();
     handle.release();
+    if (refractionMask) refractionMask.width = refractionMask.height = 1;
   }
   function pose(time, draft) {
     const elapsed = Math.max(0, time - layer.start);
@@ -197,11 +206,37 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   function draw(time, draft) {
     lastTime = time; lastDraft = draft;
     pose(time, draft);
+    // A composition draws these later, when its lower-layer framebuffer is ready.
+    if (deferRefraction && style.shader === 'refractive') return;
     if (shared.lost) {
       if (renderMode) throw new Error('The graphics context was lost while rendering a 3D model.');
       return;
     }
     shared.draw(scene, camera, canvas, TONE_MAPPINGS[style.toneMapping], style.exposure);
+  }
+  function renderRefraction() {
+    try {
+      materials.setRefractionMask(true);
+      shared.draw(scene, camera, refractionMask, THREE.NoToneMapping, 1);
+    } finally { materials.setRefractionMask(false); }
+    shared.draw(scene, camera, canvas, TONE_MAPPINGS[style.toneMapping], style.exposure);
+  }
+  function drawRefraction(backdrop, rect, time, draft) {
+    if (style.shader !== 'refractive') throw new Error('Refraction requires a Refractive glass material.');
+    lastTime = time; lastDraft = draft; pose(time, draft);
+    if (!refractionMask) {
+      refractionMask = document.createElement('canvas');
+      refractionOutput.mask = refractionMask;
+    }
+    if (refractionMask.width !== canvas.width) refractionMask.width = canvas.width;
+    if (refractionMask.height !== canvas.height) refractionMask.height = canvas.height;
+    if (shared.lost) {
+      if (renderMode) throw new Error('The graphics context was lost while rendering refractive glass.');
+      return refractionOutput;
+    }
+    materials.setRefraction(backdrop, rect, style.refractionResolution);
+    renderRefraction();
+    return refractionOutput;
   }
   // Canvas fractions covered by the drawn pose: projected local bounds of each
   // visible part, or the whole canvas when geometry reaches behind the camera.
@@ -262,6 +297,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       id: layer.id,
       updateLayer(value) { const next = normalizeModelStyle(value.modelStyle); applyStyle(next); layer = value; resize(); },
       draw,
+      drawRefraction,
       // The composition's current pixel width; the canvas follows the layer's size.
       setCompositionWidth(value) { width = value; resize(); },
       dispose

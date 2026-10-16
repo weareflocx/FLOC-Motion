@@ -106,7 +106,7 @@ test('material presets change only the surface; lighting presets change only the
 test('material presets are grouped by family and the film thickness range stays ordered', () => {
   const h = inspector();
   const groups = h.find('Material preset').children.flat().filter(node => node.type === 'optgroup');
-  assert.deepEqual(groups.map(group => group.props.label), ['Basics', 'Metals', 'Iridescent', 'Fabric', 'Glass', 'Studio glass']);
+  assert.deepEqual(groups.map(group => group.props.label), ['Basics', 'Metals', 'Iridescent', 'Fabric', 'Glass', 'Studio glass', 'Refractive glass']);
   assert.ok(groups.find(group => group.props.label === 'Metals').children.flat().some(option => option.props.value === 'brushed-aluminium'));
   h.change('Material preset', 'brushed-aluminium');
   assert.equal(h.find('Material preset').props.value, 'brushed-aluminium');
@@ -136,6 +136,35 @@ test('glass presets show the controls of their shader and switching shader leave
   h.change('Surface shader', 'standard');
   assert.equal(h.find('Material preset').props.value, 'custom', 'a preset includes its shader');
   assert.equal(h.find('Refractive index ×100'), undefined);
+});
+
+test('refractive controls edit canonical quality and roughness in every mode without inactive surface overrides', () => {
+  const h = inspector({ modelStyle: { motion: 'spin', zoom: 1.7, keyIntensity: 4 } });
+  const optionValues = label => h.find(label).children.flat().map(option => option.props.value);
+  assert.ok(optionValues('Surface shader').includes('refractive'));
+  h.change('Material preset', 'refractive-frosted');
+  assert.equal(h.layer.modelStyle.shader, 'refractive');
+  assert.equal(h.layer.modelStyle.mode, 'replace');
+  assert.equal(h.find('Material preset').props.value, 'refractive-frosted');
+  assert.deepEqual(optionValues('Refraction samples'), [4, 8, 16]);
+  assert.deepEqual(optionValues('Refraction resolution'), [256, 512, 1024, 2048]);
+  for (const mode of ['original', 'tint', 'replace']) {
+    h.change('Material mode', mode);
+    for (const label of ['Roughness', 'Refractive index ×100', 'Dispersion', 'Thickness', 'Refraction samples', 'Refraction resolution']) assert.equal(h.find(label).blocked, false, `${mode}: ${label}`);
+    for (const label of ['Glass body', 'Metalness', 'Clearcoat', 'Iridescence', 'Sheen', 'Brushed', 'Emissive intensity']) assert.equal(h.find(label), undefined, `${mode}: ${label}`);
+    h.change('Roughness', .37);
+    assert.equal(h.layer.modelStyle.roughness, .37);
+  }
+  h.change('Thickness', 1.25);
+  h.change('Refraction samples', 16);
+  h.change('Refraction resolution', 512);
+  assert.deepEqual([h.layer.modelStyle.refractionThickness, h.layer.modelStyle.refractionSamples, h.layer.modelStyle.refractionResolution], [1.25, 16, 512]);
+  assert.equal(h.find('Thickness').props.scale, 100);
+  assert.equal(h.find('Thickness').props.suffix, '%');
+  assert.deepEqual([h.layer.modelStyle.motion, h.layer.modelStyle.zoom, h.layer.modelStyle.keyIntensity], ['spin', 1.7, 4]);
+  h.change('Surface shader', 'glass');
+  for (const label of ['Thickness', 'Refraction samples', 'Refraction resolution', 'Dispersion']) assert.equal(h.find(label), undefined);
+  assert.equal(h.find('Glass body').blocked, false);
 });
 
 test('motion axis space offers Screen and Object, and Legacy only to projects that use it', () => {

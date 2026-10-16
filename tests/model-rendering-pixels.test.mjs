@@ -97,7 +97,8 @@ test('shared model renderer produces real material, reflection, shader and deter
       style('a', { mode: 'replace', color: '#44ff88' }); const replaced = frame('a', .4);
       result.replace = difference(tinted, replaced); result.replaceMapDropped = mesh('a').material.map === null;
       result.presets = [];
-      for (const preset of MODEL_MATERIAL_PRESETS.filter(item => item.id !== 'original')) {
+      // Framebuffer-dependent presets are checked against actual lower layers in refractive-glass-pixels.test.mjs.
+      for (const preset of MODEL_MATERIAL_PRESETS.filter(item => item.id !== 'original' && item.family !== 'refractive')) {
         style('a', applyModelPreset(layers.get('a').modelStyle, preset.id));
         // Glass presets are translucent by design, so coverage counts any drawn pixel.
         const pixels = frame('a', .4); let covered = 0; for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 0) covered++;

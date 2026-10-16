@@ -60,6 +60,19 @@ test('structural edits rebuild the scene', () => {
   for (const [name, next] of Object.entries(changes)) assert.equal(sceneUpdatePlan(base, next), null, name);
 });
 
+test('refractive carousel capture rebuilds only when immutable framebuffer retention changes', () => {
+  const base = project(), id = idOf(base, 'model'), style = base.layers.find(layer => layer.id === id).modelStyle;
+  const refractive = patchLayer(base, id, { modelStyle: { ...style, shader: 'refractive' } });
+  assert.equal(sceneUpdatePlan(base, refractive), null);
+  assert.equal(sceneUpdatePlan(refractive, base), null);
+  assert.deepEqual(sceneUpdatePlan(refractive, patchLayer(refractive, id, { visible: false })), { effects: false }, 'visibility and the playhead cannot change context attributes');
+  assert.deepEqual(sceneUpdatePlan(refractive, patchLayer(refractive, id, { modelStyle: { ...style, shader: 'refractive', roughness: .45 } })), { effects: false });
+  const two = validateProject({ ...refractive, layers: [...refractive.layers, { ...refractive.layers.find(layer => layer.id === id), id: 'second-model' }] });
+  assert.deepEqual(sceneUpdatePlan(two, patchLayer(two, id, { modelStyle: style })), { effects: false }, 'another refractive model still needs the retained carousel frames');
+  const withoutCarousel = validateProject({ ...base, layers: base.layers.filter(layer => layer.type !== 'carousel') });
+  assert.deepEqual(sceneUpdatePlan(withoutCarousel, patchLayer(withoutCarousel, id, { modelStyle: { ...style, shader: 'refractive' } })), { effects: false }, 'model-only scenes do not need retained carousel buffers');
+});
+
 test('cached resources survive a rebuild and are disposed after the last scene releases them', async () => {
   const cache = createResourceCache();
   let loads = 0;
