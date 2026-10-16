@@ -1,16 +1,17 @@
 import { easeProgress } from './easing.js';
 import { DEFAULT_TEXT_STYLE } from './text-style.js';
 import { PROJECT_LIMITS } from './project-limits.js';
+import { SCENE_DEPTH_RANGE, assertPlainSceneRecord } from './scene-settings.js';
 
 // The pose every state holds: framing, size, opacity and orientation.
-const COMMON_FIELDS = { x: [0, 95], y: [0, 95], opacity: [0, 1], roll: [-180, 180] };
+const COMMON_FIELDS = { x: [0, 95], y: [0, 95], z: SCENE_DEPTH_RANGE, opacity: [0, 1], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] };
 const FIELDS = {
   effect: { opacity: [0, 1] },
   text: { ...COMMON_FIELDS, size: [12, 180] },
   logo: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
   media: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
   model: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
-  carousel: { x: [10, 90], y: [10, 90], size: [0.5, 2.5], opacity: [0, 1], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180] }
+  carousel: { x: [10, 90], y: [10, 90], z: SCENE_DEPTH_RANGE, size: [0.5, 2.5], opacity: [0, 1], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180] }
 };
 
 // Optional values: a state that omits one leaves it to the neighboring states
@@ -34,7 +35,7 @@ const OPTIONAL_FIELDS = {
   carousel: { stretch: [0, 1], ...EFFECT_BOUNDS },
   logo: EFFECT_BOUNDS, media: EFFECT_BOUNDS, model: EFFECT_BOUNDS, effect: EFFECT_BOUNDS
 };
-const LABELS = { x: 'Position', y: 'Position', size: 'Size', opacity: 'Opacity', roll: 'Rotation', tilt: 'Tilt', yaw: 'Yaw',
+const LABELS = { x: 'Position', y: 'Position', z: 'Depth', size: 'Size', opacity: 'Opacity', roll: 'Rotation', tilt: 'Tilt', yaw: 'Yaw',
   stretch: 'Edge stretch', color: 'Color', letterSpacing: 'Letter spacing', lineHeight: 'Line height',
   blurAmount: 'Blur', noiseOpacity: 'Noise', monochromeAmount: 'Monochrome', warpAmount: 'Optical warp',
   duotoneAmount: 'Duotone', chromaticAmount: 'Chromatic split', waveAmount: 'Liquid wave', halftoneAmount: 'Halftone', ditheringAmount: 'Dithering', glassAmount: 'Fluted glass' };
@@ -130,6 +131,7 @@ export function captureState(layer, absoluteTime, fps, patch = {}, id = crypto.r
   const fields = choreographyFields(layer), optional = optionalChoreographyFields(layer);
   if (!Object.keys(fields).length) throw new Error('This layer cannot have choreography.');
   if (!Number.isFinite(absoluteTime)) throw new Error('State time must be finite.');
+  assertPlainSceneRecord(patch, 'choreography values');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).some(field => !Object.hasOwn(fields, field) && !Object.hasOwn(optional, field))) throw new Error('Invalid choreography values.');
   const maxFrame = Math.floor(Math.min(PROJECT_LIMITS.maxDuration, layer.end - layer.start) * fps + 1e-9);
   const frameTime = clamp(Math.round((absoluteTime - layer.start) * fps), 0, maxFrame) / fps;
@@ -137,7 +139,7 @@ export function captureState(layer, absoluteTime, fps, patch = {}, id = crypto.r
   // Preserve off-frame imported times when replacing their frame, keeping ordering intact.
   const time = existing?.time ?? frameTime;
   const pose = evaluateChoreography(layer, layer.start + time);
-  const values = Object.fromEntries(Object.keys(fields).map(field => [field, Object.hasOwn(patch, field) ? patch[field] : pose[field] ?? (field === 'opacity' ? 1 : field === 'roll' ? 0 : undefined)]));
+  const values = Object.fromEntries(Object.keys(fields).map(field => [field, Object.hasOwn(patch, field) ? patch[field] : pose[field] ?? (field === 'opacity' ? 1 : ['z', 'tilt', 'yaw', 'roll'].includes(field) ? 0 : undefined)]));
   const capturable = new Set(capturableFields(layer)), animated = new Set(animatedFields(layer));
   for (const field of Object.keys(optional)) {
     if (Object.hasOwn(patch, field)) values[field] = patch[field];

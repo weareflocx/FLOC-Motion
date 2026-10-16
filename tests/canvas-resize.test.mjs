@@ -1,9 +1,10 @@
 import test from 'node:test';
 import { alignmentPlacement } from '../src/layout.js';
 import assert from 'node:assert/strict';
-import { centeredResize, snapCenteredResize } from '../src/editor/canvas-resize.js';
+import { centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
 import { demoProject, fileLayer, patchLayer, validateProject, linkFormats, switchFormat } from '../src/project.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
+import { registerStageScene } from '../src/editor/layer-bounds.js';
 
 test('growing and shrinking images preserves their center even outside the canvas', () => {
   const layer = { type: 'media', size: 40 };
@@ -108,4 +109,30 @@ test('images can grow beyond canvas width while preserving their center and save
   assert.equal(restored.size, 300);
   assert.equal(restored.x, -100);
   assert.equal(restored.y, -250);
+});
+
+test('spatial resize keeps intrinsic authored center when the root camera projects a different box', () => {
+  const layer = { id: 'plane', type: 'media', space: 'spatial', x: 20, y: 30, size: 40 };
+  const node = { dataset: { flocLayer: 'plane' }, style: { left: '80%', top: '80%' }, offsetWidth: 400, offsetHeight: 200 };
+  const root = { clientWidth: 1000, clientHeight: 1000, querySelectorAll: () => [node] };
+  registerStageScene(root, { projectedBounds: () => ({ x: 10, y: 25, width: 80, height: 50 }) });
+  const bounds = layerResizeBounds(layer, root);
+  assert.deepEqual(bounds, { x: 20, y: 30, width: 40, height: 20 });
+  const next = centeredResize(layer, 80, bounds);
+  assert.equal(next.x + 40, 40);
+  assert.equal(next.y + 20, 40);
+  registerStageScene(root, { projectedBounds: () => null });
+  assert.equal(layerResizeBounds(layer, root), null, 'an absent scene object cannot be resized via hidden source DOM');
+  registerStageScene(root, null);
+});
+
+test('spatial resize snaps projected edges without replacing its authored coordinates', () => {
+  const layer = { type: 'media', size: 40 };
+  const intrinsic = { x: 20, y: 30, width: 40, height: 20 };
+  const projected = { x: 30, y: 25, width: 40, height: 50 };
+  const next = snapCenteredResize(layer, 79.6, intrinsic, projected, { enabled: false }, { x: .6, y: .6 }, { x: 50, y: 50 });
+  assert.equal(next.size, 80);
+  assert.deepEqual([next.x, next.y], [0, 20]);
+  assert(next.guides.some(guide => guide.axis === 'y' && guide.value === 0));
+  assert(next.guides.some(guide => guide.axis === 'y' && guide.value === 100));
 });

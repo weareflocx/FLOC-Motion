@@ -1,44 +1,47 @@
-import { modelCanvasGeometry } from '../model-canvas.js';
+const scenes = new WeakMap();
+const MEASURED_TYPES = ['text', 'logo', 'media', 'model', 'carousel'];
 
-const MEASURED_TYPES = ['text', 'logo', 'media', 'model'];
+// The stage owns scene lifetime; arrangement and inspector resize share its geometry authority.
+export function registerStageScene(root, scene) {
+  if (scene) scenes.set(root, scene);
+  else scenes.delete(root);
+}
+
+export const stageScene = root => root && scenes.get(root);
 
 export function layerNode(root, id) {
   return [...(root?.querySelectorAll('[data-floc-layer]') ?? [])].find(node => node.dataset.flocLayer === id);
 }
 
-// Client rectangle of what a layer node shows. A 3D model reports the drawn
-// silhouette inside its square canvas; until it has drawn, the whole canvas.
-export function visualRect(node) {
-  const box = node.getBoundingClientRect();
-  const content = modelCanvasGeometry(node)?.bounds();
-  if (!content) return box;
-  const left = box.left + content.x * box.width, top = box.top + content.y * box.height;
-  const width = content.width * box.width, height = content.height * box.height;
+export function projectedRect(root, id, scene = stageScene(root)) {
+  const bounds = scene?.projectedBounds(id), frame = root?.getBoundingClientRect();
+  if (!bounds || !frame?.width || !frame?.height) return null;
+  const left = frame.left + bounds.x / 100 * frame.width, top = frame.top + bounds.y / 100 * frame.height;
+  const width = bounds.width / 100 * frame.width, height = bounds.height / 100 * frame.height;
   return { left, top, width, height, right: left + width, bottom: top + height };
 }
 
-// Canvas-percent rectangles of rendered layers, as placement guides, snapping and
-// alignment compare them. Carousels are their placement point. `layers` must be
-// evaluated at the displayed time.
-export function measureLayerBounds(root, layers) {
-  const frame = root?.getBoundingClientRect();
-  if (!frame?.width || !frame?.height) return [];
-  const nodes = [...root.querySelectorAll('[data-floc-layer]')];
+// Canvas-percent rectangles come from visible scene geometry, never hidden source DOM.
+// `layers` must be evaluated at the displayed time.
+export function measureLayerBounds(root, layers, scene = stageScene(root)) {
   return layers.flatMap(layer => {
-    if (layer.type === 'carousel') return [{ id: layer.id, x: layer.x, y: layer.y, width: 0, height: 0 }];
     if (!MEASURED_TYPES.includes(layer.type)) return [];
-    const node = nodes.find(item => item.dataset.flocLayer === layer.id);
-    if (!node) return [];
-    const box = visualRect(node);
-    return [{ id: layer.id, x: (box.left - frame.left) / frame.width * 100, y: (box.top - frame.top) / frame.height * 100, width: box.width / frame.width * 100, height: box.height / frame.height * 100 }];
+    const bounds = scene?.projectedBounds(layer.id);
+    return bounds ? [{ id: layer.id, ...bounds }] : [];
   });
 }
 
-// The stored coordinates the scene currently places, including safe-area
-// constraints on text, so moves keep the visual offset of the rendered box.
+// Convert a projected screen displacement to authored XY on the layer's depth plane.
+// A parallel/unstable intersection is not an editable placement.
+export function projectedShift(root, id, x, y, dx, dy, scene = stageScene(root)) {
+  const from = scene?.projectPointer(x / 100, y / 100, id);
+  const to = scene?.projectPointer((x + dx) / 100, (y + dy) / 100, id);
+  return from && to ? { x: to.x - from.x, y: to.y - from.y } : null;
+}
+
 export function layerPosition(root, layer) {
-  if (layer.type === 'carousel') return { x: layer.x, y: layer.y };
-  const node = layerNode(root, layer.id);
+  // Flat text may retain a layout/safe-area offset in its source presentation.
+  const node = layer.space === 'flat' && layer.type === 'text' ? layerNode(root, layer.id) : null;
   const x = parseFloat(node?.style.left), y = parseFloat(node?.style.top);
   return { x: Number.isFinite(x) ? x : layer.x, y: Number.isFinite(y) ? y : layer.y };
 }

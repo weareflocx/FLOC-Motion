@@ -177,8 +177,6 @@ test('choreography adapts with baseline anchors and shares state timing, easing 
   const end = layer(square, 'headline').choreography[1];
   assert.deepEqual([end.time, end.easing, end.values.opacity, end.values.x], [7, 'ease-out', .4, 60]);
   assert.equal(layer(switchFormat(square, 'landscape'), 'headline').choreography[1].values.x, 80);
-  const cached = landscape.linkedFormats.layouts.landscape.layers.headline.choreography.exit;
-  assert.deepEqual(Object.keys(cached).sort(), ['roll', 'size', 'x', 'y']);
   const portrait = switchFormat(square, 'portrait');
   near(layer(portrait, 'headline').choreography[1].values.y, 30 + (60 - 30) * .5625);
 });
@@ -346,7 +344,6 @@ test('malformed metadata, unsafe keys and invalid inactive framing are rejected 
     p => { p.linkedFormats.layouts.portrait.layers.headline.choreography.removed = { opacity: 1 }; },
     p => { p.linkedFormats.layouts.portrait.layers.headline.choreography.removed = { x: NaN }; },
     p => { p.linkedFormats.layouts.portrait.layers.headline.choreography.removed = { x: 200 }; },
-    p => { p.linkedFormats.layouts.portrait.layers.headline.choreography.removed = { tilt: 20 }; },
     p => { p.linkedFormats.layouts.portrait.layers.headline.choreography = JSON.parse('{"__proto__":{}}'); },
     p => { p.linkedFormats.layouts.portrait.layers = JSON.parse('{"constructor":{}}'); },
     p => { p.linkedFormats.layouts.portrait.layers.headline = Object.create({ x: 1 }); }

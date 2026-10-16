@@ -9,12 +9,12 @@ import { DEFAULT_LAYOUT } from '../layout.js';
 import { canvasViewport } from './canvas-viewport.js';
 import { evaluateChoreography } from '../choreography.js';
 import { usePlaybackTime } from './usePlayback.js';
-import { measureLayerBounds } from './layer-bounds.js';
+import { measureLayerBounds, registerStageScene } from './layer-bounds.js';
 import { selectionBounds } from './arrange.js';
 import { workspaceFontsReady } from './workspace-fonts.js';
 import { ASSET_DRAG_TYPE } from './media-library.js';
 
-export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom = 'fit', panning = false, onViewport, onExitPan }) {
+export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom = 'fit', panning = false, onViewport, onExitPan, sceneView = null, onSceneViewChange }) {
   const [activeProject, setActiveProject] = useState(project);
   const [sceneReady, setSceneReady] = useState(false);
   const [geometry, setGeometry] = useState({ rect: null, targets: [] });
@@ -37,6 +37,7 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
   callbacks.current = { onReady, onError, onViewport };
   const previewRef = useRef(positionPreview);
   previewRef.current = positionPreview;
+  const sceneViewRef = useRef(sceneView); sceneViewRef.current = sceneView;
 
   useEffect(() => {
     const fit = () => {
@@ -83,6 +84,7 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
         const focused = root.current.contains(document.activeElement) ? document.activeElement.dataset.flocLayer : null;
         next.scene.setOrientation(previewRef.current?.id === next.project.layers.find(l => l.id === previewRef.current?.id && l.type === 'carousel')?.id ? previewRef.current : null);
         next.scene.setPlacement(previewRef.current);
+        next.scene.setView(sceneViewRef.current);
         const now = clockRef.current.get();
         next.scene.seek(now.time, now.playing);
         root.current.replaceChildren(next.node);
@@ -92,6 +94,7 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
           if (node) { node.tabIndex = 0; node.focus({ preventScroll: true }); }
         }
         engine.current = next.scene;
+        registerStageScene(root.current, next.scene);
         setActiveProject(next.project);
         // The manager publishes current after activation.
         queueMicrotask(fit);
@@ -102,49 +105,78 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
     session.current = manager;
     const observer = new ResizeObserver(fit);
     observer.observe(holder.current);
-    return () => { observer.disconnect(); manager.dispose(); session.current = null; engine.current = null; fitRef.current = null; };
+    return () => { observer.disconnect(); manager.dispose(); registerStageScene(root.current, null); session.current = null; engine.current = null; fitRef.current = null; };
   }, []);
 
   useEffect(() => { session.current?.request(project); }, [project]);
   useEffect(() => clock.subscribe(() => { const now = clock.get(); if (now.playing) engine.current?.seek(now.time, true); }), [clock]);
   useEffect(() => { offset.current = { x: 0, y: 0 }; fitRef.current?.(); }, [zoom, activeProject.format]);
   useEffect(() => {
-    if (!panning) return;
+    if (!panning && !sceneView) return;
     const node = holder.current;
-    const blockResize = event => { if (!event.ctrlKey) { event.preventDefault(); event.stopPropagation(); } };
-    node.addEventListener('wheel', blockResize, { capture: true, passive: false });
-    return () => node.removeEventListener('wheel', blockResize, true);
-  }, [panning]);
+    const navigate = event => {
+      if (event.ctrlKey) return;
+      event.preventDefault(); event.stopPropagation();
+      if (!panning && sceneViewRef.current) onSceneViewChange?.({ ...sceneViewRef.current, zoom: Math.max(.25, Math.min(4, sceneViewRef.current.zoom * Math.exp(-event.deltaY * .001))) });
+    };
+    node.addEventListener('wheel', navigate, { capture: true, passive: false });
+    return () => node.removeEventListener('wheel', navigate, true);
+  }, [panning, sceneView, onSceneViewChange]);
+
+  const exploring = sceneView !== null;
+  useEffect(() => {
+    const gesture = panGesture.current;
+    if (!gesture) return;
+    panGesture.current = null;
+    if (holder.current.hasPointerCapture(gesture.id)) holder.current.releasePointerCapture(gesture.id);
+  }, [panning, exploring]);
 
   function panStart(event) {
-    if (!panning || event.button !== 0) return;
+    if ((!panning && !sceneView) || event.button !== 0) return;
     event.preventDefault(); event.stopPropagation();
     holder.current.focus({ preventScroll: true });
-    panGesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY, offset: { ...offset.current } };
+    panGesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY, offset: { ...offset.current }, view: !panning && sceneView && { ...sceneView }, pan: event.shiftKey, box: root.current.getBoundingClientRect() };
     holder.current.setPointerCapture(event.pointerId);
   }
   function panMove(event) {
     const gesture = panGesture.current; if (!gesture || gesture.id !== event.pointerId) return;
     event.stopPropagation();
-    offset.current = { x: gesture.offset.x + event.clientX - gesture.x, y: gesture.offset.y + event.clientY - gesture.y };
-    fitRef.current?.();
+    if (gesture.view) {
+      const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
+      onSceneViewChange?.(gesture.pan
+        ? { ...gesture.view, panX: gesture.view.panX - dx / gesture.box.width * 100, panY: gesture.view.panY + dy / gesture.box.height * 100 }
+        : { ...gesture.view, yaw: Math.max(-180, Math.min(180, gesture.view.yaw + dx * .3)), pitch: Math.max(-85, Math.min(85, gesture.view.pitch + dy * .3)) });
+    } else {
+      offset.current = { x: gesture.offset.x + event.clientX - gesture.x, y: gesture.offset.y + event.clientY - gesture.y };
+      fitRef.current?.();
+    }
   }
   function panEnd(event, cancelled = false) {
     const gesture = panGesture.current; if (!gesture || gesture.id !== event.pointerId) return;
     event.stopPropagation(); panGesture.current = null;
-    if (cancelled) { offset.current = gesture.offset; fitRef.current?.(); }
+    if (cancelled) {
+      if (gesture.view) onSceneViewChange?.(gesture.view);
+      else { offset.current = gesture.offset; fitRef.current?.(); }
+    }
     if (holder.current.hasPointerCapture(gesture.id)) holder.current.releasePointerCapture(gesture.id);
   }
   function panKeys(event) {
-    if (!panning) return;
+    if (!panning && !sceneView) return;
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation();
       if (panGesture.current) panEnd({ pointerId: panGesture.current.id, stopPropagation() {} }, true);
-      onExitPan?.(); return;
+      if (panning) onExitPan?.();
+      else onSceneViewChange?.(null);
+      return;
     }
     const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
     if (!delta) return;
     event.preventDefault(); event.stopPropagation();
+    if (sceneView && !panning) {
+      const view = sceneViewRef.current, step = event.shiftKey ? 10 : 2;
+      onSceneViewChange?.({ ...view, yaw: Math.max(-180, Math.min(180, view.yaw + delta[0] * step)), pitch: Math.max(-85, Math.min(85, view.pitch + delta[1] * step)) });
+      return;
+    }
     const step = event.shiftKey ? 80 : 20;
     offset.current = { x: offset.current.x + delta[0] * step, y: offset.current.y + delta[1] * step };
     fitRef.current?.();
@@ -165,6 +197,7 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
     }
     engine.current?.setOrientation(synchronized && positionPreview?.id === activeProject.layers.find(l => l.id === positionPreview?.id && l.type === 'carousel')?.id ? positionPreview : null);
     engine.current?.setPlacement(synchronized ? positionPreview : null);
+    engine.current?.setView(sceneView);
     // `time` is exact while paused; while playing, the clock holds the frame to show.
     const now = clock.get();
     const ready = engine.current?.seek(now.time, now.playing);
@@ -178,9 +211,9 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
       setGeometry({ rect: ids.length > 1 ? selectionBounds(chosen) ?? undefined : chosen[0], targets: rects.filter(r => !ids.includes(r.id)), scale: frame.width / FORMATS[activeProject.format][0] });
     });
     return () => { cancelled = true; };
-  }, [positionPreview, project, activeProject, selected, selection, time, playing, synchronized, clock]);
+  }, [positionPreview, project, activeProject, selected, selection, time, playing, synchronized, clock, sceneView]);
 
-  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, selection, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, enabled: synchronized });
+  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, selection, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, enabled: synchronized && !sceneView && !panning });
   // Media library items dropped on the canvas become layers centered on the pointer.
   const [assetOver, setAssetOver] = useState(false);
   const carriesAsset = event => Boolean(onDropAsset) && event.dataTransfer.types.includes(ASSET_DRAG_TYPE);
@@ -190,11 +223,12 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
     onDrop: event => {
       if (!carriesAsset(event)) return;
       event.preventDefault(); setAssetOver(false);
-      const box = root.current.getBoundingClientRect(), clamp = value => Math.max(0, Math.min(100, value));
+      const box = root.current.getBoundingClientRect();
       const asset = JSON.parse(event.dataTransfer.getData(ASSET_DRAG_TYPE));
-      onDropAsset(asset, { x: clamp((event.clientX - box.left) / box.width * 100), y: clamp((event.clientY - box.top) / box.height * 100), aspect: asset.aspect });
+      const point = engine.current?.projectPointer((event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height, null);
+      if (point) onDropAsset(asset, { x: Math.max(0, Math.min(100, point.x)), y: Math.max(0, Math.min(100, point.y)), aspect: asset.aspect });
     }
   };
   // Selection chrome is measured at render time, so it is hidden while frames advance without renders.
-  return <div ref={holder} className={`stage-holder${panning ? ' is-panning' : ''}${assetOver ? ' is-asset-over' : ''}`} {...assetDrop} tabIndex={0} aria-label={panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : 'Canvas workspace: click empty space or press Escape to deselect'} onPointerDown={event => { if (!panning && event.target === event.currentTarget) { event.currentTarget.focus({ preventScroll: true }); handlers.onPointerDown(event); } }} onKeyDown={event => { if (!panning && event.target === event.currentTarget) handlers.onKeyDown(event); }} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{!playing && ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
+  return <div ref={holder} className={`stage-holder${panning || sceneView ? ' is-panning' : ''}${assetOver ? ' is-asset-over' : ''}`} {...assetDrop} tabIndex={0} aria-label={sceneView ? 'Explore 3D: drag to orbit, Shift-drag to pan, scroll to zoom; Escape returns to Camera view' : panning ? 'Pan canvas: drag or use arrow keys; Escape exits' : 'Canvas workspace: click empty space or press Escape to deselect'} onPointerDown={event => { if (!panning && !sceneView && event.target === event.currentTarget) { event.currentTarget.focus({ preventScroll: true }); handlers.onPointerDown(event); } }} onKeyDown={event => { if (!panning && !sceneView && event.target === event.currentTarget) handlers.onKeyDown(event); }} onPointerDownCapture={panStart} onPointerMoveCapture={panMove} onPointerUpCapture={event => panEnd(event)} onPointerCancelCapture={event => panEnd(event, true)} onLostPointerCapture={event => panEnd(event, true)} onKeyDownCapture={panKeys}><div ref={root} className="stage" aria-label="Video composition preview" aria-busy={!synchronized} {...handlers}/><div ref={ringRoot} className="canvas-interaction-ring" {...handlers} style={{ width: `${FORMATS[activeProject.format][0]}px`, height: `${FORMATS[activeProject.format][1]}px`, transform: root.current?.style.transform }}>{!playing && ring}<PlacementGuides layout={activeProject.layout} rect={synchronized && !playing && !sceneView ? geometry.rect : null} targets={geometry.targets} dimensions={FORMATS[activeProject.format]} lines={synchronized && !sceneView ? positionPreview?.guides : undefined} scale={geometry.scale} fontSize={10 / (geometry.scale || 1)}/></div></div>;
 }

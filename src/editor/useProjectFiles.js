@@ -16,6 +16,7 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef();
   const fileTarget = useRef('layers');
+  const filePoint = useRef();
   const importInput = useRef();
 
   // Uploaded or library assets become new layers ('layers', optionally centered on a canvas
@@ -41,7 +42,7 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
     try { applyAssets(assets, target, point); } catch (error) { setError(error.message); }
   }, [applyAssets, setError]);
 
-  const upload = useCallback(async (files, target) => {
+  const upload = useCallback(async (files, target, point) => {
     setUploading(true);
     setError('');
     try {
@@ -50,21 +51,22 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
       const values = await uploadAssets(files, target === 'layers'
         ? { maxFiles: PROJECT_LIMITS.maxLayers - projectRef.current.layers.length, limitMessage: `Use up to ${PROJECT_LIMITS.maxLayers} layers.` }
         : replacingModel ? { maxFiles: 1, modelOnly: true } : {});
-      applyAssets(values, target);
+      applyAssets(values, target, point);
       if (target === 'layers') setLeftTab('layers');
     } catch (error) { setError(error.message); }
     finally { setUploading(false); }
   }, [applyAssets, projectRef, setError, setLeftTab]);
 
-  const pick = useCallback((target, accept, multiple = false) => {
+  const pick = useCallback((target, accept, multiple = false, point) => {
     fileTarget.current = target;
+    filePoint.current = point;
     fileInput.current.accept = accept;
     fileInput.current.multiple = multiple;
     fileInput.current.click();
   }, []);
 
   const handleFileChange = useCallback(event => {
-    if (event.target.files.length) upload([...event.target.files], fileTarget.current);
+    if (event.target.files.length) upload([...event.target.files], fileTarget.current, filePoint.current);
     event.target.value = '';
   }, [upload]);
 
@@ -87,5 +89,5 @@ export function useProjectFiles({ projectRef, change, importDraft = change, patc
     URL.revokeObjectURL(url);
   }, [projectRef]);
 
-  return { uploading, fileInput, importInput, pick, placeAssets, handleFileChange, handleImportChange, downloadProject };
+  return { uploading, fileInput, importInput, pick, placeAssets, uploadFiles: upload, handleFileChange, handleImportChange, downloadProject };
 }

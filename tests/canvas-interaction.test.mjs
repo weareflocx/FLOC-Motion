@@ -11,10 +11,10 @@ import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from '../src/editor/canvas-resize.js';
 import { nudgeAmount } from '../src/editor/nudge.js';
-import { layerPosition, measureLayerBounds, visualRect } from '../src/editor/layer-bounds.js';
+import { layerPosition, measureLayerBounds, projectedRect, projectedShift, registerStageScene } from '../src/editor/layer-bounds.js';
 import { modelCanvasGeometry, registerModelCanvas } from '../src/model-canvas.js';
 import { transformableLayers } from '../src/editor/selection.js';
-import { groupPositions, selectionBounds } from '../src/editor/arrange.js';
+import { groupPositions, placeLayer, selectionBounds } from '../src/editor/arrange.js';
 
 const source = fs.readFileSync(new URL('../src/editor/useCanvasInteraction.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
@@ -23,16 +23,18 @@ function editor() {
   const slots = [], effects = [], timers = new Map(), patches = [], previews = [];
   let cursor = 0, timerId = 0, wheel, pending;
   const project = demoProject();
+  // Existing gesture cases exercise preserved Flat presentations; Spatial API cases follow below.
+  project.layers.filter(layer => ['text', 'logo', 'media', 'model', 'carousel'].includes(layer.type)).forEach(layer => { layer.space = 'flat'; });
   const rect = { left: 0, top: 0, right: 1000, bottom: 1000, width: 1000, height: 1000 };
   const node = { dataset: { flocLayer: 'headline' }, style: { opacity: '1', left: '5%', top: '5%' },
-    getBoundingClientRect: () => rect, classList: { toggle() {} }, setAttribute() {} };
+    getBoundingClientRect: () => rect, classList: { toggle() {} }, setAttribute() {}, focus() {} };
   const root = { current: { getBoundingClientRect: () => rect, querySelectorAll: () => [node],
     addEventListener(name, fn) { if (name === 'wheel') wheel = fn; },
     removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
     gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragModelOrientation, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
-    layerPosition, measureLayerBounds, visualRect, modelCanvasGeometry, transformableLayers, groupPositions, selectionBounds,
+    layerPosition, measureLayerBounds, projectedRect, projectedShift, transformableLayers, groupPositions, placeLayer, selectionBounds,
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -40,15 +42,47 @@ function editor() {
     useEffect(fn, deps) { const i = cursor++; if (changed(slots[i]?.deps, deps)) effects.push(() => { slots[i]?.cleanup?.(); slots[i] = { deps, cleanup: fn() }; }); }
   };
   vm.createContext(context); vm.runInContext(compiled + '\nthis.hook = useCanvasInteraction;', context);
-  let props = { root, engine: { current: {} }, project, sceneKey: project, selected: 'headline', time: 1, clock: { get: () => ({ time: props.time }) },
+  const scene = {
+    projectedBounds(id) {
+      const frame = props.root.current.getBoundingClientRect();
+      const target = [...props.root.current.querySelectorAll('[data-floc-layer]')].find(item => item.dataset.flocLayer === id);
+      if (!target) {
+        const layer = props.project.layers.find(item => item.id === id);
+        return layer?.type === 'carousel' ? { x: layer.x, y: layer.y, width: 0, height: 0 } : null;
+      }
+      const box = target.getBoundingClientRect(), content = modelCanvasGeometry(target)?.bounds();
+      return { x: (box.left - frame.left + (content?.x ?? 0) * box.width) / frame.width * 100, y: (box.top - frame.top + (content?.y ?? 0) * box.height) / frame.height * 100, width: box.width / frame.width * 100 * (content?.width ?? 1), height: box.height / frame.height * 100 * (content?.height ?? 1) };
+    },
+    projectPointer(u, v, id) { return { x: u * 100, y: v * 100, z: props.project.layers.find(item => item.id === id)?.z ?? 0 }; },
+    pick(u, v) {
+      const frame = props.root.current.getBoundingClientRect(), x = frame.left + u * frame.width, y = frame.top + v * frame.height;
+      for (const layer of [...props.project.layers].reverse()) {
+        if (!layer.visible || props.time < layer.start || props.time >= layer.end) continue;
+        const target = [...props.root.current.querySelectorAll('[data-floc-layer]')].find(item => item.dataset.flocLayer === layer.id);
+        if (!target) continue;
+        const bounds = projectedRect(props.root.current, layer.id, this);
+        if (!bounds || x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) continue;
+        const geometry = modelCanvasGeometry(target), box = target.getBoundingClientRect();
+        if (geometry && !geometry.hitTest((x - box.left) / box.width, (y - box.top) / box.height)) continue;
+        return layer.id;
+      }
+      return null;
+    }
+  };
+  let props = { root, engine: { current: scene }, project, sceneKey: project, selected: 'headline', time: 1, clock: { get: () => ({ time: props.time }) },
     onSelect() {}, onPatch(id, patch) { patches.push({ id, ...patch }); },
     onPreview(value) { previews.push(value); }, onPendingEdit(commit) { pending = commit; } };
-  function render(next = {}) { cursor = 0; props = { ...props, ...next }; const result = context.hook(props); for (const effect of effects.splice(0)) effect(); return result; }
+  function render(next = {}) {
+    cursor = 0; props = { ...props, ...next };
+    if (next.engine) props.engine = { current: { ...scene, ...next.engine.current } };
+    registerStageScene(props.root.current, props.engine.current);
+    const result = context.hook(props); for (const effect of effects.splice(0)) effect(); return result;
+  }
   const scroll = () => wheel({ clientX: 100, clientY: 100, deltaY: -100, preventDefault() {} });
   const flush = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
   const unmount = () => { for (const slot of slots) slot?.cleanup?.(); };
   render();
-  return { render, scroll, flush, unmount, patches, previews, node, rect, project, timers, commit: () => pending?.() };
+  return { render, scroll, flush, unmount, patches, previews, node, rect, project, scene, timers, commit: () => pending?.() };
 }
 
 test('canvas focus leaves Space for playback and Enter selects the focused layer', () => {
@@ -282,7 +316,7 @@ test('a model is picked, measured and snapped by its drawn silhouette, not its t
   // The silhouette fills the middle half of the canvas; geometry is a centered disc.
   const unregister = registerModelCanvas(h.node, { bounds: () => ({ x: .25, y: .25, width: .5, height: .5 }), hitTest: (u, v) => Math.hypot(u - .5, v - .5) < .2 });
   const frame = { clientWidth: 1000, clientHeight: 1000, getBoundingClientRect: () => h.rect, querySelectorAll: () => [h.node], addEventListener() {}, removeEventListener() {} };
-  assert.deepEqual(measureLayerBounds(frame, [h.project.layers.find(l => l.id === 'headline')]), [{ id: 'headline', x: 30, y: 30, width: 20, height: 20 }]);
+  assert.deepEqual(measureLayerBounds(frame, [h.project.layers.find(l => l.id === 'headline')], h.scene), [{ id: 'headline', x: 30, y: 30, width: 20, height: 20 }]);
   const selected = [];
   const { handlers } = h.render({ root: { current: frame }, onSelect: id => selected.push(id) });
   const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
@@ -398,6 +432,7 @@ test('handles and Command/Control-dragging object corners preserve the center an
     if (cancel) handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
     handlers.onPointerUp(event);
     assert.equal(h.patches.length, cancel ? 0 : 1);
+    if (!cancel) assert.deepEqual(h.patches[0], { id: 'headline', size: 40, x: 15, y: 10 });
     h.unmount();
   }
 });
@@ -475,7 +510,7 @@ test('dragging any selected layer moves every unlocked member as one committed e
     assert.equal(g.h.patches.length, 0);
     assert.deepEqual(g.selections, [], 'a group drag keeps the selection');
     const expected = [{ id: 'headline', x: 11, y: 16 }, { id: 'logo', x: 92, y: 16 }, { id: 'carousel', x: 55, y: 64 }].filter(item => !locked.includes(item.id));
-    assert.deepEqual(g.moves[0], expected);
+    assert.deepEqual(Array.from(g.moves[0], ({ id, x, y }) => ({ id, x, y })), expected);
     assert.equal(g.h.previews.at(-1), null);
   }
 });
@@ -534,4 +569,97 @@ test('arrow keys nudge the whole selection in composition pixels as one edit', (
   assert(Math.abs(g.moves[0][0].x - (6 + step)) < 1e-6);
   assert(Math.abs(g.moves[0][1].x - (50 + step)) < 1e-6);
   assert.equal(g.h.patches.length, 0);
+});
+
+test('root scene picking wins over source DOM order and depth-aware dragging commits authored XY once', () => {
+  const h = editor(), selected = [], calls = [];
+  const layer = h.project.layers.find(item => item.id === 'logo');
+  Object.assign(layer, { space: 'spatial', z: 75 });
+  const before = JSON.stringify(h.project);
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const at = (clientX, clientY) => ({ button: 0, pointerId: 9, clientX, clientY, shiftKey: true, target: { closest: () => null }, currentTarget: target, preventDefault() {} });
+  const { handlers } = h.render({ onSelect: id => selected.push(id), engine: { current: {
+    pick: () => 'logo',
+    projectedBounds: id => id === 'logo' ? { x: 10, y: 20, width: 20, height: 20 } : null,
+    projectPointer(u, v, id) { calls.push(id); return { x: u * 200, y: v * 200, z: 75 }; }
+  } } });
+  handlers.onPointerDown(at(150, 250));
+  handlers.onPointerMove(at(250, 300));
+  assert.equal(h.patches.length, 0);
+  handlers.onPointerUp(at(250, 300));
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.patches[0].id, 'logo');
+  assert.equal(h.patches[0].x, layer.x + 20);
+  assert.equal(h.patches[0].y, layer.y + 10);
+  assert.equal(h.patches[0].z, undefined, 'a plane drag preserves depth');
+  assert(calls.every(id => id === 'logo'));
+  assert.equal(JSON.stringify(h.project), before, 'preview and picking do not mutate the project');
+  h.unmount();
+});
+
+test('missing spatial geometry and unstable pointer planes never fall back to source DOM picking', () => {
+  for (const missing of ['pick', 'bounds', 'plane']) {
+    const h = editor(), selections = [];
+    Object.assign(h.project.layers.find(item => item.id === 'headline'), { space: 'spatial', x: 5, y: 5, z: 40 });
+    const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+    const event = { button: 0, pointerId: 3, clientX: 100, clientY: 100, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+    const scene = {
+      pick: () => missing === 'pick' ? null : 'headline',
+      projectedBounds: () => missing === 'bounds' ? null : { x: 5, y: 5, width: 20, height: 20 },
+      projectPointer: () => missing === 'plane' ? null : { x: 10, y: 10, z: 40 }
+    };
+    const { handlers } = h.render({ engine: { current: scene }, onSelect: id => selections.push(id) });
+    handlers.onPointerDown(event);
+    handlers.onPointerMove({ ...event, clientX: 200 });
+    handlers.onPointerUp(event);
+    assert.equal(h.patches.length, 0, missing);
+    assert.deepEqual(selections, [missing === 'pick' ? null : 'headline']);
+    h.unmount();
+  }
+});
+
+test('projected guides exclude layers without scene geometry even when their source DOM exists', () => {
+  const h = editor();
+  const frame = { getBoundingClientRect: () => h.rect, querySelectorAll() { throw new Error('source DOM is not scene geometry'); } };
+  const scene = { projectedBounds: id => id === 'logo' ? { x: -12, y: 31, width: 18, height: 22 } : null };
+  assert.deepEqual(measureLayerBounds(frame, h.project.layers, scene), [{ id: 'logo', x: -12, y: 31, width: 18, height: 22 }]);
+  h.unmount();
+});
+
+test('spatial text nudges follow projected pixels without jumping into Flat safe margins', () => {
+  const h = editor(), layer = h.project.layers.find(item => item.id === 'headline');
+  Object.assign(layer, { space: 'spatial', x: 30, y: 40, z: 80 });
+  const { handlers } = h.render({ engine: { current: {
+    projectedBounds: () => ({ x: -20, y: 120, width: 50, height: 20 }),
+    projectPointer: (u, v) => ({ x: u * 200, y: v * 200, z: 80 })
+  } } });
+  handlers.onKeyDown({ key: 'ArrowRight', target: { closest: () => null }, preventDefault() {} });
+  assert.equal(h.patches.length, 1);
+  assert.ok(Math.abs(h.patches[0].x - (30 + 200 / FORMATS[h.project.format][0])) < 1e-6);
+  assert.equal(h.patches[0].y, 40);
+  assert.equal(h.patches[0].z, undefined);
+  h.unmount();
+});
+
+test('exploration disables selection chrome and every editing input until camera view returns', () => {
+  const h = editor(), selections = [], classes = new Map();
+  h.node.classList.toggle = (name, value) => classes.set(name, value);
+  h.render({ enabled: false });
+  h.render({ enabled: true });
+  assert.equal(classes.get('canvas-selected'), true);
+  const { handlers, ring } = h.render({ enabled: false, onSelect: id => selections.push(id) });
+  assert.equal(classes.get('canvas-selected'), false);
+  assert.equal(h.node.tabIndex, -1);
+  assert.equal(ring, null);
+  h.scroll();
+  handlers.onPointerDown({ button: 0 });
+  handlers.onKeyDown({ key: 'ArrowRight' });
+  assert.deepEqual(selections, []);
+  assert.equal(h.patches.length, 0);
+  const restored = h.render({ enabled: true });
+  assert.equal(classes.get('canvas-selected'), true);
+  assert.equal(h.node.tabIndex, 0);
+  restored.handlers.onKeyDown({ key: 'Enter', target: { closest: () => h.node }, preventDefault() {} });
+  assert.deepEqual(selections, ['headline']);
+  h.unmount();
 });

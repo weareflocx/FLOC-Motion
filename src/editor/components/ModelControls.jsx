@@ -4,6 +4,7 @@ import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.j
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
 import { ModelMotionControls } from './ModelMotionControls.jsx';
+import { SpatialControls } from './SpatialControls.jsx';
 
 const names = { original: 'Original', tint: 'Tint', replace: 'Replace', standard: 'Standard', toon: 'Toon', fresnel: 'Fresnel', wireframe: 'Wireframe', glass: 'Glass', crystal: 'Studio glass', refractive: 'Refractive glass' };
 const environmentNames = { none: 'None', studio: 'Classic room', softbox: 'Studio softboxes', stage: 'Dark stage', sunset: 'Sunset sky', neon: 'Neon tubes' };
@@ -55,17 +56,18 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
 
   return <>
     <Section title="Transform" detail={`X ${Math.round(layer.x)} · Y ${Math.round(layer.y)} · ${Math.round(layer.size)}%`}>
+      <SpatialControls layer={layer} onPatch={onPatch}/>
       <Range label="Position X" value={layer.x} min={Math.min(-100, layer.x)} max={Math.max(100, layer.x)} onChange={x => onPatch(layer.id, { x })}/>
       <Range label="Position Y" value={layer.y} min={Math.min(-100, layer.y)} max={Math.max(100, layer.y)} onChange={y => onPatch(layer.id, { y })}/>
       <Range label="Size" value={layer.size} min={2} max={500} suffix="%" onChange={size => onPatch(layer.id, { size })}/>
       <OrientationControl key={layer.id} layer={layer} open onCommit={fields => onPatch(layer.id, fields)}/>
       <p className="helper">Shift-drag on the canvas turns the model about the screen.</p>
     </Section>
-    <Section title="Camera" detail={`${style.framing === 'fit' ? 'Fit motion' : 'Fixed'} · ${Math.round(style.zoom * 100)}%`}>
+    <Section title="Object framing" detail={`${style.framing === 'fit' ? 'Fit motion' : 'Fixed'} · ${Math.round(style.zoom * 100)}%`}>
       <Field label="Framing"><select aria-label="Framing" value={style.framing} onChange={event => patchStyle({ framing: event.target.value })}><option value="fit">Fit motion</option><option value="fixed">Fixed</option></select></Field>
       {range('zoom', 'Zoom')}
-      {range('perspective', 'Perspective', { step: 1, scale: 1, suffix: '°' })}
-      <p className="helper">{style.framing === 'fit' ? 'Keeps every rotation and motion inside the layer at 100%.' : 'The earlier camera; motion may reach past the layer edges.'}</p>
+      {layer.space === 'flat' && range('perspective', 'Perspective', { step: 1, scale: 1, suffix: '°' })}
+      <p className="helper">{style.framing === 'fit' ? 'Keeps every rotation and motion inside the object frame at 100%.' : 'Uses a fixed object frame; motion may reach past its edges.'}</p>
     </Section>
     <Section title="Material" defaultOpen detail={MODEL_MATERIAL_PRESETS.find(preset => preset.id === selectedModelPreset(style))?.name ?? 'Custom'}>
       <Field label="Material preset"><select aria-label="Material preset" value={selectedModelPreset(style)} onChange={event => onPatch(layer.id, { modelStyle: applyModelPreset(style, event.target.value) })}>

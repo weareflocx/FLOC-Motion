@@ -4,7 +4,7 @@ import { FORMATS, PROJECT_LIMITS, carouselImages, fileLayer } from '../project.j
 
 export const ASSET_KINDS = { image: 'Image', gif: 'GIF', video: 'Video', audio: 'Audio', model: '3D model' };
 export const LIBRARY_FILTERS = [['all', 'All'], ['image', 'Images'], ['video', 'Video'], ['audio', 'Audio'], ['model', '3D']];
-// Library items dragged onto the canvas or the carousel card list carry this payload type.
+// Library items dragged onto the canvas, timeline or carousel card list carry this payload type.
 export const ASSET_DRAG_TYPE = 'application/x-floc-asset';
 
 export function assetKind(src) {
@@ -43,10 +43,14 @@ export const cardFromAsset = (asset, id) => ({ id, src: asset.src, name: asset.n
 export const projectSources = project => new Set(project.layers.flatMap(layer => [layer, ...(layer.type === 'carousel' ? carouselImages(project, layer) : [])]).map(item => item.src).filter(Boolean));
 
 const round = value => Math.round(Math.max(-1000, Math.min(1000, value)) * 10) / 10;
-// A new layer for an asset. With a drop point (canvas percentages), the visual is centered on
-// it; `aspect` is the asset's height / width, known from its library thumbnail.
+// A new layer for an asset. Canvas points use percentages plus image height / width;
+// audio timeline drops use `time` in composition seconds without changing the source offset.
 export function assetLayer(asset, project, id, point) {
   const layer = fileLayer(asset, project.duration, id);
+  if (layer.type === 'music' && Number.isFinite(point?.time)) {
+    const start = Math.max(0, Math.min(project.duration - 1 / project.fps, Math.round(point.time * project.fps) / project.fps));
+    return { ...layer, start };
+  }
   if (!point || layer.type === 'music') return layer;
   const [width, height] = FORMATS[project.format];
   const aspect = layer.type === 'model' ? 1 : point.aspect > 0 ? point.aspect : 1;

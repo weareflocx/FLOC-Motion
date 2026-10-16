@@ -1,20 +1,31 @@
 import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { build } from 'esbuild';
 import { root } from './runtime-config.mjs';
 
-// Bind the renderer to the shared validator and scene, not just package.version.
+// Follow the render entry and worker imports instead of fingerprinting unrelated
+// editor helpers. Package versions remain pinned conservatively by the lockfile.
 export async function rendererVersion(directory = root) {
-  const files = ['package-lock.json', 'server/export.mjs', 'server/card-frames.mjs', 'server/card-media.mjs', 'server/build-scene.mjs', 'server/process.mjs', 'server/json-store.mjs', 'server/renderer-version.mjs', 'scripts/render-worker.mjs', 'scripts/renderer-runtime.mjs'];
-  async function walk(relative) {
-    for (const entry of await readdir(path.join(directory, relative), { withFileTypes: true })) {
-      if (entry.name === 'editor') continue;
-      const name = `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(name);
-      else if (/\.(js|json)$/.test(entry.name)) files.push(name);
-    }
-  }
-  await walk('src');
+  directory = path.resolve(directory);
+  const { metafile } = await build({
+    absWorkingDir: directory,
+    entryPoints: ['src/render-entry.js', 'scripts/render-worker.mjs'],
+    outdir: 'renderer-version-analysis',
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'external',
+    preserveSymlinks: true,
+    metafile: true,
+    write: false,
+    logLevel: 'silent'
+  });
+  const files = ['package-lock.json', ...Object.keys(metafile.inputs).map(name => {
+    const relative = path.relative(directory, path.resolve(directory, name));
+    if (path.isAbsolute(relative) || relative.startsWith(`..${path.sep}`)) throw new Error('Renderer dependencies must stay inside the installation.');
+    return relative.split(path.sep).join('/');
+  })];
   const hash = createHash('sha256');
   for (const name of files.sort()) hash.update(name).update(await readFile(path.join(directory, name)));
   return hash.digest('hex');

@@ -9,6 +9,31 @@
   min-width: 0;
 }
 
+.timeline-panel.is-audio-drop {
+  border-color: #bcbcbc;
+}
+
+.timeline-audio-feedback {
+  margin: 6px 0;
+  color: #bcbcbc;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-audio-feedback[role="alert"] {
+  color: #ff8f8f;
+}
+
+.ruler-controls .timeline-add-audio {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+
+.ruler-controls .timeline-add-audio span {
+  display: none;
+}
+
 .transport {
   display: flex;
   align-items: center;

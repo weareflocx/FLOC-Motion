@@ -2,7 +2,7 @@ import React from 'react';
 import { NumberField } from './controls.jsx';
 
 export function OrientationControl({ layer, onCommit, open = false }) {
-  const spatial = ['carousel', 'model'].includes(layer.type);
+  const spatial = ['carousel', 'model'].includes(layer.type) || (['text', 'logo', 'media'].includes(layer.type) && layer.space === 'spatial');
   const axes = spatial ? ['tilt', 'yaw', 'roll'] : ['roll'];
   return <details className="orientation-control" open={open}>
     <summary>{spatial ? 'Orientation' : 'Rotation'}<span>{axes.map(axis => `${Math.round(layer[axis] ?? 0)}°`).join(' / ')}</span></summary>

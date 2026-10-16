@@ -1,15 +1,14 @@
 import { nudgeAmount } from './nudge.js';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { canvasWheelSize, carouselPlacement, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../editor-controls.js';
+import { canvasWheelSize, carouselPlacement, gridPlacement, nearestGridPoint, nudgePlacement } from '../editor-controls.js';
 import { FORMATS } from '../project.js';
 import { alignmentPlacement, DEFAULT_LAYOUT } from '../layout.js';
 import { dragModelOrientation, dragOrientation, wrapDegrees } from '../orientation.js';
 import { evaluateChoreography } from '../choreography.js';
 import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize } from './canvas-resize.js';
-import { layerPosition, measureLayerBounds, visualRect } from './layer-bounds.js';
-import { modelCanvasGeometry } from '../model-canvas.js';
+import { layerPosition, measureLayerBounds, projectedRect, projectedShift } from './layer-bounds.js';
 import { transformableLayers } from './selection.js';
-import { groupPositions, selectionBounds } from './arrange.js';
+import { groupPositions, placeLayer, selectionBounds } from './arrange.js';
 
 // Drag previews commit on release; wheel previews commit after scrolling or before history/selection changes.
 // With several layers selected, dragging or nudging any member moves every transformable member as one edit.
@@ -64,42 +63,29 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   useEffect(() => {
     for (const l of project.layers) {
       const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model', 'background'].includes(l.type)) continue;
-      node.classList.toggle('canvas-selected', selectedIds.includes(l.id) && l.type !== 'carousel');
+      node.classList.toggle('canvas-selected', enabled && selectedIds.includes(l.id) && l.type !== 'carousel');
       const visible = l.visible && time >= l.start && time < l.end;
       node.tabIndex = visible && enabled ? 0 : -1; node.setAttribute('role', 'button');
       node.setAttribute('aria-disabled', String(!enabled));
       node.setAttribute('aria-hidden', String(!visible));
       node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : ['carousel', 'model'].includes(l.type) ? ': drag to move; Shift-drag to orient X/Y; Shift+Alt-drag to rotate Z; Escape cancels' : ': drag to move; Shift+Alt-drag or drag rotation handle to rotate Z; Escape cancels'}`);
-      node.style.pointerEvents = enabled ? 'auto' : 'none';
+      node.style.pointerEvents = 'none';
       node.draggable = false;
     }
   }, [project, selected, selectionIds, time, sceneKey, enabled]);
   function pick(x, y) {
     const box = root.current.getBoundingClientRect();
-    for (const source of [...project.layers].reverse()) {
-      const at = playhead(), l = evaluateChoreography(source, at);
-      if (!l.visible || at < l.start || at >= l.end || l.type === 'music') continue;
-      const node = nodeFor(l.id); if (!node || Number(node.style.opacity) <= 0) continue;
-      const b = visualRect(node);
-      if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
-      // A model takes clicks only on its geometry; transparent canvas passes through.
-      if (l.type === 'model') {
-        const drawn = modelCanvasGeometry(node), canvas = node.getBoundingClientRect();
-        if (!drawn || drawn.hitTest((x - canvas.left) / canvas.width, (y - canvas.top) / canvas.height)) return l;
-        continue;
-      }
-      if (['text', 'logo', 'media'].includes(l.type)) return l;
-      if (l.type === 'carousel' && engine.current?.hitTest((x - box.left) / box.width, (y - box.top) / box.height, l.id)) return l;
-      if (l.type === 'background') return l.id === selected ? l : null;
-    }
-    return null;
+    const id = engine.current?.pick((x - box.left) / box.width, (y - box.top) / box.height);
+    const source = project.layers.find(item => item.id === id);
+    if (!source) return null;
+    const at = playhead(), candidate = evaluateChoreography(source, at);
+    return candidate.visible && at >= candidate.start && at < candidate.end && !['music', 'effect'].includes(candidate.type) && (candidate.type !== 'background' || candidate.id === selected) ? candidate : null;
   }
   function begin(event) {
     if (!enabled || event.button !== 0 || gesture.current) return;
     const ring = event.target.closest('[data-canvas-ring]');
     const resize = event.target.closest('[data-canvas-resize]');
-    const transformBox = event.target.closest('[data-canvas-move]');
-    const ringLayer = (ring || resize || transformBox) && project.layers.find(l => l.id === selected && l.type !== 'music');
+    const ringLayer = (ring || resize) && project.layers.find(l => l.id === selected && l.type !== 'music');
     const l = ringLayer ? evaluateChoreography(ringLayer, playhead()) : pick(event.clientX, event.clientY);
     // Shift/⌘/Ctrl-click toggles a layer; the same modifiers keep their drag meanings.
     const toggle = !ringLayer && !event.altKey && (event.shiftKey || event.metaKey || event.ctrlKey);
@@ -112,30 +98,26 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     if (!toggle) onSelect(l.id);
     if (l.locked) return;
     const box = root.current.getBoundingClientRect();
-    const b = nodeFor(l.id).getBoundingClientRect();
-    // What the layer shows: a model's silhouette within its square canvas.
-    const shown = l.type === 'model' ? visualRect(nodeFor(l.id)) : b;
+    const shown = projectedRect(root.current, l.id, engine.current);
+    if (!shown) return;
     const spatial = ['carousel', 'model'].includes(l.type);
     const rollDrag = !resize && !event.metaKey && !event.ctrlKey && event.shiftKey && event.altKey;
-    const orient = !!ring || !resize && !event.metaKey && !event.ctrlKey && (spatial && event.shiftKey || rollDrag);
-    const center = l.type === 'carousel' ? { x: box.left + box.width * l.x / 100, y: box.top + box.height * l.y / 100 } : { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 };
+    const orient = !!ring || !resize && !event.metaKey && !event.ctrlKey && (spatial && event.shiftKey && ['carousel', 'model'].includes(l.type) || rollDrag);
+    const center = { x: (shown.left + shown.right) / 2, y: (shown.top + shown.bottom) / 2 };
     const measured = ['logo', 'media', 'model'].includes(l.type) && layerResizeBounds(l, root.current);
-    const angle = (l.type === 'model' ? 0 : l.roll ?? 0) * Math.PI / 180;
     const dx = event.clientX - center.x, dy = event.clientY - center.y;
-    // Corners belong to the shown box; a model's silhouette may sit off its canvas center.
-    const cornerX = l.type === 'model' ? event.clientX - (shown.left + shown.right) / 2 : dx, cornerY = l.type === 'model' ? event.clientY - (shown.top + shown.bottom) / 2 : dy;
-    const localX = cornerX * Math.cos(angle) + cornerY * Math.sin(angle), localY = -cornerX * Math.sin(angle) + cornerY * Math.cos(angle);
-    const halfWidth = l.type === 'model' ? shown.width / 2 : measured && measured.width / 100 * box.width / 2, halfHeight = l.type === 'model' ? shown.height / 2 : measured && measured.height / 100 * box.height / 2;
+    const halfWidth = shown.width / 2, halfHeight = shown.height / 2;
     const tolerance = Math.min(12, halfWidth / 2, halfHeight / 2);
-    const nearCorner = measured && Math.abs(Math.abs(localX) - halfWidth) <= tolerance && Math.abs(Math.abs(localY) - halfHeight) <= tolerance;
+    const nearCorner = measured && Math.abs(Math.abs(dx) - halfWidth) <= tolerance && Math.abs(Math.abs(dy) - halfHeight) <= tolerance;
     const resizing = !orient && (!!resize || l.id === selected && (event.metaKey || event.ctrlKey) && nearCorner);
     if (resizing && Math.hypot(dx, dy) < 1) return;
     const bounds = resizing && measured;
-    const initial = orient ? spatial ? { tilt: l.tilt, yaw: l.yaw ?? 0, roll: l.roll } : { roll: l.roll ?? 0 } : ['carousel', 'background'].includes(l.type) ? { x: l.x ?? 0, y: l.y ?? 0 } : { x: parseFloat(nodeFor(l.id).style.left), y: parseFloat(nodeFor(l.id).style.top), ...(resizing ? { size: l.size } : {}) };
-    const visualOffset = !orient && ['text', 'logo', 'media', 'model'].includes(l.type) ? { x: (shown.left - box.left) / box.width * 100 - initial.x, y: (shown.top - box.top) / box.height * 100 - initial.y } : { x: 0, y: 0 };
-    const at = playhead(), targets = measureLayerBounds(root.current, project.layers.filter(other => other.id !== l.id && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at)));
+    const initial = orient ? spatial ? { tilt: l.tilt ?? 0, yaw: l.yaw ?? 0, roll: l.roll ?? 0 } : { roll: l.roll ?? 0 } : { ...layerPosition(root.current, l), ...(resizing ? { size: l.size } : {}) };
+    const at = playhead(), targets = measureLayerBounds(root.current, project.layers.filter(other => other.id !== l.id && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at)), engine.current);
     const visualBounds = { x: (shown.left - box.left) / box.width * 100, y: (shown.top - box.top) / box.height * 100, width: shown.width / box.width * 100, height: shown.height / box.height * 100 };
-    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualOffset, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: shown.width / box.width * 100, height: shown.height / box.height * 100, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false, toggle };
+    const pointer = engine.current?.projectPointer((event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height, l.id);
+    if (!orient && !resizing && l.type !== 'background' && !pointer) return;
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, pointer, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: visualBounds.width, height: visualBounds.height, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false, toggle };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function members(at) {
@@ -149,7 +131,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   function beginGroup(event, l, toggle) {
     const at = playhead(), box = root.current.getBoundingClientRect(), group = members(at);
     const others = project.layers.filter(other => !selectedIds.includes(other.id) && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at));
-    gesture.current = { id: event.pointerId, group: true, toggle, layer: l, project, box, members: group.members, bounds: selectionBounds(measureLayerBounds(root.current, group.layers)), targets: measureLayerBounds(root.current, others), latest: null, x: event.clientX, y: event.clientY, moved: false };
+    gesture.current = { id: event.pointerId, group: true, toggle, layer: l, project, box, members: group.members, bounds: selectionBounds(measureLayerBounds(root.current, group.layers, engine.current)), targets: measureLayerBounds(root.current, others, engine.current), latest: null, x: event.clientX, y: event.clientY, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event) {
@@ -164,7 +146,14 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
         const snapped = alignmentPlacement({ x: g.bounds.x + shiftX, y: g.bounds.y + shiftY }, g.bounds, g.targets, layout, { x: 600 / g.box.width, y: 600 / g.box.height }, { constrain: false });
         shiftX = snapped.x - g.bounds.x; shiftY = snapped.y - g.bounds.y; guides = snapped.guides;
       }
-      g.latest = groupPositions(g.members, shiftX, shiftY);
+      const shifts = g.members.map(member => ({ member, delta: projectedShift(root.current, member.id, (g.x - g.box.left) / g.box.width * 100, (g.y - g.box.top) / g.box.height * 100, shiftX, shiftY, engine.current) }));
+      if (shifts.some(item => !item.delta)) return;
+      // Stop the whole visible arrangement when its first member reaches a stored-position limit.
+      const fraction = shifts.reduce((limit, { member, delta }) => {
+        const bounded = placeLayer(member.type, member.start, delta.x, delta.y);
+        return Math.min(limit, ...['x', 'y'].filter(axis => Math.abs(delta[axis]) > 1e-8).map(axis => Math.max(0, Math.min(1, (bounded[axis] - member.start[axis]) / delta[axis]))));
+      }, 1);
+      g.latest = shifts.map(({ member, delta }) => ({ id: member.id, ...placeLayer(member.type, member.start, delta.x * fraction, delta.y * fraction) }));
       setDraft({ group: true });
       onPreview({ layers: Object.fromEntries(g.latest.map(({ id, x, y }) => [id, { x, y }])), guides });
       return;
@@ -173,7 +162,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       const v = g.vector;
       const ratio = ((event.clientX - g.center.x) * v.x + (event.clientY - g.center.y) * v.y) / (v.x * v.x + v.y * v.y);
       const size = g.layer.size * ratio;
-      g.latest = event.shiftKey ? centeredResize(g.layer, size, g.bounds) : snapCenteredResize(g.layer, size, g.bounds, g.visualBounds, layout, { x: 600 / g.box.width, y: 600 / g.box.height });
+      const pivot = g.layer.space === 'spatial' ? { x: g.visualBounds.x + g.visualBounds.width / 2, y: g.visualBounds.y + g.visualBounds.height / 2 } : null;
+      g.latest = event.shiftKey ? centeredResize(g.layer, size, g.bounds) : snapCenteredResize(g.layer, size, g.bounds, g.visualBounds, layout, { x: 600 / g.box.width, y: 600 / g.box.height }, pivot);
     } else if (g.orient) {
       const angle = Math.atan2(event.clientY - g.center.y, event.clientX - g.center.x);
       g.delta += wrapDegrees((angle - g.angle) * 180 / Math.PI); g.angle = angle;
@@ -181,21 +171,19 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       g.latest = g.layer.type === 'model' ? dragModelOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : { roll: wrapDegrees(g.initial.roll + rollDelta) };
     } else if (g.layer.type === 'background') {
       g.latest = { x: Math.max(-100, Math.min(100, g.initial.x + dx / g.box.width * 100)), y: Math.max(-100, Math.min(100, g.initial.y + dy / g.box.height * 100)) };
-    } else if (g.layer.type === 'carousel') {
-      g.latest = carouselPlacement(g.initial.x + dx / g.box.width * 100, g.initial.y + dy / g.box.height * 100);
-    } else if (['logo', 'media', 'model'].includes(g.layer.type)) {
-      g.latest = canvasMediaPlacement(g.initial.x + dx / g.box.width * 100, g.initial.y + dy / g.box.height * 100);
-      if (!event.shiftKey) {
-        const visual = { x: g.latest.x + g.visualOffset.x, y: g.latest.y + g.visualOffset.y };
-        const snapped = alignmentPlacement(visual, g, layout.guides ? g.targets : [], layout, { x: 600 / g.box.width, y: 600 / g.box.height }, { constrain: false });
-        g.latest = { ...canvasMediaPlacement(snapped.x - g.visualOffset.x, snapped.y - g.visualOffset.y), guides: snapped.guides };
-      }
     } else {
-      const x = g.initial.x + g.visualOffset.x + dx / g.box.width * 100, y = g.initial.y + g.visualOffset.y + dy / g.box.height * 100;
-      const point = event.altKey ? gridPlacement(nearestGridPoint(x + g.width / 2, y + g.height / 2), g.width, g.height) : { x, y };
-      g.latest = { ...point, ...freePlacement(point.x, point.y, g.width, g.height, project.layout) };
-      if (!event.altKey && !event.shiftKey && layout.guides) g.latest = alignmentPlacement(g.latest, g, g.targets, layout, { x: 600 / g.box.width, y: 600 / g.box.height });
-      g.latest = { ...g.latest, x: Math.max(0, Math.min(95, g.latest.x - g.visualOffset.x)), y: Math.max(0, Math.min(95, g.latest.y - g.visualOffset.y)) };
+      let shiftX = dx / g.box.width * 100, shiftY = dy / g.box.height * 100, guides;
+      const visual = { x: g.visualBounds.x + shiftX, y: g.visualBounds.y + shiftY };
+      if (g.layer.type === 'text' && event.altKey) {
+        const point = gridPlacement(nearestGridPoint(visual.x + g.width / 2, visual.y + g.height / 2), g.width, g.height);
+        shiftX = point.x - g.visualBounds.x; shiftY = point.y - g.visualBounds.y;
+      } else if (!event.shiftKey && layout.guides) {
+        const snapped = alignmentPlacement(visual, g.visualBounds, g.targets, layout, { x: 600 / g.box.width, y: 600 / g.box.height }, { constrain: g.layer.type === 'text' && g.layer.space === 'flat' });
+        shiftX = snapped.x - g.visualBounds.x; shiftY = snapped.y - g.visualBounds.y; guides = snapped.guides;
+      }
+      const pointer = engine.current?.projectPointer((g.x - g.box.left) / g.box.width + shiftX / 100, (g.y - g.box.top) / g.box.height + shiftY / 100, g.layer.id);
+      if (!pointer || !g.pointer) return;
+      g.latest = { ...placeLayer(g.layer.type, g.initial, pointer.x - g.pointer.x, pointer.y - g.pointer.y), guides };
     }
     setDraft(g.latest); onPreview({ id: g.layer.id, ...g.latest });
   }
@@ -267,36 +255,38 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       const [w, h] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
       onPatch(l.id, canvasMediaPlacement(l.x + dx * step / w * 100, l.y + dy * step / h * 100));
     } else if (l.type === 'text') {
-      const box = root.current.getBoundingClientRect(), b = nodeFor(l.id).getBoundingClientRect();
+      const box = root.current.getBoundingClientRect(), b = projectedRect(root.current, l.id, engine.current);
+      if (!b) return;
       const w = b.width / box.width * 100, h = b.height / box.height * 100;
-      const node = nodeFor(l.id), position = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };
+      const position = layerPosition(root.current, l);
       const visual = { x: (b.left - box.left) / box.width * 100, y: (b.top - box.top) / box.height * 100 };
-      const next = nudgePlacement(visual, dx, dy, FORMATS[project.format], { width: w, height: h }, nudgeAmount(nudge, event.shiftKey), project.layout);
-      onPatch(l.id, { x: Math.max(0, Math.min(95, position.x + next.x - visual.x)), y: Math.max(0, Math.min(95, position.y + next.y - visual.y)) });
+      const [canvasWidth, canvasHeight] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
+      const next = l.space === 'spatial'
+        ? { x: visual.x + dx * step / canvasWidth * 100, y: visual.y + dy * step / canvasHeight * 100 }
+        : nudgePlacement(visual, dx, dy, FORMATS[project.format], { width: w, height: h }, step, project.layout);
+      const shift = projectedShift(root.current, l.id, visual.x, visual.y, next.x - visual.x, next.y - visual.y, engine.current);
+      if (shift) onPatch(l.id, placeLayer(l.type, position, shift.x, shift.y));
     }
   }
   const editable = enabled && !multi && layer && !['music', 'effect'].includes(layer.type) && layer.visible && time >= layer.start && time < layer.end && !layer.locked ? layer : null;
-  const node = editable && nodeFor(editable.id);
   const frame = root.current?.getBoundingClientRect();
-  // A model's handles frame its drawn silhouette rather than its square canvas.
-  const box = node && (editable.type === 'model' ? visualRect(node) : node.getBoundingClientRect());
-  const center = editable?.type === 'carousel' ? { x: draft?.x ?? editable.x, y: draft?.y ?? editable.y }
-    : box && frame ? { x: (box.left + box.width / 2 - frame.left) / frame.width * 100, y: (box.top + box.height / 2 - frame.top) / frame.height * 100 } : null;
+  const box = editable && projectedRect(root.current, editable.id, engine.current);
+  const center = box && frame ? { x: (box.left + box.width / 2 - frame.left) / frame.width * 100, y: (box.top + box.height / 2 - frame.top) / frame.height * 100 } : null;
   const angle = (draft?.roll ?? editable?.roll ?? 0) * Math.PI / 180;
   const ring = editable && center ? editable.type === 'carousel' ? <svg className="canvas-orientation-ring" style={{ left: `${center.x}%`, top: `${center.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label="Rotate carousel Z: drag ring or use arrow keys; Escape cancels"><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos(angle)} cy={50 + 45 * Math.sin(angle)} r="2"/></svg>
     : <svg className="canvas-orientation-ring canvas-layer-rotation" style={{ left: `${center.x}%`, top: `${center.y}%` }} viewBox="0 0 100 100" data-canvas-ring="true" role="button" tabIndex={0} aria-label={`Rotate ${editable.name}: drag handle or use arrow keys; Escape cancels`}><circle cx="50" cy="50" r="45"/><circle className="canvas-ring-handle" cx={50 + 45 * Math.cos(angle)} cy={50 + 45 * Math.sin(angle)} r="3"/></svg> : null;
   const scale = frame?.width / FORMATS[project.format][0] || 1;
-  const [boxWidth, boxHeight] = editable?.type === 'model' && box ? [box.width / scale, box.height / scale] : [node?.offsetWidth, node?.offsetHeight];
+  const [boxWidth, boxHeight] = box ? [box.width / scale, box.height / scale] : [0, 0];
   const fitsWidth = box && frame && Math.abs(box.left - frame.left) < .5 && Math.abs(box.right - frame.right) < .5;
   const fitsHeight = box && frame && Math.abs(box.top - frame.top) < .5 && Math.abs(box.bottom - frame.bottom) < .5;
   const fitLabel = fitsWidth && fitsHeight ? 'Fits width & height' : fitsWidth ? 'Fits width' : fitsHeight ? 'Fits height' : null;
-  const selection = editable && center && ['logo', 'media', 'model'].includes(editable.type) && node ? <div className="canvas-transform-box" data-canvas-move="true" style={{ left: `${center.x}%`, top: `${center.y}%`, width: `${boxWidth}px`, height: `${boxHeight}px`, transform: `translate(-50%,-50%) rotate(${editable.type === 'model' ? 0 : draft?.roll ?? editable.roll ?? 0}deg)`, '--handle-size': `${10 / scale}px`, '--handle-offset': `${24 / scale}px`, '--selection-line': `${1 / scale}px`, '--fit-font-size': `${11 / scale}px`, '--fit-padding': `${4 / scale}px` }}>
-    {['nw', 'ne', 'sw', 'se'].map(corner => <button key={corner} type="button" className={`canvas-resize-handle ${corner}`} data-canvas-resize={corner} title="Resize from center · ⌘/Ctrl-drag an object corner · Shift bypasses snapping · Escape cancels" aria-label={`Resize ${editable.name} from ${corner}: drag from center or use arrow keys; Command/Control-drag an object corner; Shift bypasses snapping; Escape cancels`}/>)}
+  const selection = editable && center && ['text', 'logo', 'media', 'model'].includes(editable.type) ? <div className="canvas-transform-box" data-canvas-move="true" style={{ left: `${center.x}%`, top: `${center.y}%`, width: `${boxWidth}px`, height: `${boxHeight}px`, transform: 'translate(-50%,-50%)', '--handle-size': `${10 / scale}px`, '--handle-offset': `${24 / scale}px`, '--selection-line': `${1 / scale}px`, '--fit-font-size': `${11 / scale}px`, '--fit-padding': `${4 / scale}px` }}>
+    {['logo', 'media', 'model'].includes(editable.type) && ['nw', 'ne', 'sw', 'se'].map(corner => <button key={corner} type="button" className={`canvas-resize-handle ${corner}`} data-canvas-resize={corner} title="Resize from center · ⌘/Ctrl-drag an object corner · Shift bypasses snapping · Escape cancels" aria-label={`Resize ${editable.name} from ${corner}: drag from center or use arrow keys; Command/Control-drag an object corner; Shift bypasses snapping; Escape cancels`}/>)}
     <button type="button" className="canvas-rotate-handle" data-canvas-ring="true" aria-label={`Rotate ${editable.name}: drag or use arrow keys; Escape cancels`}/>
     {fitLabel && <span className="canvas-fit-label" role="status">{fitLabel}</span>}
   </div> : null;
   // The group outline is measured at render time like the transform box; members keep their own outlines while dragging.
-  const groupRect = enabled && multi && !draft?.group && root.current ? selectionBounds(measureLayerBounds(root.current, project.layers.filter(l => selectedIds.includes(l.id) && l.visible && time >= l.start && time < l.end).map(l => evaluateChoreography(l, time)))) : null;
+  const groupRect = enabled && multi && !draft?.group && root.current ? selectionBounds(measureLayerBounds(root.current, project.layers.filter(l => selectedIds.includes(l.id) && l.visible && time >= l.start && time < l.end).map(l => evaluateChoreography(l, time)), engine.current)) : null;
   const groupBox = groupRect ? <div className="canvas-group-box" aria-hidden="true" style={{ left: `${groupRect.x}%`, top: `${groupRect.y}%`, width: `${groupRect.width}%`, height: `${groupRect.height}%`, '--selection-line': `${1 / scale}px` }}/> : null;
   return { ring: selection ?? ring ?? groupBox, handlers: { onPointerDown: begin, onPointerMove: move, onPointerUp: finish, onPointerCancel: e => finish(e, true), onLostPointerCapture: e => finish(e, true), onKeyDown: keys, onDragStart: e => e.preventDefault() } };
 }

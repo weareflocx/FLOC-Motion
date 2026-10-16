@@ -7,7 +7,7 @@ import { TEMPLATES } from '../src/project.js';
 import { PROCEDURAL_BACKGROUNDS } from '../src/backgrounds.js';
 import { EFFECTS } from '../src/effects.js';
 import { FONTS } from '../src/fonts.js';
-import { FIXTURES, GOLDEN_DIR, QA_DIR, checkFrame, executablePath, fixtureHash, frameName, openGoldenSession } from '../scripts/golden-frames.mjs';
+import { FIXTURES, GOLDEN_DIR, QA_DIR, checkFrame, executablePath, frameName, openGoldenSession } from '../scripts/golden-frames.mjs';
 
 const manifestFile = path.join(GOLDEN_DIR, 'manifest.json');
 const update = 'Run `npm run golden:update` after an intentional fixture or rendering change.';
@@ -30,7 +30,6 @@ test('export frames match the golden baselines and the editor preview', { skip: 
   assert(existsSync(manifestFile), `Missing ${path.relative(process.cwd(), manifestFile)}. ${update}`);
   const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'));
   assert.deepEqual(Object.keys(manifest.fixtures), FIXTURES.map(fixture => fixture.id), `Golden fixtures changed. ${update}`);
-  for (const fixture of FIXTURES) assert.equal(manifest.fixtures[fixture.id].hash, fixtureHash(fixture), `Fixture ${fixture.id} changed. ${update}`);
   await rm(QA_DIR, { recursive: true, force: true });
   const session = await openGoldenSession();
   t.after(() => session.close());

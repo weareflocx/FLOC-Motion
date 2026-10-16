@@ -5,7 +5,7 @@ import { effectLayer } from '../effects.js';
 import { safeArea } from '../layout.js';
 import { evaluateChoreography } from '../choreography.js';
 import { ALIGN_MODES, alignDeltas, applyPositions, arrangedPositions, distributeDeltas, selectionBounds } from './arrange.js';
-import { layerPosition, measureLayerBounds } from './layer-bounds.js';
+import { layerPosition, measureLayerBounds, projectedShift } from './layer-bounds.js';
 import { POSITIONABLE_TYPES, groupFlagValue, singleSelection, transformableLayers } from './selection.js';
 
 const lockedNotice = (verb, layers) => `${verb} skipped ${layers.length === 1 ? `the locked layer “${layers[0].name}”` : `${layers.length} locked layers`}. Unlock ${layers.length === 1 ? 'it' : 'them'} to include ${layers.length === 1 ? 'it' : 'them'}.`;
@@ -129,7 +129,12 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     const anchors = measureLayerBounds(root, current.layers.filter(layer => ids.includes(layer.id) && POSITIONABLE_TYPES.includes(layer.type) && layer.visible && time >= layer.start && time < layer.end).map(layer => evaluateChoreography(layer, time)));
     const deltas = Object.hasOwn(ALIGN_MODES, mode) ? alignDeltas(rects, mode, ids.length > 1 ? selectionBounds(anchors) : safeArea(current.layout)) : distributeDeltas(rects, mode);
     const members = layers.map(layer => ({ id: layer.id, type: layer.type, start: layerPosition(root, layer) }));
-    const positions = arrangedPositions(members, deltas).filter(position => {
+    const authoredDeltas = deltas.flatMap(({ id, dx, dy }) => {
+      const rect = rects.find(item => item.id === id);
+      const shift = projectedShift(root, id, rect.x + rect.width / 2, rect.y + rect.height / 2, dx, dy);
+      return shift ? [{ id, dx: shift.x, dy: shift.y }] : [];
+    });
+    const positions = arrangedPositions(members, authoredDeltas).filter(position => {
       const start = members.find(member => member.id === position.id).start;
       return Math.abs(position.x - start.x) > 1e-6 || Math.abs(position.y - start.y) > 1e-6;
     });

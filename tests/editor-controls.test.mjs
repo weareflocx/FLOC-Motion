@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GRID_POINTS, freePlacement, gridPlacement, nearestGridPoint, nudgePlacement, stepGridPoint, editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
-import { demoProject, patchLayer, layerAlpha } from '../src/project.js';
+import { demoProject, patchLayer, layerAlpha, audioTime } from '../src/project.js';
 import { stageMarkup } from '../src/scene.js';
 
 test('6 by 6 grid has36 cell centers inside safe margins and a separate exact center', () => {
@@ -123,4 +123,54 @@ test('ruler seeking maps pixels to frames and clamps the last visible frame', ()
   assert.equal(timeAtPointer(0, rect, 12, 24), 0);
   assert.equal(timeAtPointer(900, rect, 12, 24), 12 - 1 / 24);
   assert.equal(timeAtPointer(102, rect, 12, 24), 1 / 24);
+});
+
+test('audio start trims preserve the source at fixed composition times and can restore removed content', () => {
+  const layer = { type: 'music', start: 2, end: 7, offset: 1, loop: false };
+  const trimmed = { ...layer, ...editClip(layer, 'start', 2, 12, 24, 8) };
+  assert.deepEqual({ start: trimmed.start, end: trimmed.end, offset: trimmed.offset }, { start: 4, end: 7, offset: 3 });
+  for (const time of [4, 4.5, 6.9]) assert.equal(audioTime(trimmed, time, 8), audioTime(layer, time, 8));
+  const recovered = { ...trimmed, ...editClip(trimmed, 'start', -2, 12, 24, 8) };
+  assert.deepEqual(recovered, layer);
+  const extended = editClip(trimmed, 'start', -100, 12, 24, 8);
+  assert.equal(extended.start, 1);
+  assert.equal(extended.offset, 0);
+  assert.equal(extended.end, 7);
+});
+
+test('audio edge edits respect known source bounds and the offset schema without rounding imported values', () => {
+  for (const fps of [24, 30, 60]) for (const offset of [0, .123456789, 3599.99, 3600]) {
+    const duration = offset + 4;
+    const layer = { type: 'music', start: 2.123456789, end: 5.123456789, offset, loop: false };
+    for (const delta of [-100, -.2, 0, .2, 100]) {
+      const start = editClip(layer, 'start', delta, 12, fps, duration);
+      assert(start.offset >= 0 && start.offset <= 3600);
+      assert(Math.abs((start.offset - offset) - (start.start - layer.start)) < 1e-10);
+      assert.equal(start.end, layer.end);
+      assert(start.offset + start.end - start.start <= duration + 1e-10);
+      const end = editClip(layer, 'end', delta, 12, fps, duration);
+      assert.equal(end.start, layer.start);
+      assert(offset + end.end - end.start <= duration + 1e-10);
+      assert(end.end >= end.start + .01);
+    }
+  }
+  const imported = { type: 'music', start: .123456789, end: .153456789, offset: .234567891, loop: false };
+  assert.deepEqual(editClip(imported, 'start', 0, 12, 24, 2), { start: imported.start, end: imported.end, offset: imported.offset });
+  const shortSource = { type: 'music', start: 1, end: 1.1, offset: 0, loop: false };
+  assert.equal(editClip(shortSource, 'end', 100, 12, 24, .02).end, 1.02);
+});
+
+test('audio moves preserve the original offset and loop edits keep the remaining-source loop model', () => {
+  const layer = { type: 'music', start: 2, end: 6, offset: 1, loop: true };
+  const moved = { ...layer, ...editClip(layer, 'move', 2, 12, 24, 3) };
+  assert.equal(moved.offset, 1);
+  assert.equal(moved.end - moved.start, 4);
+  assert.equal(audioTime(moved, 5, 3), audioTime(layer, 3, 3));
+  assert.equal(editClip(layer, 'end', 100, 12, 24, 3).end, 12);
+  const trimmed = { ...layer, ...editClip(layer, 'start', 1, 12, 24, 3) };
+  assert.equal(trimmed.offset, 2);
+  assert.equal(audioTime(trimmed, trimmed.start + 1.25, 3), 2.25);
+  const unknown = { ...layer, loop: false };
+  assert.equal(editClip(unknown, 'end', 100, 12, 24).end, 12);
+  assert.equal(editClip(unknown, 'start', -100, 12, 24).offset, 0);
 });

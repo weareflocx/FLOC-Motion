@@ -1,14 +1,18 @@
 import React from 'react';
-import { FORMAT_LABELS, PROJECT_LIMITS } from '../../project.js';
+import { FORMAT_LABELS, PROJECT_LIMITS, patchScene } from '../../project.js';
 import { DEFAULT_LAYOUT } from '../../layout.js';
-import { Field, NumberField, Section } from '../controls.jsx';
+import { DEFAULT_SCENE, SCENE_CAMERA_RANGES } from '../../scene-settings.js';
+import { Field, NumberField, Range, Section } from '../controls.jsx';
 import { FormatVersionsControls } from './FormatVersionsControls.jsx';
 import { LayoutControls } from './LayoutControls.jsx';
 
 // With nothing selected, the inspector edits the composition itself: output format,
-// duration, frame rate, safe margins and guides.
+// duration, frame rate, output camera, safe margins and guides.
 export function ProjectControls({ project, onChangeProject, onChangeDuration, onChangeFps }) {
   const layout = project.layout ?? DEFAULT_LAYOUT;
+  const camera = project.scene?.camera ?? DEFAULT_SCENE.camera;
+  const patchCamera = changes => onChangeProject(patchScene(project, { camera: changes }));
+  const cameraRange = (key, label, options = {}) => <Range label={label} value={camera[key]} min={SCENE_CAMERA_RANGES[key][0]} max={SCENE_CAMERA_RANGES[key][1]} {...options} onChange={value => patchCamera({ [key]: value })}/>;
   return <>
     <div className="section-heading"><h2>Composition</h2></div>
     <p className="helper">{project.layers.length ? 'Select a layer on the canvas or in Layers to edit it.' : 'Add a layer to start composing.'}</p>
@@ -16,6 +20,16 @@ export function ProjectControls({ project, onChangeProject, onChangeDuration, on
       <FormatVersionsControls project={project} onChangeProject={onChangeProject}/>
       <NumberField scale={1000} suffix="ms" label="Duration" value={project.duration} min={PROJECT_LIMITS.minDuration} max={PROJECT_LIMITS.maxDuration} onChange={onChangeDuration}/>
       <Field label="Frame rate"><select aria-label="Frame rate" value={project.fps} onChange={event => onChangeFps(Number(event.target.value))}><option value={24}>24 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option></select></Field>
+    </Section>
+    <Section title="Output camera" detail={`${camera.projection === 'perspective' ? 'Perspective' : 'Orthographic'} · ${Math.round(camera.zoom * 100)}%`}>
+      <Field label="Projection"><select aria-label="Projection" value={camera.projection} onChange={event => patchCamera({ projection: event.target.value })}><option value="orthographic">Orthographic</option><option value="perspective">Perspective</option></select></Field>
+      {cameraRange('zoom', 'Camera zoom', { step: 0.01, suffix: '%' })}
+      {camera.projection === 'perspective' && cameraRange('perspective', 'Perspective', { suffix: '°' })}
+      {cameraRange('yaw', 'Camera yaw', { suffix: '°' })}
+      {cameraRange('pitch', 'Camera pitch', { suffix: '°' })}
+      {cameraRange('roll', 'Camera roll', { suffix: '°' })}
+      {['targetX', 'targetY', 'targetZ'].map(key => <NumberField key={key} label={`Target ${key.slice(-1)}`} value={camera[key]} min={SCENE_CAMERA_RANGES[key][0]} max={SCENE_CAMERA_RANGES[key][1]} step={0.1} suffix="%" onChange={value => patchCamera({ [key]: value })}/>)}
+      <p className="helper">Sets the composition's preview and export camera. Explore 3D changes only your editor view.</p>
     </Section>
     <LayoutControls project={project} detail={[layout.enabled && `Margins ${layout.marginX} / ${layout.marginY}%`, layout.guides && 'Guides'].filter(Boolean).join(' · ') || 'Off'} onChange={onChangeProject}/>
   </>;

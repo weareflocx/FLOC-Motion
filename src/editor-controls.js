@@ -41,7 +41,12 @@ export function stepGridPoint(index, dx, dy) {
   return clamp(point.row + dy, 0, 5) * 6 + clamp(point.column + dx, 0, 5);
 }
 
-export function editClip(layer, kind, delta, duration, fps) {
+export function clipEndLimit(layer, duration, sourceDuration) {
+  if (layer.type !== 'music' || layer.loop || !Number.isFinite(sourceDuration)) return duration;
+  return Math.min(duration, Math.max(layer.start + 0.01, layer.start + (sourceDuration - layer.offset)));
+}
+
+export function editClip(layer, kind, delta, duration, fps, sourceDuration) {
   const step = 1 / fps;
   const quantized = Math.round(delta * fps) / fps;
   const span = Math.max(0.01, layer.end - layer.start);
@@ -52,8 +57,18 @@ export function editClip(layer, kind, delta, duration, fps) {
     const start = clamp(layer.start + quantized, 0, duration - span);
     return range(start, Math.min(duration, start + span));
   }
-  if (kind === 'start') return range(clamp(layer.start + quantized, 0, layer.end - minimum), layer.end);
-  if (kind === 'end') return range(layer.start, clamp(layer.end + quantized, layer.start + minimum, duration));
+  if (kind === 'start') {
+    if (layer.type !== 'music') return range(clamp(layer.start + quantized, 0, layer.end - minimum), layer.end);
+    const offset = layer.offset;
+    const sourceLimit = Number.isFinite(sourceDuration) ? Math.max(offset, sourceDuration - minimum) : 3600;
+    const start = clamp(layer.start + quantized, Math.max(0, layer.start - offset), Math.min(layer.end - minimum, layer.start + (Math.min(3600, sourceLimit) - offset)));
+    const next = range(start, layer.end);
+    return { ...next, offset: clamp(offset + (next.start - layer.start), 0, 3600) };
+  }
+  if (kind === 'end') {
+    const limit = clipEndLimit(layer, duration, sourceDuration);
+    return range(layer.start, clamp(layer.end + quantized, Math.min(layer.start + minimum, limit), limit));
+  }
   throw new Error('Unknown clip action.');
 }
 
