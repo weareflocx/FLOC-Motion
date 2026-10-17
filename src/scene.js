@@ -13,7 +13,7 @@ import { createResourceCache } from './scene-resources.js';
 import { sceneUpdatePlan } from './scene-update.js';
 import { createSceneCapture } from './scene-capture.js';
 import { createSceneRenderer } from './scene-renderer.js';
-import { createSceneCameras, sceneDimensions, projectedObjectBounds } from './scene-camera.js';
+import { createSceneCameras, sceneDimensions, projectedObjectBounds, SCENE_VIEW_HEIGHT } from './scene-camera.js';
 import { createScenePass, SCENE_PASS, SCENE_PASS_PARS, SCENE_PASS_FRAGMENT, setSceneMaterialPass } from './scene-pass.js';
 import { createSceneWorld } from './scene-world.js';
 
@@ -157,6 +157,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   const frameLoader = new THREE.TextureLoader();
   const imageLoader = new THREE.ImageLoader();
   const placementBounds = new Map();
+  const cardBox = new THREE.Box3();
   // Last animated typography and color written to each text node.
   const textStyles = new Map();
   const scenePass = createScenePass();
@@ -499,7 +500,17 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
         renderer.toneMapping = THREE.NoToneMapping; renderer.toneMappingExposure = 1;
         renderer.render(scene, outputCamera);
       },
-      bounds(outputCamera) { return projectedObjectBounds(group, outputCamera, { padding: stretched(layer) ? layer.size * 4 : 0 }); }
+      bounds(outputCamera) { return projectedObjectBounds(group, outputCamera, { padding: stretched(layer) ? layer.size * 4 : 0 }); },
+      // World-space Z extent of each drawn card, in Depth percent of the common view height.
+      depthPieces(target) {
+        group.updateWorldMatrix(true, true);
+        meshes.forEach((mesh, index) => {
+          if (!mesh.visible || !mesh.geometry.boundingBox) return;
+          cardBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
+          target.push({ min: cardBox.min.z / SCENE_VIEW_HEIGHT * 100, max: cardBox.max.z / SCENE_VIEW_HEIGHT * 100, card: index });
+        });
+        return target;
+      }
     } : null,
     setResolution(w, h, outputWidth = w, outputHeight = h) {
       if (disposed) return;
@@ -648,6 +659,7 @@ export async function createScene(root, project, options = {}) {
     hitTest: (u, v, id) => world.pick(u, v) === id,
     projectedBounds: id => world.projectedBounds(id),
     projectPointer: (u, v, id) => world.projectPointer(u, v, id),
+    depthInfo: () => world.depthInfo(),
     setOrientation: value => engines.forEach(engine => engine.scene.setOrientation(value?.id === engine.id ? value : null)),
     setPlacement(value) { engines.forEach(engine => engine.scene.setPlacement(value)); world.setPlacement(value); },
     dispose

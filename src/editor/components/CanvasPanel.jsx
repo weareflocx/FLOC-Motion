@@ -1,10 +1,14 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowCounterClockwise, ArrowClockwise, SlidersHorizontal, Hand, Minus, Plus, Play, Pause, SkipBack } from '@phosphor-icons/react';
 import { FORMATS } from '../../project.js';
+import { evaluateChoreography } from '../../choreography.js';
+import { SPATIAL_LAYER_TYPES } from '../../scene-settings.js';
 import { IconButton } from '../controls.jsx';
 import { Stage } from '../Stage.jsx';
 import { usePlaybackTime } from '../usePlayback.js';
+import { depthGuide, depthLabel, sameDepthInfo } from '../depth.js';
 import { ArrangeControls } from './ArrangeControls.jsx';
+import { DepthRuler } from './DepthRuler.jsx';
 
 const timeLabel = (seconds, fps) => {
   const totalFrames = Math.floor(seconds * fps + 0.00001);
@@ -38,13 +42,29 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
   const multi = selection.length > 1;
   const exploring = sceneView !== null;
   const selectedLayer = !multi && project.layers.find(layer => layer.id === selected && layer.visible && !layer.locked && time >= layer.start && time < layer.end && !['music', 'effect'].includes(layer.type));
+  // Depth controls: the posed frame's pieces come from the stage after each paused seek.
+  const [depthInfo, setDepthInfo] = useState(null);
+  const reportDepth = useCallback(next => setDepthInfo(current => sameDepthInfo(current, next) ? current : next), []);
+  const [depthActive, setDepthActive] = useState(false);
+  const depthTimer = useRef();
+  const flashDepth = useCallback(() => { setDepthActive(true); clearTimeout(depthTimer.current); depthTimer.current = setTimeout(() => setDepthActive(false), 1500); }, []);
+  useEffect(() => () => clearTimeout(depthTimer.current), []);
+  const depthLayer = selectedLayer && SPATIAL_LAYER_TYPES.includes(selectedLayer.type) ? evaluateChoreography(selectedLayer, time) : null;
+  const guide = useMemo(() => depthGuide(depthInfo ?? [], selected), [depthInfo, selected]);
+  const previewDepth = positionPreview?.id === selected && Number.isFinite(positionPreview.z) ? positionPreview.z : null;
+  const depth = previewDepth ?? depthLayer?.z ?? 0;
+  const depthReady = ready && !exploring && !panning && !playing && depthLayer && depthInfo;
+  const depthHint = depthReady && (previewDepth !== null || depthActive) ? depthLabel(guide, depth) : null;
+  const names = useMemo(() => Object.fromEntries(project.layers.map(layer => [layer.id, layer.name])), [project.layers]);
   return <section className="center-panel">
     <div className="preview-wrap">
-      <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} onDropAsset={onDropAsset && ((asset, point) => { pendingEdit.current?.(); onDropAsset(asset, point); })} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)} sceneView={sceneView} onSceneViewChange={onSceneViewChange}/>
+      <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} onDepthInfo={reportDepth} onDepthGesture={flashDepth} onDropAsset={onDropAsset && ((asset, point) => { pendingEdit.current?.(); onDropAsset(asset, point); })} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)} sceneView={sceneView} onSceneViewChange={onSceneViewChange}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
       {ready && exploring && <div className="canvas-gesture-hint" role="status">Drag to orbit · Shift-drag to pan · Wheel to dolly · Escape returns to Camera view</div>}
-      {ready && !exploring && !panning && selectedLayer && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · Esc cancels</div>}
+      {depthHint && <div className="canvas-gesture-hint" role="status">{depthHint}</div>}
+      {ready && !exploring && !panning && selectedLayer && !depthHint && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · {depthLayer && 'Alt+wheel depth · '}Esc cancels</div>}
       {ready && !exploring && !panning && multi && <div className="canvas-gesture-hint">{selection.length} layers · Drag any to move together · Shift-click toggles · Esc clears</div>}
+      {depthReady && <DepthRuler key={selected} layer={depthLayer} z={depth} guide={guide} names={names} onBegin={id => pendingEdit.current?.(id ?? null)} onPreview={onPreview} onPatch={onPatch} onGesture={flashDepth}/>}
       <div className="canvas-toolbar">
         <div className="canvas-meta" role="group" aria-label="Edit history"><IconButton label="Undo last edit (⌘/Ctrl+Z)" disabled={!history.length && !canvasEditing} onClick={onUndo}><ArrowCounterClockwise size={17}/></IconButton><IconButton label="Redo last edit (⌘/Ctrl+Shift+Z)" disabled={!future.length || canvasEditing} onClick={onRedo}><ArrowClockwise size={17}/></IconButton></div>
         <IconButton label="Nudge amount" onClick={onOpenNudge}><SlidersHorizontal size={17}/></IconButton>
