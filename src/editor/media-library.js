@@ -1,6 +1,6 @@
 // Workspace media library: what an uploaded asset is and where it can be used. Editor-only, so it
-// stays outside the renderer engine fingerprint (server/renderer-version.mjs skips src/editor).
-import { FORMATS, PROJECT_LIMITS, carouselImages, fileLayer } from '../project.js';
+// stays outside the renderer engine fingerprint.
+import { FORMATS, PROJECT_LIMITS, carouselImages, fileLayer, validAsset } from '../project.js';
 
 export const ASSET_KINDS = { image: 'Image', gif: 'GIF', video: 'Video', audio: 'Audio', model: '3D model' };
 export const LIBRARY_FILTERS = [['all', 'All'], ['image', 'Images'], ['video', 'Video'], ['audio', 'Audio'], ['model', '3D']];
@@ -39,6 +39,18 @@ export function assetUse(asset, layer, project) {
 export const sourcePatch = (layer, asset) => ({ src: asset.src, ...(layer.type === 'background' ? { mode: assetKind(asset.src) === 'video' ? 'video' : 'image' } : {}) });
 // Card IDs are unique per carousel, so a reused asset gets a fresh one.
 export const cardFromAsset = (asset, id) => ({ id, src: asset.src, name: asset.name.slice(0, 200) });
+
+// Replacing an entry keeps its identity and creates an owned list for legacy
+// carousels that still borrow project.images; other carousels remain untouched.
+export function replaceCardImages(project, layerId, cardId, asset) {
+  const layer = project.layers.find(item => item.id === layerId && item.type === 'carousel');
+  if (!layer) throw new Error('This carousel no longer exists.');
+  if (layer.locked) throw new Error('Unlock the carousel before replacing a card.');
+  const images = carouselImages(project, layer);
+  if (!images.some(image => image.id === cardId)) throw new Error('This card no longer exists.');
+  if (!asset || !validAsset(asset.src, false) || !isVisualAsset(asset) || typeof asset.name !== 'string') throw new Error('Choose an image, GIF or video.');
+  return images.map(image => image.id === cardId ? cardFromAsset(asset, image.id) : image);
+}
 // Every asset source the composition shows: layer sources and all carousel cards.
 export const projectSources = project => new Set(project.layers.flatMap(layer => [layer, ...(layer.type === 'carousel' ? carouselImages(project, layer) : [])]).map(item => item.src).filter(Boolean));
 

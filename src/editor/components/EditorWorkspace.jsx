@@ -25,7 +25,7 @@ export function EditorWorkspace({ session, selection: { selected, selection, set
       sceneView={sceneView} onSceneViewChange={setSceneView}
       clock={clock} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo} zoom={zoom} onZoom={setZoom} onDropAsset={(asset, point) => files.placeAssets([asset], 'layers', point)}
       arrange={{ canAlign: arrangeState.align, canDistribute: arrangeState.distribute, target: arrangeState.target }} onArrange={group.arrange}/>
-    <InspectorPanel key={summary ? 'selection' : displayedLayer?.id ?? 'composition'} project={displayedProject} layer={displayedLayer} summary={summary} rightTab={rightTab} uploading={files.uploading}
+    <InspectorPanel key={summary ? 'selection' : displayedLayer?.id ?? 'composition'} project={displayedProject} projectRef={session.projectRef} layer={displayedLayer} summary={summary} rightTab={rightTab} uploading={files.uploading}
       settings={{ project, onChangeProject: change, onChangeDuration: duration => change(resizeDuration(project, duration), { allow: ['timing'] }), onChangeFps: fps => change({ ...project, fps }) }}
       cards={{ onMove: actions.moveImage, onRemove: actions.removeImage, onAddAsset: (asset, target) => files.placeAssets([asset], target) }}
       onSetRightTab={setRightTab} onPatch={editLayer} onPick={target => dialogs.setAddTarget(target)} onRemoveText={actions.removeText}/>

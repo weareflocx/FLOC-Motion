@@ -1,12 +1,12 @@
 import React, { useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, X } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp, ArrowsClockwise, X } from '@phosphor-icons/react';
 import { ASSET_DRAG_TYPE, isVisualAsset } from '../media-library.js';
 import { IconButton } from '../controls.jsx';
 import { AssetThumb } from './AssetThumb.jsx';
 
 // A carousel's cards in order. Rows reorder by dragging or the arrows; images, GIFs and videos
 // dragged from the media library are appended.
-export function CardList({ layer, images, onMove, onRemove, onAddAsset }) {
+export function CardList({ layer, images, uploading = false, onMove, onRemove, onAddAsset, onReplace }) {
   const dragging = useRef(null);
   const [target, setTarget] = useState(null);
   const acceptsAsset = event => !layer.locked && event.dataTransfer.types.includes(ASSET_DRAG_TYPE);
@@ -29,6 +29,7 @@ export function CardList({ layer, images, onMove, onRemove, onAddAsset }) {
       <AssetThumb asset={image}/>
       <span className="asset-name" title={image.name}>{image.name}</span>
       <div className="asset-actions">
+        <IconButton label={`Replace card ${index + 1}`} onClick={() => onReplace(image.id)} disabled={layer.locked || uploading}><ArrowsClockwise size={13}/></IconButton>
         <IconButton label={`Move card ${index + 1} earlier`} onClick={() => onMove(index, index - 1)} disabled={index === 0}><ArrowUp size={13}/></IconButton>
         <IconButton label={`Move card ${index + 1} later`} onClick={() => onMove(index, index + 1)} disabled={index === images.length - 1}><ArrowDown size={13}/></IconButton>
         <IconButton label={`Remove card ${index + 1}`} onClick={() => onRemove(index)}><X size={13}/></IconButton>
