@@ -33,6 +33,7 @@ function fixture() {
 
 function inspector(initial, selected = null) {
   let project = initial;
+  const projectRef = { current: project };
   const changes = [];
   const context = {
     ...projectApi, ...sceneSettings, ...modelStyle, ...modelMetadata, MOTION_VARIANTS, DEFAULT_LAYOUT,
@@ -45,7 +46,7 @@ function inspector(initial, selected = null) {
     Images: 'icon',
     EffectControls: ({ children }) => children
   };
-  for (const name of ['FontControls', 'PresetBrowser', 'MotionControls', 'LayerFadeControls', 'TemplateFieldControls', 'BackgroundControls', 'TextRevealControls', 'TypographyControls', 'SelectionSummary', 'LayerHeader', 'CardList', 'ModelMotionControls', 'FormatVersionsControls', 'LayoutControls']) context[name] = () => null;
+  for (const name of ['FontControls', 'PresetBrowser', 'MotionControls', 'LayerFadeControls', 'TemplateFieldControls', 'BackgroundControls', 'TextRevealControls', 'TypographyControls', 'SelectionSummary', 'LayerHeader', 'CardList', 'ReplaceCardDialog', 'ModelMotionControls', 'FormatVersionsControls', 'LayoutControls']) context[name] = () => null;
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.inspector = InspectorPanel;', context);
   function nodes(node, blocked = false, section = null) {
@@ -55,11 +56,11 @@ function inspector(initial, selected = null) {
     const disabled = blocked || node.props.disabled === true;
     return [{ ...node, blocked: disabled, section }, ...nodes(node.children, disabled, section)];
   }
-  const onChangeProject = next => { changes.push(next); project = next; };
+  const onChangeProject = next => { changes.push(next); project = next; projectRef.current = next; return next; };
   const render = () => nodes(context.inspector({
-    project, layer: selected ? project.layers.find(layer => layer.id === selected) : null, rightTab: 'composition',
+    project, projectRef, layer: selected ? project.layers.find(layer => layer.id === selected) : null, rightTab: 'composition',
     settings: { project, onChangeProject, onChangeDuration() {}, onChangeFps() {} },
-    onPatch(id, patch) { onChangeProject(projectApi.patchLayer(project, id, plain(patch))); },
+    onPatch(id, patch) { return onChangeProject(projectApi.patchLayer(project, id, plain(patch))); },
     cards: { onMove() {}, onRemove() {}, onAddAsset() {} }, onPick() {}, onRemoveText() {}, onSetRightTab() {}
   }));
   const input = label => render().find(node => ['input', 'select'].includes(node.type) && node.props['aria-label'] === label);

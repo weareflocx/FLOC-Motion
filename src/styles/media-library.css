@@ -143,3 +143,55 @@
 .card-list .asset.is-drop-target {
   box-shadow: inset 0 2px 0 #fff;
 }
+
+.replace-card-modal {
+  width: min(560px,calc(100vw - 32px));
+}
+
+.replace-card-modal .modal-heading h2 {
+  margin: 0;
+}
+
+.replacement-card-name {
+  overflow-wrap: anywhere;
+}
+
+.card-media-choices {
+  margin-top: 14px;
+}
+
+.card-media-grid {
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.card-media-grid>li {
+  min-width: 0;
+}
+
+.card-media-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: left;
+}
+
+.card-media-option .library-thumb {
+  width: 100%;
+}
+
+.card-media-option:is(:hover,:focus-visible) {
+  border-color: #888;
+}
+
+@media (max-width:600px) {
+  .card-media-grid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+}

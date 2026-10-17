@@ -194,7 +194,7 @@ Adding implementations is a source-code change, not runtime execution of pasted 
 
 ## Prototype boundaries
 
-No simultaneous collaborative editing, cloud rendering, arbitrary plugins, 4K/GIF/WebM output or video cards. Browser preview depends on local codec/WebGL support. MP4 export is a local job; keep the server running. The local editor and each personal renderer render one export at a time; up to 50 more wait in a first-in, first-out queue (the shared Mac render worker still takes one). Exports follow the 300-second composition limit; frame capture may run for up to 6 seconds per 1080p-equivalent frame (never less than 20 minutes) before it is stopped, so a 5-minute 2160p60 export is not cut short. Long exports are slow rather than memory-bound: on an M2 Pro (4 workers) a 50-layer, 300-second 1080p30 composition took about 9 minutes with light effects, while effect-heavy compositions capture about 4× slower and 2160p about 4.5× slower again. This is a functional prototype, not production acceptance or a complete replica of the references.
+No simultaneous collaborative editing, cloud rendering, arbitrary plugins or 4K/GIF/WebM output. Browser preview depends on local codec/WebGL support. MP4 export is a local job; keep the server running. The local editor and each personal renderer render one export at a time; up to 50 more wait in a first-in, first-out queue (the shared Mac render worker still takes one). Exports follow the 300-second composition limit; frame capture may run for up to 6 seconds per 1080p-equivalent frame (never less than 20 minutes) before it is stopped, so a 5-minute 2160p60 export is not cut short. Long exports are slow rather than memory-bound: on an M2 Pro (4 workers) a 50-layer, 300-second 1080p30 composition took about 9 minutes with light effects, while effect-heavy compositions capture about 4× slower and 2160p about 4.5× slower again. This is a functional prototype, not production acceptance or a complete replica of the references.
 
 ## Verification (2026-09-30)
 
@@ -306,6 +306,8 @@ Waveforms are generated locally with FFmpeg, cached in `FLOC_DATA_DIR/cache/audi
 ### Animated carousel media
 
 Carousel cards accept local images, GIF, MP4 and WebM (75 MB per uploaded file). Mixed media share the existing ordering and templates. Videos loop silently from the carousel layer's start; pause and timeline seeking select the corresponding decoded frame. Repeated cards share a video decoder/texture for each source instead of loading a video per mesh. High-resolution videos and many simultaneous sources can increase preview cost.
+
+To replace one card, select the carousel, open **Design → Cards**, and use that row's **Replace card** action. Choose **Upload file** for one image, SVG, GIF, MP4 or WebM, or **From Media** to reuse an existing upload. The entry keeps its identity and position; other entries, motion, framing and timing stay unchanged. Replacement is one Undo/Redo step and is disabled on locked carousels. Older carousels borrowing the shared image collection receive their own list, leaving other carousels untouched; linked formats still share content. If the card count repeats the list, all repetitions of that entry use the replacement.
 
 Preview redraws triggered by soundtrack metadata or graphics-context restoration wait until card media and geometry are initialized. An audio file that loads before MP4/GIF cards must not cache empty card dimensions or leave the carousel blank.
 

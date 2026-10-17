@@ -106,5 +106,5 @@ export function IconButton({ label, children, ...props }) {
 export function Modal({ children, onClose, labelledBy }) {
   const ref = useRef();
   useEffect(() => { const dialog = ref.current; dialog.showModal(); return () => dialog.close(); }, []);
-  return <dialog ref={ref} className="modal-backdrop" aria-labelledby={labelledBy} onCancel={e => { e.preventDefault(); onClose(); }}>{children}</dialog>;
+  return <dialog ref={ref} className="modal-backdrop" aria-labelledby={labelledBy} onCancel={e => { if (e.target !== e.currentTarget) return; e.preventDefault(); onClose(); }}>{children}</dialog>;
 }
