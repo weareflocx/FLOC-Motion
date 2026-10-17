@@ -9,10 +9,14 @@ import { canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredRe
 import { layerPosition, measureLayerBounds, projectedRect, projectedShift } from './layer-bounds.js';
 import { transformableLayers } from './selection.js';
 import { groupPositions, placeLayer, selectionBounds } from './arrange.js';
+import { clampDepth, depthEditable, depthGuide, nextDepth, outerDepth } from './depth.js';
+import { shortcutsBlocked } from './useEditorShortcuts.js';
 
 // Drag previews commit on release; wheel previews commit after scrolling or before history/selection changes.
 // With several layers selected, dragging or nudging any member moves every transformable member as one edit.
-export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, selected, selection: selectionIds, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, enabled = true }) {
+// Depth (`z`) changes keep the output camera: Alt+wheel previews a burst like resizing; Page Up/Down and
+// ⌘/Ctrl+[ ] commit one edit per press, reading the scene's current pieces to step between them.
+export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, selected, selection: selectionIds, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDepthGesture, enabled = true }) {
   const selectedIds = selectionIds ?? (selected == null ? [] : [selected]);
   const multi = selectedIds.length > 1;
   const gesture = useRef(null);
@@ -29,11 +33,16 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     clearTimeout(wheelDraft.current.timer); wheelDraft.current = null;
     onPendingEdit?.(null); onPreview(null);
   }, [onPendingEdit, onPreview]);
-  const commitWheel = useCallback(() => {
-    const edit = wheelDraft.current; if (!edit) return;
+  // `continueDepth` (a layer id) hands a pending Alt+wheel burst on that layer to the caller,
+  // which folds its previewed depth into its own single edit; anything else commits as usual.
+  const commitWheel = useCallback((continueDepth = null) => {
+    const edit = wheelDraft.current; if (!edit) return false;
     clearTimeout(edit.timer); wheelDraft.current = null;
     onPendingEdit?.(null); onPreview(null);
-    if (edit.patch.size !== edit.layer.size) onPatch(edit.layer.id, edit.patch);
+    if (continueDepth !== null && edit.kind === 'depth' && edit.layer.id === continueDepth) return true;
+    const changed = edit.kind === 'depth' ? edit.patch.z !== (edit.layer.z ?? 0) : edit.patch.size !== edit.layer.size;
+    if (changed) onPatch(edit.layer.id, edit.patch);
+    return false;
   }, [onPendingEdit, onPreview, onPatch]);
   function cancel() { gesture.current = null; cancelWheel(); setDraft(null); onPreview(null); }
   useEffect(() => {
@@ -46,20 +55,72 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   useEffect(() => {
     const node = root.current?.parentElement ?? root.current;
     function wheel(event) {
-      if (!enabled || multi || event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type) || pick(event.clientX, event.clientY)?.id !== selected) return;
+      if (!enabled || multi || event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type)) return;
+      // Depth is most useful when the layer is partly hidden by nearer pieces, so Alt+wheel
+      // targets the selected layer's projected box; plain wheel resizes the visible layer only.
+      if (event.altKey) {
+        const box = projectedRect(root.current, selected, engine.current);
+        if (!box || event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) return;
+      } else if (pick(event.clientX, event.clientY)?.id !== selected) return;
       event.preventDefault();
       onSelect(layer.id);
-      const size = canvasWheelSize(layer, event.deltaY, wheelDraft.current?.size ?? layer.size);
-      const bounds = wheelDraft.current?.bounds ?? layerResizeBounds(layer, root.current);
-      const patch = bounds ? centeredResize(layer, size, bounds) : { size };
-      clearTimeout(wheelDraft.current?.timer);
-      onPreview({ id: layer.id, x: layer.x, y: layer.y, ...patch });
-      wheelDraft.current = { layer, project, size, bounds, patch, timer: setTimeout(commitWheel, 250) };
+      const kind = event.altKey ? 'depth' : 'size';
+      if (wheelDraft.current && wheelDraft.current.kind !== kind) commitWheel();
+      const current = wheelDraft.current;
+      clearTimeout(current?.timer);
+      if (kind === 'depth') {
+        // macOS reports Shift+wheel as horizontal scrolling. Wheel up moves toward the camera.
+        const delta = (event.deltaY || event.deltaX) * (event.deltaMode === 1 ? 16 : 1);
+        const z = clampDepth((current?.patch.z ?? layer.z ?? 0) - delta * 0.02 * (event.shiftKey ? 5 : 1));
+        onPreview({ id: layer.id, z });
+        wheelDraft.current = { kind, layer, project, patch: { z }, timer: setTimeout(() => commitWheel(), 250) };
+      } else {
+        const size = canvasWheelSize(layer, event.deltaY, current?.size ?? layer.size);
+        const bounds = current?.bounds ?? layerResizeBounds(layer, root.current);
+        const patch = bounds ? centeredResize(layer, size, bounds) : { size };
+        onPreview({ id: layer.id, x: layer.x, y: layer.y, ...patch });
+        wheelDraft.current = { kind, layer, project, size, bounds, patch, timer: setTimeout(() => commitWheel(), 250) };
+      }
       onPendingEdit?.(commitWheel);
     }
     node?.addEventListener('wheel', wheel, { passive: false });
     return () => node?.removeEventListener('wheel', wheel);
-  }, [project, selected, multi, time, layer?.size, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
+  }, [project, selected, multi, time, layer?.size, layer?.z, enabled, commitWheel, onPendingEdit, onPreview, onSelect]);
+  // Depth keys work wherever editor shortcuts do (canvas, layer list, body), not inside fields or dialogs.
+  useEffect(() => {
+    if (!enabled || multi) return;
+    function depthKeys(event) {
+      if (event.defaultPrevented || event.isComposing || shortcutsBlocked(event.target)) return;
+      if (event.key === 'Escape') {
+        if (wheelDraft.current) { event.preventDefault(); cancelWheel(); }
+        return;
+      }
+      const command = event.metaKey || event.ctrlKey;
+      // Match the typed character: on ISO layouts (Spanish, German…) the BracketRight key types
+      // '+', and ⌘+ must stay browser zoom. The physical code is only a fallback for dead keys.
+      const typed = ['Unidentified', 'Dead'].includes(event.key) ? { BracketRight: ']', BracketLeft: '[' }[event.code] : event.key;
+      const bracket = command && !event.altKey && ([']', '}'].includes(typed) ? 1 : ['[', '{'].includes(typed) ? -1 : 0);
+      const page = !command && !event.altKey && (event.key === 'PageUp' ? 1 : event.key === 'PageDown' ? -1 : 0);
+      if (!bracket && !page) return;
+      const source = project.layers.find(l => l.id === selected), at = playhead(), l = source && evaluateChoreography(source, at);
+      if (gesture.current || !depthEditable(l, at)) return;
+      event.preventDefault();
+      // A pending Alt+wheel burst continues from its previewed depth in this one edit.
+      const draft = wheelDraft.current;
+      const from = draft?.kind === 'depth' && draft.layer.id === l.id ? draft.patch.z : l.z ?? 0;
+      commitWheel(l.id);
+      let z;
+      if (page) z = clampDepth(from + page * (event.shiftKey ? 10 : 1));
+      else {
+        const guide = depthGuide(engine.current?.depthInfo() ?? [], l.id);
+        z = event.shiftKey ? outerDepth(guide, from, bracket) : nextDepth(guide, from, bracket);
+      }
+      if (z !== (l.z ?? 0)) onPatch(l.id, { z });
+      onDepthGesture?.();
+    }
+    window.addEventListener('keydown', depthKeys);
+    return () => window.removeEventListener('keydown', depthKeys);
+  }, [project, selected, multi, enabled, cancelWheel, commitWheel, onPatch, onDepthGesture]);
   useEffect(() => {
     for (const l of project.layers) {
       const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model', 'background'].includes(l.type)) continue;
@@ -68,7 +129,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       node.tabIndex = visible && enabled ? 0 : -1; node.setAttribute('role', 'button');
       node.setAttribute('aria-disabled', String(!enabled));
       node.setAttribute('aria-hidden', String(!visible));
-      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : ['carousel', 'model'].includes(l.type) ? ': drag to move; Shift-drag to orient X/Y; Shift+Alt-drag to rotate Z; Escape cancels' : ': drag to move; Shift+Alt-drag or drag rotation handle to rotate Z; Escape cancels'}`);
+      const depth = l.type === 'background' ? '' : '; Alt+wheel or Page Up/Down changes depth';
+      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : ['carousel', 'model'].includes(l.type) ? `: drag to move; Shift-drag to orient X/Y; Shift+Alt-drag to rotate Z${depth}; Escape cancels` : `: drag to move; Shift+Alt-drag or drag rotation handle to rotate Z${depth}; Escape cancels`}`);
       node.style.pointerEvents = 'none';
       node.draggable = false;
     }

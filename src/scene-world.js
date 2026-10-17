@@ -5,6 +5,7 @@ import { SCENE_VIEW_HEIGHT, sceneDimensions } from './scene-camera.js';
 import { SCENE_PASS } from './scene-pass.js';
 import { createSceneSurface } from './scene-surfaces.js';
 import { modelCanvasGeometry } from './model-canvas.js';
+import { SPATIAL_LAYER_TYPES } from './scene-settings.js';
 
 const GRAPHIC_TYPES = ['text', 'logo', 'media'];
 const ORDER_DEPTH_PERCENT = .002;
@@ -290,6 +291,26 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
       const orderedDepth = depth + (node && !(node.layer.space === 'spatial' && (node.model || node.carousel)) ? node.index * ORDER_DEPTH_PERCENT : 0);
       const result = cameras.pointerOnPlane(u, v, orderedDepth);
       return result ? { ...result, z: depth } : null;
+    },
+    // Depth (percent of the common view height, positive toward the default front camera)
+    // of each visible depth-capable layer in the posed frame: one piece per Spatial card or
+    // model, one plane for every Flat presentation and graphic.
+    depthInfo() {
+      const layers = [], toDepth = value => value / SCENE_VIEW_HEIGHT * 100;
+      for (const node of leaves.values()) {
+        if (node.alpha <= 0 || !SPATIAL_LAYER_TYPES.includes(node.layer.type)) continue;
+        const pieces = [], spatial = node.layer.space === 'spatial';
+        if (spatial && node.carousel) node.carousel.depthPieces(pieces);
+        else if (spatial && node.model) {
+          const z = toDepth(node.model.spatialRoot.position.z), radius = toDepth(node.model.spatialRadius);
+          pieces.push({ min: z - radius, max: z + radius });
+        } else pieces.push({ min: node.value.z ?? 0, max: node.value.z ?? 0 });
+        if (!pieces.length) continue;
+        let min = Infinity, max = -Infinity;
+        for (const piece of pieces) { min = Math.min(min, piece.min); max = Math.max(max, piece.max); }
+        layers.push({ id: node.id, min, max, pieces });
+      }
+      return layers;
     },
     dispose() {
       if (disposed) return; disposed = true;

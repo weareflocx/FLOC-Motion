@@ -15,13 +15,18 @@ import { layerPosition, measureLayerBounds, projectedRect, projectedShift, regis
 import { modelCanvasGeometry, registerModelCanvas } from '../src/model-canvas.js';
 import { transformableLayers } from '../src/editor/selection.js';
 import { groupPositions, placeLayer, selectionBounds } from '../src/editor/arrange.js';
+import { clampDepth, depthEditable, depthGuide, nextDepth, outerDepth } from '../src/editor/depth.js';
+import { shortcutsBlocked } from '../src/editor/useEditorShortcuts.js';
+
+// Window-level depth shortcuts consult the document for open dialogs.
+globalThis.document = { querySelector: () => null };
 
 const source = fs.readFileSync(new URL('../src/editor/useCanvasInteraction.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
 
 function editor() {
-  const slots = [], effects = [], timers = new Map(), patches = [], previews = [];
-  let cursor = 0, timerId = 0, wheel, pending;
+  const slots = [], effects = [], timers = new Map(), patches = [], previews = [], gestures = [];
+  let cursor = 0, timerId = 0, wheel, pending, keydown;
   const project = demoProject();
   // Existing gesture cases exercise preserved Flat presentations; Spatial API cases follow below.
   project.layers.filter(layer => ['text', 'logo', 'media', 'model', 'carousel'].includes(layer.type)).forEach(layer => { layer.space = 'flat'; });
@@ -35,6 +40,8 @@ function editor() {
   const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
     gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragModelOrientation, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
     layerPosition, measureLayerBounds, projectedRect, projectedShift, transformableLayers, groupPositions, placeLayer, selectionBounds,
+    clampDepth, depthEditable, depthGuide, nextDepth, outerDepth, shortcutsBlocked,
+    window: { addEventListener(name, fn) { if (name === 'keydown') keydown = fn; }, removeEventListener(name, fn) { if (name === 'keydown' && keydown === fn) keydown = null; } },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value }; return [slots[i].value, next => { slots[i].value = next; }]; },
@@ -54,6 +61,7 @@ function editor() {
       return { x: (box.left - frame.left + (content?.x ?? 0) * box.width) / frame.width * 100, y: (box.top - frame.top + (content?.y ?? 0) * box.height) / frame.height * 100, width: box.width / frame.width * 100 * (content?.width ?? 1), height: box.height / frame.height * 100 * (content?.height ?? 1) };
     },
     projectPointer(u, v, id) { return { x: u * 100, y: v * 100, z: props.project.layers.find(item => item.id === id)?.z ?? 0 }; },
+    depthInfo: () => [],
     pick(u, v) {
       const frame = props.root.current.getBoundingClientRect(), x = frame.left + u * frame.width, y = frame.top + v * frame.height;
       for (const layer of [...props.project.layers].reverse()) {
@@ -71,18 +79,23 @@ function editor() {
   };
   let props = { root, engine: { current: scene }, project, sceneKey: project, selected: 'headline', time: 1, clock: { get: () => ({ time: props.time }) },
     onSelect() {}, onPatch(id, patch) { patches.push({ id, ...patch }); },
-    onPreview(value) { previews.push(value); }, onPendingEdit(commit) { pending = commit; } };
+    onPreview(value) { previews.push(value); }, onPendingEdit(commit) { pending = commit; }, onDepthGesture() { gestures.push(true); } };
   function render(next = {}) {
     cursor = 0; props = { ...props, ...next };
     if (next.engine) props.engine = { current: { ...scene, ...next.engine.current } };
     registerStageScene(props.root.current, props.engine.current);
     const result = context.hook(props); for (const effect of effects.splice(0)) effect(); return result;
   }
-  const scroll = () => wheel({ clientX: 100, clientY: 100, deltaY: -100, preventDefault() {} });
+  const scroll = (extra = {}) => wheel({ clientX: 100, clientY: 100, deltaY: -100, preventDefault() {}, ...extra });
+  // Global keys reach the window listener only when nothing earlier handled them.
+  const press = (key, extra = {}) => {
+    const event = { key, code: '', target: { closest: () => null }, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+    keydown?.(event); return event;
+  };
   const flush = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
   const unmount = () => { for (const slot of slots) slot?.cleanup?.(); };
   render();
-  return { render, scroll, flush, unmount, patches, previews, node, rect, project, scene, timers, commit: () => pending?.() };
+  return { render, scroll, press, flush, unmount, patches, previews, gestures, node, rect, project, scene, timers, commit: (...args) => pending?.(...args) };
 }
 
 test('canvas focus leaves Space for playback and Enter selects the focused layer', () => {
@@ -662,4 +675,140 @@ test('exploration disables selection chrome and every editing input until camera
   restored.handlers.onKeyDown({ key: 'Enter', target: { closest: () => h.node }, preventDefault() {} });
   assert.deepEqual(selections, ['headline']);
   h.unmount();
+});
+
+test('Alt+wheel previews depth as one burst edit, Shift multiplies it, and plain wheel still resizes', () => {
+  const h = editor(), headline = h.project.layers.find(layer => layer.id === 'headline');
+  h.scroll({ altKey: true }); h.scroll({ altKey: true });
+  assert.deepEqual({ ...h.previews.at(-1) }, { id: 'headline', z: 4 }, 'wheel up moves toward the camera, 2% per 100 delta');
+  assert.equal(h.patches.length, 0);
+  h.flush();
+  assert.deepEqual(h.patches, [{ id: 'headline', z: 4 }]);
+  assert.equal(h.previews.at(-1), null);
+  // macOS turns Shift+wheel into horizontal deltas.
+  h.scroll({ altKey: true, shiftKey: true, deltaY: 0, deltaX: 100 }); h.flush();
+  assert.deepEqual(h.patches.at(-1), { id: 'headline', z: -10 });
+  h.scroll(); h.flush();
+  assert.deepEqual(h.patches.at(-1), { id: 'headline', size: canvasWheelSize(headline, -100) });
+  h.unmount();
+});
+
+test('switching between resize and depth wheels commits each burst separately', () => {
+  const h = editor(), headline = h.project.layers.find(layer => layer.id === 'headline');
+  h.scroll(); h.scroll({ altKey: true }); h.flush();
+  assert.deepEqual(h.patches, [{ id: 'headline', size: canvasWheelSize(headline, -100) }, { id: 'headline', z: 2 }]);
+  h.unmount();
+});
+
+test('Alt+wheel reaches a selected layer hidden behind nearer pieces while plain wheel resizes only visible layers', () => {
+  const h = editor();
+  // The editor keeps one engine ref; a nearer card now owns the pixel under the pointer.
+  h.scene.pick = () => 'logo'; h.render();
+  h.scroll(); h.flush();
+  assert.equal(h.patches.length, 0, 'plain wheel over a nearer layer does not resize the hidden selection');
+  h.scroll({ altKey: true }); h.flush();
+  assert.deepEqual(h.patches, [{ id: 'headline', z: 2 }], 'depth can bring the hidden selection forward');
+  h.unmount();
+});
+
+test('Escape cancels a pending depth burst from the canvas or from anywhere outside fields', () => {
+  for (const route of ['canvas', 'window']) {
+    const h = editor();
+    h.scroll({ altKey: true });
+    if (route === 'canvas') h.render().handlers.onKeyDown({ key: 'Escape', preventDefault() {} });
+    else assert.equal(h.press('Escape').defaultPrevented, true);
+    h.flush();
+    assert.equal(h.patches.length, 0);
+    assert.equal(h.previews.at(-1), null);
+    h.unmount();
+  }
+});
+
+test('Page Up/Down step depth and ⌘/Ctrl+[ ] pass one of the other layers’ pieces per press, one edit each', () => {
+  const h = editor();
+  h.scene.depthInfo = () => [
+    { id: 'headline', min: 0, max: 0, pieces: [{ min: 0, max: 0 }] },
+    { id: 'carousel', min: -30, max: 40, pieces: [{ min: -30, max: -10 }, { min: 5, max: 15 }, { min: 20, max: 40 }] }
+  ];
+  const headline = h.project.layers.find(layer => layer.id === 'headline');
+  const z = () => h.patches.at(-1).z;
+  assert.equal(h.press('PageUp').defaultPrevented, true); assert.equal(z(), 1);
+  h.press('PageDown', { shiftKey: true }); assert.equal(z(), -10);
+  h.press(']', { code: 'BracketRight', metaKey: true }); assert.equal(z(), 20, 'past the next card center in front');
+  h.press('[', { code: 'BracketLeft', ctrlKey: true }); assert.equal(z(), -35, 'past the next card center behind');
+  h.press('}', { code: 'BracketRight', metaKey: true, shiftKey: true }); assert.equal(z(), 45, 'in front of everything');
+  h.press('{', { code: 'BracketLeft', metaKey: true, shiftKey: true }); assert.equal(z(), -35, 'behind everything');
+  assert.equal(h.patches.length, 6); assert.equal(h.gestures.length, 6);
+  headline.z = 45;
+  assert.equal(h.press(']', { code: 'BracketRight', metaKey: true }).defaultPrevented, true);
+  assert.equal(h.patches.length, 6, 'already in front of every piece: no edit');
+  h.unmount();
+});
+
+test('a depth key continues a pending Alt+wheel burst as one edit', () => {
+  const h = editor();
+  h.scroll({ altKey: true }); h.press('PageUp');
+  assert.deepEqual(h.patches, [{ id: 'headline', z: 3 }]);
+  h.flush(); assert.equal(h.patches.length, 1); h.unmount();
+});
+
+test('⌘/Ctrl brackets follow the typed character, so ⌘+ on ISO layouts stays browser zoom', () => {
+  const h = editor();
+  h.scene.depthInfo = () => [{ id: 'carousel', min: -30, max: 40, pieces: [{ min: -30, max: -10 }, { min: 5, max: 15 }, { min: 20, max: 40 }] }];
+  // Spanish/German layouts type '+' on the BracketRight key.
+  assert.equal(h.press('+', { code: 'BracketRight', metaKey: true }).defaultPrevented, false);
+  assert.equal(h.press('*', { code: 'BracketLeft', ctrlKey: true }).defaultPrevented, false);
+  assert.equal(h.patches.length, 0);
+  // Layouts that type brackets elsewhere still match by character; a dead key falls back to the code.
+  assert.equal(h.press(']', { code: 'Digit9', metaKey: true }).defaultPrevented, true);
+  assert.equal(h.press('Dead', { code: 'BracketRight', metaKey: true }).defaultPrevented, true);
+  assert.equal(h.patches.length, 2);
+  h.unmount();
+});
+
+test('the ruler can take over a pending Alt+wheel burst; other callers still commit it', () => {
+  const handed = editor();
+  handed.scroll({ altKey: true });
+  assert.equal(handed.commit('headline'), true, 'a depth burst on the same layer is handed over');
+  handed.flush();
+  assert.equal(handed.patches.length, 0);
+  assert.equal(handed.previews.at(-1), null);
+  handed.unmount();
+
+  const resize = editor();
+  resize.scroll();
+  assert.equal(resize.commit('headline'), false, 'a resize burst is not depth: it commits');
+  assert.equal(resize.patches.length, 1);
+  resize.unmount();
+
+  const history = editor();
+  history.scroll({ altKey: true }); history.commit();
+  assert.deepEqual(history.patches, [{ id: 'headline', z: 2 }]);
+  history.unmount();
+});
+
+test('depth controls stand down for fields, handled keys, multi-selection, locks and exploration', () => {
+  const field = editor();
+  assert.equal(field.press('PageUp', { target: { closest: selector => selector.includes('input') ? {} : null } }).defaultPrevented, false);
+  field.press('PageUp', { defaultPrevented: true });
+  assert.equal(field.patches.length, 0); field.unmount();
+
+  const multi = editor();
+  multi.render({ selection: ['headline', 'signature'] });
+  multi.press('PageUp'); multi.press(']', { code: 'BracketRight', metaKey: true }); multi.scroll({ altKey: true }); multi.flush();
+  assert.equal(multi.patches.length, 0); multi.unmount();
+
+  const locked = editor();
+  locked.project.layers.find(layer => layer.id === 'headline').locked = true;
+  locked.render(); locked.press('PageUp'); locked.scroll({ altKey: true }); locked.flush();
+  assert.equal(locked.patches.length, 0); locked.unmount();
+
+  const hidden = editor();
+  hidden.project.layers.find(layer => layer.id === 'headline').visible = false;
+  hidden.render(); hidden.press('PageUp');
+  assert.equal(hidden.patches.length, 0); hidden.unmount();
+
+  const exploring = editor();
+  exploring.render({ enabled: false }); exploring.press('PageUp');
+  assert.equal(exploring.patches.length, 0); exploring.unmount();
 });

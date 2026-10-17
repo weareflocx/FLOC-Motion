@@ -2,6 +2,11 @@ import { useEffect } from 'react';
 
 const FIELD = 'input, textarea, select, [role="textbox"], [role="dialog"], [aria-modal="true"]';
 
+// Typing targets and open dialogs keep their own keys; editor shortcuts stand down.
+export function shortcutsBlocked(target) {
+  return Boolean(target?.isContentEditable || target?.closest?.(FIELD) || document.querySelector('dialog[open], [aria-modal="true"]'));
+}
+
 export function useEditorShortcuts({ blocked, projectRef, selected, selection = selected == null ? [] : [selected], setPlaying, removeLayer, removeLayers, onSelectAll, onCollapseSelection, onOpenPalette }) {
   useEffect(() => {
     const onKeyDown = event => {
@@ -15,8 +20,7 @@ export function useEditorShortcuts({ blocked, projectRef, selected, selection = 
         if (!event.repeat) onOpenPalette();
         return;
       }
-      if (target?.isContentEditable || target?.closest?.(FIELD)) return;
-      if (document.querySelector('dialog[open], [aria-modal="true"]')) return;
+      if (shortcutsBlocked(target)) return;
       if (command === 'a' && onSelectAll) {
         event.preventDefault();
         onSelectAll();

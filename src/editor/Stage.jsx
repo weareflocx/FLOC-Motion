@@ -14,7 +14,7 @@ import { selectionBounds } from './arrange.js';
 import { workspaceFontsReady } from './workspace-fonts.js';
 import { ASSET_DRAG_TYPE } from './media-library.js';
 
-export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom = 'fit', panning = false, onViewport, onExitPan, sceneView = null, onSceneViewChange }) {
+export function Stage({ nudge, project, clock, onError, onReady, positionPreview, selected, selection, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, onDepthInfo, onDepthGesture, zoom = 'fit', panning = false, onViewport, onExitPan, sceneView = null, onSceneViewChange }) {
   const [activeProject, setActiveProject] = useState(project);
   const [sceneReady, setSceneReady] = useState(false);
   const [geometry, setGeometry] = useState({ rect: null, targets: [] });
@@ -34,7 +34,7 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
 
   const session = useRef();
   const callbacks = useRef();
-  callbacks.current = { onReady, onError, onViewport };
+  callbacks.current = { onReady, onError, onViewport, onDepthInfo };
   const previewRef = useRef(positionPreview);
   previewRef.current = positionPreview;
   const sceneViewRef = useRef(sceneView); sceneViewRef.current = sceneView;
@@ -209,11 +209,13 @@ export function Stage({ nudge, project, clock, onError, onReady, positionPreview
       const ids = selection?.length > 1 ? selection : [selected];
       const chosen = rects.filter(r => ids.includes(r.id));
       setGeometry({ rect: ids.length > 1 ? selectionBounds(chosen) ?? undefined : chosen[0], targets: rects.filter(r => !ids.includes(r.id)), scale: frame.width / FORMATS[activeProject.format][0] });
+      // The depth ruler reads the same posed frame: pieces move as carousels turn.
+      callbacks.current.onDepthInfo?.(engine.current.depthInfo());
     });
     return () => { cancelled = true; };
   }, [positionPreview, project, activeProject, selected, selection, time, playing, synchronized, clock, sceneView]);
 
-  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, selection, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, enabled: synchronized && !sceneView && !panning });
+  const { ring, handlers } = useCanvasInteraction({ nudge, root, engine, project: activeProject, sceneKey: activeProject, selected, selection, time, clock, onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDepthGesture, enabled: synchronized && !sceneView && !panning });
   // Media library items dropped on the canvas become layers centered on the pointer.
   const [assetOver, setAssetOver] = useState(false);
   const carriesAsset = event => Boolean(onDropAsset) && event.dataTransfer.types.includes(ASSET_DRAG_TYPE);
