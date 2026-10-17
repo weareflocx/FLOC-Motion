@@ -9,7 +9,7 @@ import { createDraftStore } from '../server/draft-store.mjs';
 import { createTemplateStore } from '../server/template-store.mjs';
 import { demoProject } from '../src/project.js';
 import { DatabaseSync } from 'node:sqlite';
-import { closeDatabase, database, DATABASE_FILE, SCHEMA_VERSION } from '../server/database.mjs';
+import { closeDatabase, database, DATABASE_FILE } from '../server/database.mjs';
 
 const id = value => `${String(value).padStart(8, '0')}-1234-4234-8234-123456789012`;
 const asset = (value, ext = 'png') => `${id(value)}.${ext}`;
@@ -96,7 +96,7 @@ test('the media-name migration names earlier uploads from saved projects, prefer
   project.images.push({ id: 'mark-card', src: `/assets/${mark}`, name: 'mark.svg' });
   await createTemplateStore(data).create({ name: 'Saved', tags: [], project });
   const raw = new DatabaseSync(path.join(data, DATABASE_FILE));
-  raw.exec(`DROP TABLE asset_names; DELETE FROM schema_migrations WHERE version = ${SCHEMA_VERSION};`);
+  raw.exec('DROP TABLE asset_names; DELETE FROM schema_migrations WHERE version >= 6;');
   raw.close(); closeDatabase(data);
   const names = Object.fromEntries(database(data).prepare('SELECT asset, name FROM asset_names').all().map(row => [row.asset, row.name]));
   assert.equal(names[card], 'poster-final.png');

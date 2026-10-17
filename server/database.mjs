@@ -9,11 +9,11 @@ export const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-
 // Asset references are maintained by triggers so quota checks never parse stored projects.
 const assetTriggers = (table, owner) => `
   CREATE TRIGGER ${table}_assets_insert AFTER INSERT ON ${table} BEGIN
-    INSERT OR IGNORE INTO asset_references (owner, asset) SELECT ${owner('NEW')}, substr(value, 9) FROM json_tree(NEW.project) WHERE type = 'text' AND value GLOB '/assets/?*' AND substr(value, 9) NOT GLOB '*/*';
+    INSERT OR IGNORE INTO asset_references (owner, asset) SELECT DISTINCT ${owner('NEW')}, substr(value, 9) FROM json_tree(NEW.project) WHERE type = 'text' AND value GLOB '/assets/?*' AND substr(value, 9) NOT GLOB '*/*';
   END;
   CREATE TRIGGER ${table}_assets_update AFTER UPDATE OF project ON ${table} BEGIN
     DELETE FROM asset_references WHERE owner = ${owner('OLD')};
-    INSERT OR IGNORE INTO asset_references (owner, asset) SELECT ${owner('NEW')}, substr(value, 9) FROM json_tree(NEW.project) WHERE type = 'text' AND value GLOB '/assets/?*' AND substr(value, 9) NOT GLOB '*/*';
+    INSERT OR IGNORE INTO asset_references (owner, asset) SELECT DISTINCT ${owner('NEW')}, substr(value, 9) FROM json_tree(NEW.project) WHERE type = 'text' AND value GLOB '/assets/?*' AND substr(value, 9) NOT GLOB '*/*';
   END;
   CREATE TRIGGER ${table}_assets_delete AFTER DELETE ON ${table} BEGIN
     DELETE FROM asset_references WHERE owner = ${owner('OLD')};
@@ -90,7 +90,21 @@ const MIGRATIONS = [
       json_tree(saved.project) AS source, json_tree(saved.project) AS label
     WHERE source.key = 'src' AND source.type = 'text' AND source.value GLOB '/assets/?*' AND substr(source.value, 9) NOT GLOB '*/*'
       AND label.parent = source.parent AND label.key = 'name' AND label.type = 'text' AND trim(label.value) != ''
-    ORDER BY trim(label.value) GLOB '*.*' DESC;`
+    ORDER BY trim(label.value) GLOB '*.*' DESC;`,
+  // UPSERT's update branch can override a trigger's OR IGNORE policy. Deduplicate
+  // source values before inserting so reusing one Media item never blocks a save.
+  `DROP TRIGGER drafts_assets_insert;
+  DROP TRIGGER drafts_assets_update;
+  DROP TRIGGER drafts_assets_delete;
+  DROP TRIGGER templates_assets_insert;
+  DROP TRIGGER templates_assets_update;
+  DROP TRIGGER templates_assets_delete;
+  DROP TRIGGER composition_versions_assets_insert;
+  DROP TRIGGER composition_versions_assets_update;
+  DROP TRIGGER composition_versions_assets_delete;
+  ${assetTriggers('drafts', row => `'draft:' || ${row}.id`)}
+  ${assetTriggers('templates', row => `'template:' || ${row}.id`)}
+  ${assetTriggers('composition_versions', row => `'version:' || ${row}.composition_id || ':' || ${row}.version`)}`
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

@@ -68,3 +68,60 @@ test('an unreadable database is reported instead of being replaced', async t => 
   assert.throws(() => database(data), /not a database/);
   assert.equal(await readFile(path.join(data, 'floc.db'), 'utf8'), 'not a database');
 });
+
+const cardProject = (...sources) => {
+  const project = demoProject();
+  project.layers.find(layer => layer.type === 'carousel').images = sources.map((src, index) => ({ id: `card-${index}`, name: `Card ${index + 1}`, src }));
+  return validateProject(project);
+};
+const media = name => `/assets/55555555-5555-4555-8555-55555555555${name}.mp4`;
+const references = (db, owner) => db.prepare('SELECT asset FROM asset_references WHERE owner = ? ORDER BY asset').all(owner).map(row => `/assets/${row.asset}`);
+
+test('reusing carousel media saves a draft and keeps the resource referenced until its last card is replaced', async t => {
+  const data = await folder(t), drafts = createDraftStore(data), a = media(1), b = media(2);
+  await drafts.update(ids.draft, { revision: 0, project: cardProject(a, b) });
+  const repeated = cardProject(a, a);
+  await drafts.update(ids.draft, { revision: 1, project: repeated });
+  assert.deepEqual(await drafts.read(ids.draft), { revision: 2, project: repeated });
+  assert.deepEqual(references(database(data), `draft:${ids.draft}`), [a]);
+  await drafts.update(ids.draft, { revision: 2, project: cardProject(b, a) });
+  assert.deepEqual(references(database(data), `draft:${ids.draft}`), [a, b]);
+  await drafts.update(ids.draft, { revision: 3, project: cardProject(b, b) });
+  assert.deepEqual(references(database(data), `draft:${ids.draft}`), [b]);
+});
+
+test('saved compositions retain their original version when cards reuse the same media', async t => {
+  const data = await folder(t), templates = createTemplateStore(data), a = media(1), b = media(2);
+  const original = cardProject(a, b), repeated = cardProject(a, a);
+  const created = await templates.create({ name: 'Reusable media', tags: [], project: original });
+  const saved = await templates.update(created.id, { name: created.name, project: repeated, updatedAt: created.updatedAt });
+  assert.deepEqual((await templates.read(created.id)).project, repeated);
+  assert.deepEqual((await templates.version(created.id, 1)).project, original);
+  assert.deepEqual((await templates.version(created.id, 2)).project, repeated);
+  assert.deepEqual(references(database(data), `template:${created.id}`), [a]);
+  assert.deepEqual(references(database(data), `version:${created.id}:1`), [a, b]);
+  assert.deepEqual(references(database(data), `version:${created.id}:2`), [a]);
+  const final = cardProject(b, b);
+  await templates.update(created.id, { name: created.name, project: final, updatedAt: saved.updatedAt });
+  assert.deepEqual((await templates.version(created.id, 1)).project, original);
+  assert.deepEqual((await templates.version(created.id, 2)).project, final);
+  assert.deepEqual(references(database(data), `version:${created.id}:2`), [b]);
+});
+
+test('upgrading the schema-six reference index preserves drafts and allows repeated carousel media', async t => {
+  const data = await folder(t), original = cardProject(media(1), media(2));
+  await createDraftStore(data).update(ids.draft, { revision: 0, project: original });
+  const db = database(data);
+  // Recreate the pre-fix triggers and migration history of a schema-six workspace.
+  for (const trigger of db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_assets_%'").all()) {
+    db.exec(`DROP TRIGGER ${trigger.name}; ${trigger.sql.replaceAll('SELECT DISTINCT ', 'SELECT ')};`);
+  }
+  db.exec('DELETE FROM schema_migrations WHERE version > 6');
+  closeDatabase(data);
+  const reopened = createDraftStore(data);
+  assert.deepEqual(await reopened.read(ids.draft), { revision: 1, project: original });
+  const repeated = cardProject(media(1), media(1));
+  await reopened.update(ids.draft, { revision: 1, project: repeated });
+  assert.deepEqual(await reopened.read(ids.draft), { revision: 2, project: repeated });
+  assert.deepEqual(references(database(data), `draft:${ids.draft}`), [media(1)]);
+});
