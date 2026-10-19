@@ -23,7 +23,7 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/src ./src
 COPY --from=build --chown=node:node /app/server ./server
-COPY --from=build --chown=node:node /app/scripts/render-prepared.mjs /app/scripts/render-worker.mjs /app/scripts/renderer-runtime.mjs ./scripts/
+COPY --from=build --chown=node:node /app/scripts/render-prepared.mjs /app/scripts/render-worker.mjs /app/scripts/renderer-runtime.mjs /app/scripts/renderer-update.mjs ./scripts/
 COPY --from=build --chown=node:node /app/scripts/invite-first-user.mjs /app/scripts/workspace-backup.mjs /app/scripts/workspace-backup-lib.mjs ./scripts/
 COPY --from=build --chown=node:node /app/.data/engine ./.data/engine
 RUN chown node:node /app /app/.data

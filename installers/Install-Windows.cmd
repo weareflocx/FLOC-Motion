@@ -4,7 +4,7 @@ set "SOURCE_DIR=%~dp0"
 set "RENDERER_DIR=%LOCALAPPDATA%\FLOC Motion\Renderer"
 set "NODE_VERSION=v24.21.0"
 set "INSTALL_STEP=Checking extracted installer files"
-for %%F in (package.json package-lock.json src\project.js server\renderer-version.mjs scripts\renderer-setup.mjs) do (
+for %%F in (package.json package-lock.json launcher.mjs src\project.js server\renderer-version.mjs scripts\renderer-setup.mjs scripts\renderer-update.mjs) do (
   if not exist "%SOURCE_DIR%%%F" (
     echo Extract the ENTIRE ZIP before running this installer.
     echo In File Explorer, right-click the ZIP, choose Extract All, then open Install-Windows.cmd from the extracted folder.
@@ -32,21 +32,20 @@ if "%NEED_FFMPEG%"=="1" (
   if errorlevel 1 goto failed
 )
 set "INSTALL_STEP=Stopping the previous renderer"
+rem Stop both layouts: the launcher with its engine, and a renderer from before engine updates.
+if exist "%RENDERER_DIR%\runtime\node.exe" if exist "%RENDERER_DIR%\launcher.mjs" if exist "%RENDERER_DIR%\current.json" (
+  "%RENDERER_DIR%\runtime\node.exe" "%RENDERER_DIR%\launcher.mjs" stop
+  if errorlevel 1 goto failed
+)
 if exist "%RENDERER_DIR%\runtime\node.exe" if exist "%RENDERER_DIR%\scripts\renderer-autostart.mjs" (
   "%RENDERER_DIR%\runtime\node.exe" "%RENDERER_DIR%\scripts\renderer-autostart.mjs" --stop
   if errorlevel 1 goto failed
 )
-set "INSTALL_STEP=Copying engine files"
-echo Copying engine files...
+set "INSTALL_STEP=Copying renderer shortcuts"
 if not exist "%RENDERER_DIR%" mkdir "%RENDERER_DIR%"
 if errorlevel 1 goto failed
 set "COPY_LOG=%RENDERER_DIR%\installation-copy.log"
-for %%D in (src server scripts public) do (
-  if exist "%RENDERER_DIR%\%%D" rmdir /S /Q "%RENDERER_DIR%\%%D"
-  robocopy "%SOURCE_DIR%%%D" "%RENDERER_DIR%\%%D" /E /NFL /NDL /NJH /NJS /LOG+:"%COPY_LOG%" /TEE
-  if errorlevel 8 goto failed
-)
-for %%F in (package.json package-lock.json Start-Windows.cmd Stop-Windows.cmd Uninstall-Windows.cmd) do (
+for %%F in (Start-Windows.cmd Stop-Windows.cmd Uninstall-Windows.cmd) do (
   copy /Y "%SOURCE_DIR%%%F" "%RENDERER_DIR%\%%F" >nul
   if errorlevel 1 goto failed
 )
@@ -72,8 +71,8 @@ rmdir /S /Q "%DOWNLOAD_DIR%"
 set "PATH=%RENDERER_DIR%\runtime;%LOCALAPPDATA%\Microsoft\WinGet\Links;%PATH%"
 cd /D "%RENDERER_DIR%"
 if errorlevel 1 goto failed
-set "INSTALL_STEP=Installing engine dependencies"
-echo Installing engine dependencies...
+set "INSTALL_STEP=Installing the engine and its dependencies"
+echo Installing the engine and its dependencies...
 set "DEPENDENCY_LOG=%RENDERER_DIR%\installation-dependencies.log"
 echo Private Node runtime: > "%DEPENDENCY_LOG%"
 "%RENDERER_DIR%\runtime\node.exe" --version >> "%DEPENDENCY_LOG%" 2>&1
@@ -81,11 +80,14 @@ if errorlevel 1 goto dependency_failed
 echo Bundled npm version: >> "%DEPENDENCY_LOG%"
 "%RENDERER_DIR%\runtime\node.exe" "%RENDERER_DIR%\runtime\node_modules\npm\bin\npm-cli.js" --version >> "%DEPENDENCY_LOG%" 2>&1
 if errorlevel 1 goto dependency_failed
-"%RENDERER_DIR%\runtime\node.exe" "%RENDERER_DIR%\runtime\node_modules\npm\bin\npm-cli.js" ci --omit=dev --no-audit --no-fund >> "%DEPENDENCY_LOG%" 2>&1
+rem Installs this package's engine into engines\VERSION with shared dependencies, the
+rem launcher and current.json, then removes the previous single-folder layout (.data stays).
+rem The trailing "." keeps the folder's final backslash from escaping the closing quote.
+"%RENDERER_DIR%\runtime\node.exe" "%SOURCE_DIR%scripts\renderer-update.mjs" --install-local "%SOURCE_DIR%." --home "%RENDERER_DIR%" >> "%DEPENDENCY_LOG%" 2>&1
 if errorlevel 1 goto dependency_failed
 type "%DEPENDENCY_LOG%"
 set "INSTALL_STEP=Checking graphics and connecting the renderer"
-runtime\node.exe scripts\renderer-setup.mjs
+runtime\node.exe launcher.mjs setup
 if errorlevel 1 goto failed
 echo Ready. Return to FLOC Motion and choose Render MP4.
 pause

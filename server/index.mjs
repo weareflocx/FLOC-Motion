@@ -46,10 +46,11 @@ const vite = process.env.NODE_ENV === 'production' ? null : await (await import(
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = requestBody;
 const json = (res, value, code = 200) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
-async function file(req, res, filename, type) {
+async function file(req, res, filename, type, cache) {
   const info = await stat(filename); const mime = type || types[path.extname(filename).slice(1)] || 'application/octet-stream';
   const headers = { ...(mime === 'image/svg+xml' ? { 'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" } : {}), 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'X-Content-Type-Options': 'nosniff' };
   if (mime === 'text/html') headers['Cache-Control'] = 'no-store';
+  if (cache) headers['Cache-Control'] = cache;
   if (filename.startsWith(data + path.sep)) Object.assign(headers, { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' });
   const range = req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
   if (range) { const start = Number(range[1]); const end = Math.min(range[2] ? Number(range[2]) : info.size - 1, info.size - 1); if (start >= info.size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }); return res.end(); } res.writeHead(206, { ...headers, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${info.size}` }); createReadStream(filename, { start, end }).pipe(res); }
@@ -79,17 +80,24 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     if (route.startsWith('/api/render-worker/')) {
       const device = await personalRenderers.engine(req.headers.authorization);
       if (device) {
+        if (route === '/api/render-worker/identity' && req.method === 'GET') return json(res, personalRenderers.identity(device));
         if (route === '/api/render-worker/claim' && req.method === 'POST') return json(res, await personalRenderers.claim(device, JSON.parse(await body(req))));
         const match = route.match(/^\/api\/render-worker\/([a-f0-9-]{36})\/(progress|result)$/);
         if (match && req.method === 'POST') return json(res, await personalRenderers[match[2] === 'result' ? 'complete' : 'update'](device, match[1], JSON.parse(await body(req))));
         return json(res, { error: 'Not found.' }, 404);
       }
+      // Only paired personal renderers have an identity to reuse when reinstalling.
+      if (route === '/api/render-worker/identity') return json(res, { error: 'Renderer authentication required.' }, 401);
       if (!renderWorker.authorize(req.headers.authorization)) return json(res, { error: 'Renderer authentication required.' }, 401);
       if (route === '/api/render-worker/claim' && req.method === 'POST') return json(res, await renderWorker.claim());
       const workerJob = route.match(/^\/api\/render-worker\/([a-f0-9-]{36})\/(progress|result)$/);
       if (workerJob && req.method === 'POST') return json(res, workerJob[2] === 'result' ? await renderWorker.complete(workerJob[1], req) : await renderWorker.update(workerJob[1], JSON.parse(await body(req))));
       return json(res, { error: 'Not found.' }, 404);
     }
+    // Installed renderers update their engine from these public files; a rebuild may replace both.
+    const engineFile = route.match(/^\/renderer\/engine\/(manifest\.json|[a-f0-9]{64}\.zip)$/);
+    if (engineFile && ['GET', 'HEAD'].includes(req.method)) return await file(req, res, path.join(root, 'dist/renderer/engine', engineFile[1]), engineFile[1].endsWith('.json') ? 'application/json' : 'application/zip', 'no-store');
+    if (route.startsWith('/renderer/engine/')) return json(res, { error: 'Not found.' }, 404);
     const user = await auth.user(req.headers.cookie);
     const privateAsset = /^\/assets\/[a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb)$/.test(route);
     const workspaceFont = route.match(/^\/fonts\/workspace\/([a-f0-9-]{36})\.(woff2|woff|otf|ttf)$/);
@@ -115,6 +123,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
       res.setHeader('Set-Cookie', rendererCookie(pairing.key, origin.startsWith('https:')));
       return json(res, { code: pairing.code, expiresAt: pairing.expiresAt }, 201);
     }
+    if (route === '/api/renderers/update' && req.method === 'POST') return json(res, { required: Boolean(config.publicOrigin), ...await personalRenderers.requestUpdate(await personalRenderers.browser(req.headers.cookie)) });
     const draftMatch = route.match(/^\/api\/drafts\/([a-f0-9-]{36})$/);
     if (draftMatch && req.method === 'GET') return json(res, await drafts.read(draftMatch[1]));
     if (draftMatch && req.method === 'PUT') return json(res, await drafts.update(draftMatch[1], JSON.parse(await body(req))));

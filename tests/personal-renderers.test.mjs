@@ -196,6 +196,85 @@ test('pairing codes expire, are single use, and incompatible engines cannot expo
   } finally { await rm(data, { recursive: true, force: true }); }
 });
 
+test('updater renderers update their engine when outdated or asked, and old renderers keep the original contract', async () => {
+  const data = await mkdtemp(path.join(os.tmpdir(), 'floc-personal-update-'));
+  let clock = 100000;
+  const jobs = new Map(), version = 'b'.repeat(64), old = 'a'.repeat(64);
+  const service = createPersonalRenderers({ data, jobs, version, now: () => clock });
+  const update = requested => ({ update: { version, manifest: '/renderer/engine/manifest.json', requested } });
+  const ready = { state: 'ready' }, stored = id => readFile(path.join(data, 'renders', id, 'job.json'), 'utf8').then(JSON.parse);
+  async function connect(name) {
+    const pairing = await service.startPairing();
+    const credentials = await service.finishPairing({ code: pairing.code, name, version });
+    return { browser: await service.browser(rendererCookie(pairing.key, false)), engine: await service.engine(`Bearer ${credentials.token}`) };
+  }
+  try {
+    const project = demoProject(); project.duration = 1; for (const layer of project.layers) { layer.end = 1; layer.fadeIn = 0; layer.fadeOut = 0; }
+    const mac = await connect('Mac');
+    assert.deepEqual(service.identity(mac.engine), { id: mac.engine.id, name: 'Mac' });
+    assert.equal((await service.status(mac.browser)).online, false, 'identity does not check the renderer in');
+    await assert.rejects(service.requestUpdate(null), error => error.status === 404);
+
+    // An outdated updater renderer stays online, is told to update and never gets an export meanwhile.
+    assert.deepEqual(await service.claim(mac.engine, { version: old, updater: 1, engine: ready }), update(false));
+    let status = await service.status(mac.browser);
+    assert.deepEqual([status.online, status.compatible, status.updater, status.engine, status.updateRequested], [true, false, true, { state: 'ready', message: '', target: '' }, false]);
+    const waiting = await service.enqueue(mac.browser, project, {});
+    assert.deepEqual([waiting.state, waiting.message], ['queued', 'Waiting for your renderer to update']);
+    assert.deepEqual(await service.claim(mac.engine, { version: old, updater: 1, engine: { state: 'updating', target: version } }), update(false));
+    assert.equal((await service.status(mac.browser)).engine.state, 'updating');
+    assert.equal(waiting.state, 'queued');
+    await assert.rejects(service.claim(mac.engine, { version: old, updater: 1, engine: { state: 'bogus' } }), error => error.status === 400);
+    assert.equal((await service.claim(mac.engine, { version, updater: 1, engine: ready })).id, waiting.id, 'the updated engine takes the waiting export');
+    await service.complete(mac.engine, waiting.id, { file: 'Movies/FLOC Motion/Waiting.mp4', duration: 1 });
+
+    // Update now: the next check-in carries the request once, even when the engine is current.
+    const requested = await service.requestUpdate(mac.browser);
+    assert.equal(requested.updateRequested, true);
+    const next = await service.enqueue(mac.browser, project, {});
+    assert.deepEqual(await service.claim(mac.engine, { version, updater: 1, engine: ready }), update(true));
+    assert.equal((await service.status(mac.browser)).updateRequested, false);
+    assert.equal(await service.claim(mac.engine, { version, updater: 1, engine: { state: 'updating', target: version } }), null, 'no export starts while the engine updates');
+    assert.equal((await service.claim(mac.engine, { version, updater: 1, engine: ready })).id, next.id);
+    await service.complete(mac.engine, next.id, { file: 'Movies/FLOC Motion/Next.mp4', duration: 1 });
+
+    // A failed update fails the exports that waited for it and blocks new ones until it recovers.
+    await service.claim(mac.engine, { version: old, updater: 1, engine: ready });
+    const [first, second] = [await service.enqueue(mac.browser, project, {}), await service.enqueue(mac.browser, project, {})];
+    const failure = { state: 'failed', message: 'Reinstall the renderer to update its Node runtime.', target: version };
+    assert.deepEqual(await service.claim(mac.engine, { version: old, updater: 1, engine: failure }), update(false));
+    const expected = 'Your renderer could not update: Reinstall the renderer to update its Node runtime. Use Update now or reinstall.';
+    for (const job of [first, second]) {
+      assert.deepEqual([job.state, job.message], ['failed', expected]);
+      assert.deepEqual([(await stored(job.id)).state, (await stored(job.id)).message], ['failed', expected]);
+    }
+    assert.equal((await service.status(mac.browser)).busy, false);
+    await service.claim(mac.engine, { version: old, updater: 1, engine: { ...failure, message: failure.message + 'x'.repeat(600) } });
+    assert.equal((await service.status(mac.browser)).engine.message.length, 500);
+    await service.claim(mac.engine, { version: old, updater: 1, engine: failure });
+    await assert.rejects(service.enqueue(mac.browser, project, {}), error => error.status === 409 && error.message === expected);
+    assert.equal((await service.requestUpdate(mac.browser)).updateRequested, true);
+    assert.deepEqual(await service.claim(mac.engine, { version: old, updater: 1, engine: failure }), update(true));
+    assert.equal((await service.enqueue(mac.browser, project, {}).catch(error => error)).status, 409);
+    assert.deepEqual(await service.claim(mac.engine, { version: old, updater: 1, engine: { state: 'updating', target: version } }), update(false));
+    assert.equal((await service.enqueue(mac.browser, project, {})).message, 'Waiting for your renderer to update');
+
+    // Renderers installed before the updater: unchanged errors and no update instructions.
+    const windows = await connect('Windows');
+    await assert.rejects(service.claim(windows.engine, { version: old }), error => error.status === 409 && error.message === 'Update your renderer to match the editor.');
+    status = await service.status(windows.browser);
+    assert.deepEqual([status.online, status.compatible, status.updater, status.engine], [true, false, false, null]);
+    await assert.rejects(service.enqueue(windows.browser, project, {}), error => error.status === 409 && error.message === 'Update your renderer before exporting.');
+    await assert.rejects(service.requestUpdate(windows.browser), error => error.status === 409);
+    assert.equal(await service.claim(windows.engine, { version }), null);
+    const legacy = await service.enqueue(windows.browser, project, {});
+    assert.equal(legacy.message, 'Waiting for your renderer');
+    assert.equal((await service.claim(windows.engine, { version })).id, legacy.id);
+    const reconnecting = await service.startPairing();
+    await assert.rejects(service.requestUpdate(await service.browser(rendererCookie(reconnecting.key, false))), error => error.status === 409);
+  } finally { await rm(data, { recursive: true, force: true }); }
+});
+
 test('runtime discovers Windows browsers without Mac paths and restricts editor origins', () => {
   const candidates = browserCandidates('win32', { LOCALAPPDATA: 'C:\\Users\\Jane Doe\\AppData\\Local', PROGRAMFILES: 'C:\\Program Files', 'PROGRAMFILES(X86)': 'C:\\Program Files (x86)' });
   assert.ok(candidates.includes('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'));

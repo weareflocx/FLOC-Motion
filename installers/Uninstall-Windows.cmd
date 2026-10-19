@@ -1,3 +1,3 @@
 @echo off
-"%~dp0runtime\node.exe" "%~dp0scripts\renderer-autostart.mjs" --uninstall
+"%~dp0runtime\node.exe" "%~dp0launcher.mjs" uninstall
 pause

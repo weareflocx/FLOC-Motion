@@ -6,20 +6,22 @@ import { transform } from 'esbuild';
 import { demoProject, validateProject, FORMAT_LABELS } from '../src/project.js';
 import { EXPORT_QUALITIES, EXPORT_RESOLUTIONS, EXPORT_FORMATS, exportDimensions, exportFormat } from '../src/export-settings.js';
 import { isTerminalJobState } from '../src/export-jobs.js';
+import { rendererView } from '../src/editor/renderer-status.js';
 
 const source = fs.readFileSync(new URL('../src/editor/components/Dialogs.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function Dialogs', 'function Dialogs'), { loader: 'jsx' })).code;
 
-function dialog(props = {}) {
+// `renderer` is the status the connection panel reports, as /api/renderers/status returns it.
+function dialog(props = {}, renderer = null) {
   const slots = [], renders = [];
   let cursor = 0;
   const passthrough = ({ children }) => children;
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     useState(value) { const index = cursor++; slots[index] ??= { value }; return [slots[index].value, next => { slots[index].value = next; }]; },
-    DownloadSimple() {}, FilmStrip() {}, Robot() {}, X() {}, IconButton() {}, RendererConnection() {}, createTools: () => [],
+    DownloadSimple() {}, FilmStrip() {}, Robot() {}, X() {}, IconButton() {}, RendererConnection: ({ onChange }) => { onChange(renderer); }, createTools: () => [],
     Modal: passthrough, Field: passthrough,
-    FORMAT_LABELS, EXPORT_QUALITIES, EXPORT_RESOLUTIONS, EXPORT_FORMATS, exportDimensions, exportFormat, isTerminalJobState
+    FORMAT_LABELS, EXPORT_QUALITIES, EXPORT_RESOLUTIONS, EXPORT_FORMATS, exportDimensions, exportFormat, isTerminalJobState, rendererView
   };
   vm.runInNewContext(`${compiled}\nglobalThis.Dialogs = Dialogs;`, context);
   const base = { project: validateProject(demoProject()), exportOpen: true, agentOpen: false, job: null, busy: false, recent: [], settings: { quality: 'high', resolution: '1080p', format: 'mp4', transparent: false }, onSettingsChange: next => { base.settings = next; }, onRender: settings => renders.push(settings), ...props };
@@ -72,4 +74,26 @@ test('recent exports show the format and download with the matching extension', 
   assert.equal(ui.find([items[1]], node => node.type === 'a')[0].props.download, 'Frames.zip');
   assert.match(ui.text(items[2]), /· MOVMovies\/FLOC Motion\/Saved\.mov$/);
   assert.equal(ui.find([items[2]], node => node.type === 'a').length, 0);
+});
+
+test('an updating renderer accepts exports, an outdated or failed one does not', () => {
+  const paired = { required: true, paired: true, online: true, connecting: false, compatible: true, name: 'Mac', updater: true, engine: { state: 'ready', message: '', target: '' }, updateRequested: false };
+  const cases = [
+    [null, false],
+    [paired, true],
+    [{ ...paired, compatible: false }, true],
+    [{ ...paired, compatible: false, engine: { state: 'updating', message: '', target: 'next' } }, true],
+    [{ ...paired, compatible: false, engine: { state: 'failed', message: 'No network', target: 'next' } }, false],
+    [{ ...paired, engine: { state: 'failed', message: 'No network', target: '' } }, true],
+    [{ ...paired, compatible: false, updater: false, engine: null }, false],
+    [{ ...paired, online: false }, false],
+    [{ ...paired, connecting: true }, false],
+    [{ required: false, paired: false, online: false }, true]
+  ];
+  for (const [renderer, enabled] of cases) {
+    const ui = dialog({}, renderer);
+    ui.render();
+    const button = ui.find(ui.render(), node => node.type === 'button' && /^Render /.test(ui.text(node)))[0];
+    assert.equal(button.props.disabled, !enabled, JSON.stringify(renderer));
+  }
 });

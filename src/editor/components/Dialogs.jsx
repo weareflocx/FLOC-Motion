@@ -6,6 +6,7 @@ import { EXPORT_QUALITIES, EXPORT_RESOLUTIONS, EXPORT_FORMATS, exportDimensions,
 import { isTerminalJobState } from '../../export-jobs.js';
 import { Field, IconButton, Modal } from '../controls.jsx';
 import { RendererConnection } from './RendererConnection.jsx';
+import { rendererView } from '../renderer-status.js';
 
 const JOB_STATE_LABELS = { queued: 'Queued', rendering: 'Rendering', done: 'Ready', failed: 'Failed', cancelled: 'Cancelled' };
 const qualityLabel = id => EXPORT_QUALITIES.find(item => item.id === id)?.label;
@@ -37,8 +38,8 @@ export function Dialogs({ project, exportOpen, agentOpen, job, busy, recent, set
     {output.alpha && <label className="check-field"><input type="checkbox" checked={transparent} onChange={event => onSettingsChange({ ...settings, transparent: event.target.checked })}/>Transparent background (leaves out background layers)</label>}
 
     {job && <div className={`job-status ${job.state === 'failed' ? 'failed' : ''}`} role="status"><strong>{job.message}</strong>{job.width && <p className="helper">{job.width} × {job.height} · {job.fps} fps · {qualityLabel(job.quality)} · {outputLabel(job)}</p>}{!isTerminalJobState(job.state) && <progress value={job.progress} max="100"/>}{busy && <button className="outline-button" disabled={cancelling === job.id} onClick={() => cancel()}>{cancelling === job.id ? 'Cancelling…' : 'Cancel export'}</button>}{job.state === 'done' && (job.url ? <DownloadLink item={job} className="export-button"><DownloadSimple size={17}/></DownloadLink> : job.file && <p className="helper export-file">{job.file}</p>)}</div>}
-    {/* While an export runs, another one joins the queue behind it. */}
-    <button className="export-button full-width" disabled={!renderer || renderer.connecting || ((renderer.required || renderer.paired) && !(renderer.paired && renderer.online && renderer.compatible)) || !project.layers.some(layer => layer.visible && layer.type !== 'music')} onClick={() => onRender({ quality, resolution, format, transparent: Boolean(output.alpha) && transparent })}>{busy ? `Queue ${output.name}` : `Render ${output.name}`}<DownloadSimple size={17}/></button>
+    {/* While an export runs, another one joins the queue behind it; an updating renderer takes it once current. */}
+    <button className="export-button full-width" disabled={!rendererView(renderer).canRender || !project.layers.some(layer => layer.visible && layer.type !== 'music')} onClick={() => onRender({ quality, resolution, format, transparent: Boolean(output.alpha) && transparent })}>{busy ? `Queue ${output.name}` : `Render ${output.name}`}<DownloadSimple size={17}/></button>
     {busy && <p className="helper" role="status">Keep this computer awake and its renderer running until the export is ready.</p>}
     {recent.length > 0 && <details className="context-help export-history"><summary>Recent exports</summary><ol>{recent.map(item => <li key={item.id}>
       <div><strong>{item.name}</strong><span className={`export-state ${item.state}`}>{JOB_STATE_LABELS[item.state] || item.state}{item.position ? ` · ${item.position}` : ''}</span></div>
