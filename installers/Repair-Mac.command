@@ -7,22 +7,18 @@ if [[ ! -x "$RENDERER_DIR/runtime/bin/node" || ! -f "$RENDERER_DIR/.data/render-
   read -r -p "Press Enter to close."
   exit 1
 fi
+if [[ ! -f "$RENDERER_DIR/launcher.mjs" || ! -f "$RENDERER_DIR/current.json" ]]; then
+  echo "Open Install-Mac.command from this package once to update the renderer. It keeps your connection."
+  read -r -p "Press Enter to close."
+  exit 1
+fi
 cd "$RENDERER_DIR"
 unset HYPERFRAMES_BROWSER_PATH PRODUCER_HEADLESS_SHELL_PATH
 export HYPERFRAMES_NO_TELEMETRY=1 HYPERFRAMES_NO_UPDATE_CHECK=1 HYPERFRAMES_SKIP_SKILLS=1
+runtime/bin/node launcher.mjs stop
+# Setup prepares the dedicated rendering browser, checks graphics, keeps the existing
+# connection and starts the renderer again.
 echo "Preparing the dedicated rendering browser…"
-runtime/bin/node node_modules/hyperframes/bin/hyperframes.mjs browser ensure
-runtime/bin/node --input-type=module <<'NODE'
-import { readFile, writeFile, rename } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
-const browserPath = execFileSync(process.execPath, ['node_modules/hyperframes/bin/hyperframes.mjs', 'browser', 'path'], { encoding: 'utf8' }).trim();
-execFileSync(browserPath, ['--version'], { timeout: 5000, stdio: 'pipe' });
-const filename = '.data/render-worker/config.json';
-const config = JSON.parse(await readFile(filename, 'utf8'));
-await writeFile(`${filename}.tmp`, JSON.stringify({ ...config, browserPath }), { mode: 0o600 });
-await rename(`${filename}.tmp`, filename);
-NODE
-runtime/bin/node scripts/renderer-autostart.mjs --stop
-runtime/bin/node scripts/renderer-autostart.mjs
+runtime/bin/node launcher.mjs setup
 echo "Renderer restarted. Return to FLOC Motion and wait for Ready, then choose Render MP4."
 read -r -p "Press Enter to close."

@@ -13,13 +13,8 @@ if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
   brew install ffmpeg
 fi
 mkdir -p "$RENDERER_DIR"
-if [[ -x "$RENDERER_DIR/runtime/bin/node" && -f "$RENDERER_DIR/scripts/renderer-autostart.mjs" ]]; then
-  "$RENDERER_DIR/runtime/bin/node" "$RENDERER_DIR/scripts/renderer-autostart.mjs" --stop
-fi
-for item in src server scripts public package.json package-lock.json; do
-  rm -rf -- "${RENDERER_DIR:?}/$item"
-  cp -R "$SOURCE_DIR/$item" "$RENDERER_DIR/$item"
-done
+# Stops the renderer of either layout: both register this LaunchAgent.
+launchctl bootout "gui/$(id -u)/dev.floc.motion.personal-renderer" 2>/dev/null || true
 cp "$SOURCE_DIR/Start-Mac.command" "$RENDERER_DIR/Start-Mac.command"
 cp "$SOURCE_DIR/Stop-Mac.command" "$RENDERER_DIR/Stop-Mac.command"
 cp "$SOURCE_DIR/Uninstall-Mac.command" "$RENDERER_DIR/Uninstall-Mac.command"
@@ -37,7 +32,9 @@ rm -rf -- "$RENDERER_DIR/runtime"
 mv "$DOWNLOAD_DIR/node-$NODE_VERSION-darwin-$NODE_ARCH" "$RENDERER_DIR/runtime"
 export PATH="$RENDERER_DIR/runtime/bin:$PATH"
 cd "$RENDERER_DIR"
-"$RENDERER_DIR/runtime/bin/node" "$RENDERER_DIR/runtime/lib/node_modules/npm/bin/npm-cli.js" ci --omit=dev --no-audit --no-fund
-"$RENDERER_DIR/runtime/bin/node" scripts/renderer-setup.mjs "$@"
+# Installs this package's engine into engines/<version> with shared dependencies, the
+# launcher and current.json, then removes the previous single-folder layout (.data stays).
+"$RENDERER_DIR/runtime/bin/node" "$SOURCE_DIR/scripts/renderer-update.mjs" --install-local "$SOURCE_DIR" --home "$RENDERER_DIR"
+"$RENDERER_DIR/runtime/bin/node" "$RENDERER_DIR/launcher.mjs" setup "$@"
 echo "Ready. Return to FLOC Motion and choose Render MP4."
 if [[ -t 0 ]]; then read -r -p "Press Enter to close."; fi

@@ -27,6 +27,10 @@ test('production serves frontend bundles and uploaded media without mixing names
     await writeFile(path.join(folder, 'dist/index.html'), '<script src="/assets/index-test.js"></script>');
     await writeFile(path.join(folder, 'dist/assets/index-test.js'), 'window.testBundle = true;');
     await writeFile(path.join(folder, 'dist/assets/index-test.css'), 'body{color:white}');
+    const engineVersion = 'c'.repeat(64), engineManifest = JSON.stringify({ version: engineVersion, file: `${engineVersion}.zip` });
+    await mkdir(path.join(folder, 'dist/renderer/engine'), { recursive: true });
+    await writeFile(path.join(folder, 'dist/renderer/engine/manifest.json'), engineManifest);
+    await writeFile(path.join(folder, 'dist/renderer/engine', `${engineVersion}.zip`), 'engine-package');
     await mkdir(path.join(folder, '.data/assets'), { recursive: true });
     const auth = createAuthStore(path.join(folder, '.data'));
     const invitation = await auth.bootstrap('production-test@example.com');
@@ -71,6 +75,15 @@ test('production serves frontend bundles and uploaded media without mixing names
       assert.equal(res.status, 200); assert.equal(res.headers.get('content-type'), type); assert.equal(await res.text(), body);
     }
     assert.equal((await request(`http://127.0.0.1:${port}/assets/missing.js`)).status, 404);
+    // Renderers download engine updates without a session; nothing else under /renderer/engine/ resolves.
+    const manifestResponse = await fetch(`${local}/renderer/engine/manifest.json`);
+    assert.deepEqual([manifestResponse.status, manifestResponse.headers.get('cache-control'), manifestResponse.headers.get('content-type'), await manifestResponse.text()], [200, 'no-store', 'application/json', engineManifest]);
+    const packageResponse = await fetch(`${local}/renderer/engine/${engineVersion}.zip`);
+    assert.deepEqual([packageResponse.status, packageResponse.headers.get('content-type'), await packageResponse.text()], [200, 'application/zip', 'engine-package']);
+    for (const route of [`/renderer/engine/${'d'.repeat(64)}.zip`, '/renderer/engine/..%2F..%2Fpackage-lock.json', '/renderer/engine/', '/renderer/engine/manifest.json.tmp']) {
+      const res = await fetch(`${local}${route}`);
+      assert.equal(res.status, 404, route); assert.match(res.headers.get('content-type'), /application\/json/, route);
+    }
     const base = `http://127.0.0.1:${port}`;
     const original = await (await request(`${base}/api/drafts/${draftId}`)).json();
     const created = await request(`${base}/api/templates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Studio loop', tags: ['Brand'], project: demoProject() }) });
@@ -104,12 +117,31 @@ test('production serves frontend bundles and uploaded media without mixing names
     const version = await rendererVersion(folder);
     const connected = await (await request(`${base}/api/renderers/connect`, { method: 'POST', body: JSON.stringify({ code: pairing.code, version, name: 'Test computer' }) })).json();
     const engineHeaders = { Authorization: `Bearer ${connected.token}` };
+    assert.equal((await fetch(`${base}/api/render-worker/identity`)).status, 401);
+    assert.equal((await fetch(`${base}/api/render-worker/identity`, { headers: { Authorization: `Bearer ${pairing.code}` } })).status, 401);
+    const identity = await fetch(`${base}/api/render-worker/identity`, { headers: engineHeaders });
+    assert.equal(identity.status, 200);
+    assert.equal((await identity.json()).name, 'Test computer');
+    assert.equal((await (await request(`${base}/api/renderers/status`, { headers: { Cookie: cookie } })).json()).online, false, 'identity does not check the renderer in');
+    assert.equal((await request(`${base}/api/renderers/update`, { method: 'POST' })).status, 404, 'a browser without a renderer cannot ask for an update');
     assert.equal((await request(`${base}/api/render-worker/claim`, { method: 'POST', headers: engineHeaders, body: JSON.stringify({ version }) })).status, 200);
     const renderer = await (await request(`${base}/api/renderers/status`, { headers: { Cookie: cookie } })).json();
     assert.equal(renderer.online, true); assert.equal(renderer.compatible, true);
     const personalJob = await (await request(`${base}/api/exports`, { method: 'POST', headers: { Cookie: cookie }, body: JSON.stringify({ project: demoProject() }) })).json();
     assert.equal((await request(`${base}/api/exports/${personalJob.id}`)).status, 404);
     assert.equal((await request(`${base}/exports/${personalJob.id}/video.mp4`)).status, 404);
+    // An updater renderer on another engine is told where to update and stays online.
+    const outdated = { version: '0'.repeat(64), updater: 1, engine: { state: 'ready' } };
+    const updateClaim = await request(`${base}/api/render-worker/claim`, { method: 'POST', headers: engineHeaders, body: JSON.stringify(outdated) });
+    assert.equal(updateClaim.status, 200);
+    assert.deepEqual(await updateClaim.json(), { update: { version, manifest: '/renderer/engine/manifest.json', requested: false } });
+    const updating = await (await request(`${base}/api/renderers/status`, { headers: { Cookie: cookie } })).json();
+    assert.deepEqual([updating.online, updating.compatible, updating.updater, updating.engine.state, updating.updateRequested], [true, false, true, 'ready', false]);
+    assert.equal((await request(`${base}/api/renderers/update`, { method: 'POST', headers: { Cookie: cookie, Origin: 'https://untrusted.example' } })).status, 403);
+    const asked = await request(`${base}/api/renderers/update`, { method: 'POST', headers: { Cookie: cookie } });
+    assert.equal(asked.status, 200);
+    assert.equal((await asked.json()).updateRequested, true);
+    assert.deepEqual(await (await request(`${base}/api/render-worker/claim`, { method: 'POST', headers: engineHeaders, body: JSON.stringify({ version, updater: 1, engine: { state: 'ready' } }) })).json(), { update: { version, manifest: '/renderer/engine/manifest.json', requested: true } });
     assert.equal((await request(`${base}/api/exports/${personalJob.id}`, { headers: { Cookie: cookie } })).status, 200);
     const claimed = await (await request(`${base}/api/render-worker/claim`, { method: 'POST', headers: engineHeaders, body: JSON.stringify({ version }) })).json();
     assert.equal(claimed.id, personalJob.id);

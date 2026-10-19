@@ -5,14 +5,19 @@ import { Readable, Transform } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configureRenderer, trustedOrigin, saveRenderedVideo } from './renderer-runtime.mjs';
+import { configureRenderer, trustedOrigin, saveRenderedVideo, rendererDataDirectory } from './renderer-runtime.mjs';
+import { readCurrent, updateEngine, ROLLBACK_MESSAGE } from './renderer-update.mjs';
 import { rendererVersion } from '../server/renderer-version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const config = JSON.parse(await readFile(process.argv[2] || path.join(root, '.data/render-worker/config.json'), 'utf8'));
+// Under the launcher, FLOC_RENDERER_HOME keeps connection, logs and job data outside the engine.
+const home = process.env.FLOC_RENDERER_HOME ? path.resolve(process.env.FLOC_RENDERER_HOME) : null;
+const dataDirectory = rendererDataDirectory(root);
+const configFile = process.argv[2] || path.join(dataDirectory, 'config.json');
+const config = JSON.parse(await readFile(configFile, 'utf8'));
 const origin = trustedOrigin(config.origin);
 if (typeof config.token !== 'string' || config.token.length < 32) throw new Error('A renderer token is required.');
-process.env.FLOC_DATA_DIR = path.join(root, '.data/render-worker/data');
+process.env.FLOC_DATA_DIR = path.join(dataDirectory, 'data');
 await configureRenderer(config);
 const version = await rendererVersion();
 const personal = config.token.includes('.');
@@ -23,7 +28,7 @@ const { exportFormat } = await import('../src/export-settings.js');
 const { validateFontFaces, workspaceFontFile } = await import('../src/fonts.js');
 await mkdir(path.join(process.env.FLOC_DATA_DIR, 'assets'), { recursive: true });
 await mkdir(path.join(process.env.FLOC_DATA_DIR, 'fonts'), { recursive: true });
-const lock = path.join(root, '.data/render-worker/worker.pid');
+const lock = path.join(dataDirectory, 'worker.pid');
 try { const pid = Number(await readFile(lock, 'utf8')); if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, 0); throw new Error('The renderer is already running.'); } catch (cause) { if (cause.code !== 'ESRCH') throw cause; } } await rm(lock, { force: true }); }
 catch (cause) { if (cause.code !== 'ENOENT') throw cause; }
 const handle = await open(lock, 'wx'); await handle.writeFile(String(process.pid)); await handle.close();
@@ -37,7 +42,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
 });
 async function log(message) {
   console.log(message);
-  const filename = path.join(root, '.data/render-worker/worker.log');
+  const filename = path.join(dataDirectory, 'worker.log');
   try { if ((await stat(filename).catch(() => ({ size: 0 }))).size > 1e6) await rename(filename, `${filename}.previous`); await appendFile(filename, `${new Date().toISOString()} ${message}\n`); } catch {}
 }
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -87,12 +92,44 @@ async function downloadFonts(input, signal) {
   }
   return available;
 }
+// Personal renderers under the launcher update their engine when the editor asks. Claims
+// continue during the update so the editor keeps the renderer online and queues exports.
+// The launcher restarts into the new engine on exit 75, which only happens between jobs.
+const RESTART_INTO_NEW_ENGINE = 75, RETRY_FAILED_UPDATE_MS = 10 * 60 * 1000;
+const updater = Boolean(home) && personal;
+let engine = { state: 'ready' }, failure = null, engineUpdating = false, restart = false;
+if (updater) {
+  const current = await readCurrent(home).catch(() => null);
+  if (current?.failed) { engine = { state: 'failed', message: ROLLBACK_MESSAGE, target: current.failed }; failure = { at: Date.now(), rollback: true }; }
+}
+function startUpdate(update) {
+  if (engineUpdating || restart || typeof update?.version !== 'string') return;
+  if (update.version === version) { engine = { state: 'ready' }; failure = null; return; }
+  // After a failure, retry when the user presses Update now, or periodically unless the
+  // launcher had to restore the previous engine.
+  if (failure && update.requested !== true && (failure.rollback || Date.now() - failure.at < RETRY_FAILED_UPDATE_MS)) return;
+  engineUpdating = true;
+  engine = { state: 'updating', target: update.version };
+  log(`Updating engine to ${update.version.slice(0, 12)}`);
+  updateEngine({ home, origin: origin.origin, target: update.version, manifest: update.manifest, configFile, log: message => message && log(message) })
+    .then(() => { failure = null; restart = true; return log('Engine update installed; restarting.'); })
+    .catch(error => {
+      engine = { state: 'failed', message: error.message.slice(0, 500), target: update.version };
+      failure = { at: Date.now() };
+      return log(`Engine update failed: ${error.message}`);
+    })
+    .finally(() => { engineUpdating = false; });
+}
 let connected = false;
 while (!stopping) {
+  if (restart) { await rm(lock, { force: true }); process.exit(RESTART_INTO_NEW_ENGINE); }
   try {
-    const input = await request('/api/render-worker/claim', personal ? { version } : {});
+    const input = await request('/api/render-worker/claim', personal ? { version, ...(updater ? { updater: 1, engine } : {}) } : {});
     if (!connected) { await log(`Renderer connected to ${origin.origin}`); connected = true; }
-    if (input) {
+    if (input?.update) { if (updater) startUpdate(input.update); }
+    // No update requested: the editor accepts this engine, so an earlier failure is moot.
+    else if (engine.state === 'failed' && !engineUpdating) { engine = { state: 'ready' }; failure = null; }
+    if (input && !input.update) {
       const route = `/api/render-worker/${input.id}`;
       const lease = new AbortController();
       let heartbeat, localJob;

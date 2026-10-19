@@ -22,6 +22,14 @@ export function browserRendererKey(cookie = '') {
 // Each renderer renders one export at a time (`device.active`, the claimed lease) and keeps
 // later exports in a FIFO queue; claims hand them out in order.
 export const RENDERER_QUEUE_LIMIT = 50;
+// Installed renderers fetch this manifest to update their engine without pairing again.
+export const ENGINE_MANIFEST = '/renderer/engine/manifest.json';
+const ENGINE_STATES = ['ready', 'updating', 'failed'];
+function engineReport(input) {
+  if (!input || typeof input !== 'object' || !ENGINE_STATES.includes(input.state)) throw error('Invalid engine state.', 400);
+  return { state: input.state, message: typeof input.message === 'string' ? input.message.slice(0, 500) : '', target: typeof input.target === 'string' ? input.target.slice(0, 128) : '' };
+}
+const updateFailure = device => `Your renderer could not update: ${(device.engine.message || 'the update failed').replace(/[\s.]+$/, '')}. Use Update now or reinstall.`;
 
 export function createPersonalRenderers({ data, jobs, version, now = Date.now }) {
   const devices = new Map(), codes = new Map();
@@ -91,21 +99,33 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
       return { token: `${device.id}.${secret}` };
     },
     async status(device) {
-      if (!device) return { paired: false, online: false };
+      if (!device) return { paired: false, online: false, updater: false, engine: null, updateRequested: false };
       await expire(device);
-      return { paired: Boolean(device.engineHash), connecting: Boolean(device.connecting), online: Boolean(device.seen && now() - device.seen <= 15000), compatible: device.version === version, name: device.name || 'This computer', busy: Boolean(device.active || device.queue.length), queued: device.queue.length };
+      return { paired: Boolean(device.engineHash), connecting: Boolean(device.connecting), online: Boolean(device.seen && now() - device.seen <= 15000), compatible: device.version === version, name: device.name || 'This computer', busy: Boolean(device.active || device.queue.length), queued: device.queue.length, updater: Boolean(device.updater), engine: device.engine ?? null, updateRequested: Boolean(device.updateRequested) };
     },
+    // The editor asks; the renderer learns it on its next check-in and updates once it is idle.
+    async requestUpdate(device) {
+      if (!device) throw error('Connect this computer’s renderer first.', 404);
+      if (!device.engineHash) throw error('Finish connecting your renderer first.');
+      if (!device.updater) throw error('Install the latest renderer once to enable updates.');
+      device.updateRequested = true;
+      return this.status(device);
+    },
+    identity: device => ({ id: device.id, name: device.name || 'This computer' }),
     // `fonts` are the workspace font faces the project needs; the renderer downloads them with its token.
     async enqueue(device, input, options, fonts = []) {
       await expire(device);
       if (device.connecting) throw error('Finish connecting your renderer before exporting.');
       if (!device.seen || now() - device.seen > 15000) throw error('Your renderer is offline. Open FLOC Motion Renderer on this computer.', 503);
-      if (device.version !== version) throw error('Update your renderer before exporting.', 409);
+      // An updating renderer takes the export once it runs the editor's engine.
+      const outdated = device.version !== version;
+      if (outdated && !device.updater) throw error('Update your renderer before exporting.', 409);
+      if (outdated && device.engine?.state === 'failed') throw error(updateFailure(device), 409);
       if (device.queue.length >= RENDERER_QUEUE_LIMIT) throw error(`Up to ${RENDERER_QUEUE_LIMIT} exports can wait for your renderer. Wait for some to finish.`, 429);
       const project = validateProject(input), settings = validateExportSettings(options), faces = validateFontFaces(fonts);
       if (!project.layers.some(l => l.visible && l.type !== 'music')) throw error('Add a visible visual layer before exporting.', 400);
       const [width, height] = exportDimensions(project.format, settings.resolution);
-      const job = { id: randomUUID(), rendererId: device.id, state: 'queued', progress: 0, message: 'Waiting for your renderer', name: project.name, ...settings, width, height, fps: project.fps, createdAt: new Date(now()).toISOString() };
+      const job = { id: randomUUID(), rendererId: device.id, state: 'queued', progress: 0, message: outdated ? 'Waiting for your renderer to update' : 'Waiting for your renderer', name: project.name, ...settings, width, height, fps: project.fps, createdAt: new Date(now()).toISOString() };
       const entry = { id: job.id, project, settings, fonts: faces };
       device.queue.push(entry); jobs.set(job.id, job);
       try { await mkdir(folder(job.id), { recursive: true }); await persistJob(job); }
@@ -116,9 +136,26 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
       await expire(device);
       device.seen = now(); device.version = input.version;
       if (device.connecting) throw error('Finish connecting the renderer in the installer.');
-      if (device.version !== version) throw error('Update your renderer to match the editor.');
+      // Renderers without the updater (installed before it existed) keep the original contract.
+      const updater = input.updater === 1, engine = updater ? engineReport(input.engine) : null;
+      device.updater = updater; device.engine = engine;
+      if (!updater && device.version !== version) throw error('Update your renderer to match the editor.');
+      if (updater && device.version !== version && engine.state === 'failed') {
+        const failed = device.queue; device.queue = [];
+        for (const { id } of failed) {
+          const job = jobs.get(id);
+          Object.assign(job, { state: 'failed', message: updateFailure(device) });
+          await persistJob(job);
+        }
+      }
+      if (updater && (device.version !== version || device.updateRequested)) {
+        // `requested` marks an Update now press, so a renderer that failed can retry right away.
+        const requested = Boolean(device.updateRequested);
+        device.updateRequested = false;
+        return { update: { version, manifest: ENGINE_MANIFEST, requested } };
+      }
       // One export at a time: while a claimed export is unfinished, the next one waits.
-      if (device.active || !device.queue.length) return null;
+      if (device.active || !device.queue.length || engine?.state === 'updating') return null;
       const lease = device.queue.shift(), job = jobs.get(lease.id);
       device.active = lease;
       Object.assign(job, { state: 'rendering', message: 'Preparing assets on your computer' });

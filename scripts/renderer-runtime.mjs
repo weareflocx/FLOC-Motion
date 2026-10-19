@@ -4,6 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { run } from '../server/process.mjs';
 import { root } from '../server/runtime-config.mjs';
+import { readJson, writeJsonAtomic } from '../server/json-store.mjs';
+
+export const DEFAULT_EDITOR_ORIGIN = 'https://floc-motion.fly.dev';
+
+// Installed renderers keep connection, logs and job data beside the launcher so engine
+// updates replace code only. Direct runs keep them inside the checkout, as before.
+export function rendererDataDirectory(engineRoot = root, env = process.env) {
+  return path.join(env.FLOC_RENDERER_HOME ? path.resolve(env.FLOC_RENDERER_HOME) : engineRoot, '.data', 'render-worker');
+}
 
 export async function installRendererBrowser() {
   if (process.env.HYPERFRAMES_BROWSER_PATH) return process.env.HYPERFRAMES_BROWSER_PATH;
@@ -38,6 +47,35 @@ export function trustedOrigin(value) {
   const local = ['127.0.0.1', 'localhost'].includes(url.hostname);
   if (url.pathname !== '/' || url.search || url.hash || url.username || url.password || !(url.protocol === 'https:' || (url.protocol === 'http:' && local))) throw new Error('Use the editor HTTPS address, or a loopback HTTP address for local testing.');
   return url;
+}
+
+// Reuses a saved connection the editor still recognises, so reinstalling never needs a
+// new code; otherwise pairs with a connection code. `code` forces pairing.
+export async function connectRenderer({ configFile, origin, code, askCode, browserPath, version, name = os.hostname() }) {
+  const existing = code === undefined ? await readJson(configFile, { missing: null }).catch(() => null) : null;
+  let saved = null;
+  try { if (typeof existing?.token === 'string' && existing.token.length >= 32) saved = trustedOrigin(existing.origin).origin; } catch {}
+  if (saved && (!origin || origin === saved)) {
+    let response;
+    try { response = await fetch(`${saved}/api/render-worker/identity`, { headers: { Authorization: `Bearer ${existing.token}` }, signal: AbortSignal.timeout(15000), redirect: 'error' }); }
+    catch (cause) { throw new Error(`Could not reach ${saved} to check the existing connection. Check your internet connection and try again.`, { cause }); }
+    if (response.ok) {
+      const identity = await response.json();
+      await writeJsonAtomic(configFile, { ...existing, origin: saved, browserPath }, { mode: 0o600 });
+      return { reused: true, name: String(identity?.name || identity?.id || 'this computer') };
+    }
+    // Only a rejected token warrants a new code; a failing editor must not orphan the device.
+    if (![401, 403, 404].includes(response.status)) throw new Error(`The editor could not check the existing connection (${response.status}). Try again in a moment.`);
+  }
+  code ??= await askCode();
+  if (!/^[a-f0-9]{5}-?[a-f0-9]{5}$/i.test(code?.trim() || '')) throw new Error('Enter the complete connection code shown in Export.');
+  const target = origin || DEFAULT_EDITOR_ORIGIN;
+  const response = await fetch(`${target}/api/renderers/connect`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code.trim(), version: await version(), name }), signal: AbortSignal.timeout(15000), redirect: 'error' });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Could not connect. Get a new code in Export and try again.');
+  if (!/^[a-f0-9-]{36}\.[a-f0-9]{64}$/.test(result.token || '')) throw new Error('Invalid renderer connection response.');
+  await writeJsonAtomic(configFile, { origin: target, token: result.token, browserPath }, { mode: 0o600 });
+  return { reused: false };
 }
 export function browserCandidates(platform = process.platform, env = process.env) {
   if (platform === 'darwin') return ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', path.join(env.HOME || '', 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')];
