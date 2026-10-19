@@ -593,11 +593,11 @@ export async function createScene(root, project, options = {}) {
     if (disposed) return;
     disposed = true; seekEpoch++; unwatch();
     world?.dispose(); effects.dispose(); capture.dispose();
-    engines.forEach(engine => engine.scene.dispose()); cameras.dispose(); rendering.dispose();
+    engines.forEach(engine => engine.scene.dispose()); rendering.dispose();
     sources.replaceWith(...sources.childNodes);
   }
   function sourceResolution() {
-    const magnification = Math.max(1, cameras.active.zoom);
+    const magnification = Math.max(1, cameras.output.zoom);
     const scale = Math.min(magnification, rendering.maxSide / Math.max(outputWidth, outputHeight));
     return [Math.max(1, Math.round(outputWidth * scale)), Math.max(1, Math.round(outputHeight * scale))];
   }
@@ -650,10 +650,6 @@ export async function createScene(root, project, options = {}) {
       if (disposed) return;
       outputWidth = Math.max(1, Math.round(w)); outputHeight = Math.max(1, Math.round(h));
       world.setResolution(outputWidth, outputHeight); resizeSources();
-    },
-    setView(value) {
-      if (disposed || options.renderMode) return;
-      cameras.setView(value); resizeSources();
     },
     pick: (u, v) => world.pick(u, v),
     hitTest: (u, v, id) => world.pick(u, v) === id,

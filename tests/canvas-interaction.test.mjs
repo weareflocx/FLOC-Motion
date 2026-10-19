@@ -654,7 +654,7 @@ test('spatial text nudges follow projected pixels without jumping into Flat safe
   h.unmount();
 });
 
-test('exploration disables selection chrome and every editing input until camera view returns', () => {
+test('disabled interaction hides selection chrome and ignores every editing input until re-enabled', () => {
   const h = editor(), selections = [], classes = new Map();
   h.node.classList.toggle = (name, value) => classes.set(name, value);
   h.render({ enabled: false });
@@ -787,7 +787,7 @@ test('the ruler can take over a pending Alt+wheel burst; other callers still com
   history.unmount();
 });
 
-test('depth controls stand down for fields, handled keys, multi-selection, locks and exploration', () => {
+test('depth controls stand down for fields, handled keys, multi-selection, locks and disabled interaction', () => {
   const field = editor();
   assert.equal(field.press('PageUp', { target: { closest: selector => selector.includes('input') ? {} : null } }).defaultPrevented, false);
   field.press('PageUp', { defaultPrevented: true });
@@ -808,7 +808,7 @@ test('depth controls stand down for fields, handled keys, multi-selection, locks
   hidden.render(); hidden.press('PageUp');
   assert.equal(hidden.patches.length, 0); hidden.unmount();
 
-  const exploring = editor();
-  exploring.render({ enabled: false }); exploring.press('PageUp');
-  assert.equal(exploring.patches.length, 0); exploring.unmount();
+  const disabled = editor();
+  disabled.render({ enabled: false }); disabled.press('PageUp');
+  assert.equal(disabled.patches.length, 0); disabled.unmount();
 });

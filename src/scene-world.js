@@ -60,7 +60,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     const center = model.spatialRoot.position, radius = model.spatialRadius;
     let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
     for (let i = 0; i < 8; i++) {
-      boxPoint.set(center.x + (i & 1 ? radius : -radius), center.y + (i & 2 ? radius : -radius), center.z + (i & 4 ? radius : -radius)).project(cameras.active);
+      boxPoint.set(center.x + (i & 1 ? radius : -radius), center.y + (i & 2 ? radius : -radius), center.z + (i & 4 ? radius : -radius)).project(cameras.output);
       if (boxPoint.z < -1 || boxPoint.z > 1) return fullBounds();
       left = Math.min(left, (boxPoint.x + 1) * .5 * width); right = Math.max(right, (boxPoint.x + 1) * .5 * width);
       top = Math.min(top, (1 - boxPoint.y) * .5 * height); bottom = Math.max(bottom, (1 - boxPoint.y) * .5 * height);
@@ -82,8 +82,8 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
       if (effect.axis === 'horizontal') paddingY = 3;
       else paddingX = 3;
     }
-    let magnification = Math.max(1, cameras.active.zoom);
-    if (cameras.active.isPerspectiveCamera && node.value.z > 0) magnification *= 8 / Math.max(1, 8 - node.value.z / 100 * SCENE_VIEW_HEIGHT);
+    let magnification = Math.max(1, cameras.output.zoom);
+    if (cameras.output.isPerspectiveCamera && node.value.z > 0) magnification *= 8 / Math.max(1, 8 - node.value.z / 100 * SCENE_VIEW_HEIGHT);
     // Optical Warp expands only the axis perpendicular to its lens. Using
     // three diagonals here needlessly downsampled ordinary 1080p Flat sources.
     const wLimit = w * paddingX, hLimit = h * paddingY;
@@ -96,20 +96,20 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
   }
   function renderLeaf(node, pass, options = {}) {
     if (node.alpha <= 0) return;
-    const id = node.index + 1, camera = cameras.active;
+    const id = node.index + 1, camera = cameras.output;
     if (node.raster) node.surface.render(camera, pass, node.rasterOpacity ?? 1, id, { background: node.background, ...options });
     else if (node.model) node.model.renderSpatial(camera, pass, node.alpha, id, options);
     else if (node.carousel) node.carousel.render(camera, pass, node.alpha, id, options);
   }
   function renderData(nodes, pass) {
     for (const node of nodes) {
-      if (node.children) node.surface.render(cameras.active, pass, 1, 0);
+      if (node.children) node.surface.render(cameras.output, pass, 1, 0);
       else renderLeaf(node, pass, { coverage: node.refractive, background: node.background && pass === SCENE_PASS.pick });
     }
   }
   function depthPrepass(nodes, processed = []) {
     for (const node of nodes) {
-      if (node.children) node.surface.render(cameras.active, SCENE_PASS.opaqueDepth, 1, 0);
+      if (node.children) node.surface.render(cameras.output, SCENE_PASS.opaqueDepth, 1, 0);
       else if (!node.background && !node.refractive) renderLeaf(node, SCENE_PASS.opaqueDepth);
     }
     for (const node of processed) if (node.refractive) renderLeaf(node, SCENE_PASS.depth, { coverage: true });
@@ -118,7 +118,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
   function nodeDepth(node) {
     if (node.children) point.set(0, 0, node.index * ORDER_DEPTH_PERCENT / 100 * SCENE_VIEW_HEIGHT);
     else point.copy(node.sortPoint);
-    return point.sub(cameras.active.position).dot(direction);
+    return point.sub(cameras.output.position).dot(direction);
   }
   function existingGlass(node) {
     if (node.model && !node.raster) node.model.setRefractionMask(false);
@@ -143,7 +143,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     capture.setResolution(width, height);
     const color = capture.captureLayer(node.id, { source: crop(node.colorCanvas, node.cropCanvas, bounds), bounds, opacity: false });
     const center = node.model ? node.model.spatialRoot.position : node.carousel.root.position;
-    const fallbackDepth = point.copy(center).project(cameras.active).z * .5 + .5;
+    const fallbackDepth = point.copy(center).project(cameras.output).z * .5 + .5;
     uploadLeaf(node, color, { projected: true, depth: depth.texture, fallbackDepth });
     node.projected = true; node.rasterOpacity = 1;
     if (refraction) {
@@ -159,7 +159,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     const w = parseFloat(style.width), h = parseFloat(style.height);
     const frameSize = sceneDimensions(current.format), z = ((node.value.z ?? 0) + node.index * ORDER_DEPTH_PERCENT) / 100 * SCENE_VIEW_HEIGHT;
     planeMapping.makeScale(frameSize.width, frameSize.height, 1); planeMapping.setPosition(-frameSize.width / 2, -frameSize.height / 2, z);
-    viewProjection.multiplyMatrices(cameras.active.projectionMatrix, cameras.active.matrixWorldInverse);
+    viewProjection.multiplyMatrices(cameras.output.projectionMatrix, cameras.output.matrixWorldInverse);
     planeMatrix.multiplyMatrices(viewProjection, planeMapping);
     const result = node.model.drawRefraction(backdrop, { x: x / nativeWidth, y: y / nativeHeight, width: w / nativeWidth, height: h / nativeHeight }, time, draft(node.id), planeMatrix);
     const density = captureScale(node); capture.setResolution(nativeWidth * density, nativeHeight * density);
@@ -172,14 +172,14 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     rendering.frame(width, height); depthPrepass(nodes);
     for (const node of nodes) if (!node.children && node.background) renderLeaf(node, SCENE_PASS.all, { background: true });
     for (const node of nodes) {
-      if (node.children) node.surface.render(cameras.active, SCENE_PASS.opaque, 1, 0);
+      if (node.children) node.surface.render(cameras.output, SCENE_PASS.opaque, 1, 0);
       else if (!node.background && !node.refractive) renderLeaf(node, SCENE_PASS.opaque);
     }
     const queue = nodes.filter(node => nodeAlpha(node) > 0 && !node.background).sort((a, b) => nodeDepth(b) - nodeDepth(a) || a.index - b.index);
     const processed = [];
     for (const node of queue) {
       if (!node.refractive) {
-        if (node.children) node.surface.render(cameras.active, SCENE_PASS.transparent, 1, 0);
+        if (node.children) node.surface.render(cameras.output, SCENE_PASS.transparent, 1, 0);
         else renderLeaf(node, SCENE_PASS.transparent);
       } else if (node.refFrame === frame) existingGlass(node);
       else {
@@ -189,13 +189,13 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
         // all opaque geometry in its common-camera background.
         rendering.frame(width, height); depthPrepass(behind);
         for (const other of behind) {
-          if (other.children) other.surface.render(cameras.active, SCENE_PASS.opaque, 1, 0);
+          if (other.children) other.surface.render(cameras.output, SCENE_PASS.opaque, 1, 0);
           else if (other.background) renderLeaf(other, SCENE_PASS.all, { background: true });
           else if (!other.refractive) renderLeaf(other, SCENE_PASS.opaque);
         }
         for (const other of processed) if (behind.includes(other)) {
           if (other.refractive) existingGlass(other);
-          else if (other.children) other.surface.render(cameras.active, SCENE_PASS.transparent, 1, 0);
+          else if (other.children) other.surface.render(cameras.output, SCENE_PASS.transparent, 1, 0);
           else renderLeaf(other, SCENE_PASS.transparent);
         }
         const backdrop = rendering.capture(node.model.currentStyle.refractionResolution, `glass:${node.id}`);
@@ -258,7 +258,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     draw() {
       if (disposed || rendering.lost) { if (renderMode) throw new Error('The shared scene lost its graphics context during export.'); return; }
       frame++; pickDirty = true;
-      cameras.active.getWorldDirection(direction);
+      cameras.output.getWorldDirection(direction);
       for (const node of leaves.values()) {
         if (node.alpha <= 0 || node.layer.type === 'music' || node.layer.type === 'effect' && node.layer.effectScope === 'below') continue;
         if (!node.raster) { if (node.hasEffects && !node.refractive) packet(node); continue; }
@@ -281,10 +281,10 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     projectedBounds(id) {
       const node = leaves.get(id); if (!node || node.alpha <= 0 || node.layer.type === 'effect') return null;
       if (node.background) return { x: 0, y: 0, width: 100, height: 100 };
-      if (node.model && node.layer.space === 'spatial') return node.model.projectedBounds(cameras.active);
-      if (node.model) return node.surface.elementBounds(cameras.active, node.element, modelCanvasGeometry(node.element)?.bounds());
-      if (node.carousel && node.layer.space === 'spatial') return node.carousel.bounds(cameras.active);
-      return node.surface.bounds(cameras.active);
+      if (node.model && node.layer.space === 'spatial') return node.model.projectedBounds(cameras.output);
+      if (node.model) return node.surface.elementBounds(cameras.output, node.element, modelCanvasGeometry(node.element)?.bounds());
+      if (node.carousel && node.layer.space === 'spatial') return node.carousel.bounds(cameras.output);
+      return node.surface.bounds(cameras.output);
     },
     projectPointer(u, v, id) {
       const node = id ? leaves.get(id) : null, depth = node?.value.z ?? 0;

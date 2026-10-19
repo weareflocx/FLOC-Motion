@@ -11,8 +11,7 @@ export function useEditorView({ setPlaying }) {
   const [positionPreview, setPositionPreview] = useState(null);
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [zoom, setZoom] = useState('fit');
-  const [sceneView, setSceneView] = useState(null);
   const sceneReady = useCallback(value => setReady(value), []);
   const previewPosition = useCallback(value => { setPositionPreview(value); if (value) setPlaying(false); }, [setPlaying]);
-  return { leftTab, setLeftTab, rightTab, setRightTab, nudge, setNudge, ready, sceneReady, positionPreview, setPositionPreview, previewPosition, timelineOpen, setTimelineOpen, zoom, setZoom, sceneView, setSceneView };
+  return { leftTab, setLeftTab, rightTab, setRightTab, nudge, setNudge, ready, sceneReady, positionPreview, setPositionPreview, previewPosition, timelineOpen, setTimelineOpen, zoom, setZoom };
 }

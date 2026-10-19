@@ -24,29 +24,23 @@ function cameraPair() {
   };
 }
 
-// Output settings are canonical project data. Navigation is a separate, transient
-// camera; inspecting a scene must never change its pose, clock or exported view.
+// Output settings are canonical project data: preview and export share this one camera.
 export function createSceneCameras(project) {
-  const outputPair = cameraPair(), viewPair = cameraPair();
+  const pair = cameraPair();
   const target = new THREE.Vector3(), raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1));
-  const intersection = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3();
-  let current = project, settings, navigation = null, output, active;
-  function configure(pair, view) {
+  const intersection = new THREE.Vector3();
+  let current = project, settings, output;
+  function configure() {
     const frame = sceneDimensions(current.format), camera = pair[settings.projection];
-    const yaw = radians(settings.yaw + (view?.yaw ?? 0));
-    const pitch = radians(clamp(settings.pitch + (view?.pitch ?? 0), -89, 89));
+    const yaw = radians(settings.yaw);
+    const pitch = radians(clamp(settings.pitch, -89, 89));
     const distance = settings.projection === 'perspective' ? frame.height / (2 * Math.tan(radians(settings.perspective / 2))) : 8;
     scenePosition(current.format, settings.targetX, settings.targetY, settings.targetZ, target);
     camera.position.set(target.x + Math.sin(yaw) * Math.cos(pitch) * distance,
       target.y + Math.sin(pitch) * distance, target.z + Math.cos(yaw) * Math.cos(pitch) * distance);
     camera.up.set(0, 1, 0); camera.lookAt(target); camera.rotateZ(radians(settings.roll));
-    if (view) {
-      camera.updateMatrixWorld(true);
-      right.setFromMatrixColumn(camera.matrixWorld, 0); up.setFromMatrixColumn(camera.matrixWorld, 1);
-      camera.position.addScaledVector(right, view.panX / 100 * frame.width).addScaledVector(up, view.panY / 100 * frame.height);
-    }
-    camera.zoom = settings.zoom * (view?.zoom ?? 1);
+    camera.zoom = settings.zoom;
     if (camera.isOrthographicCamera) {
       camera.left = -frame.width / 2; camera.right = frame.width / 2;
       camera.top = frame.height / 2; camera.bottom = -frame.height / 2;
@@ -54,35 +48,18 @@ export function createSceneCameras(project) {
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
     return camera;
   }
-  function refresh() { output = configure(outputPair, null); active = navigation ? configure(viewPair, navigation) : output; }
-  function update(value) { current = value; settings = normalizeScene(value.scene).camera; refresh(); }
+  function update(value) { current = value; settings = normalizeScene(value.scene).camera; output = configure(); }
   update(project);
   return {
     get output() { return output; },
-    get active() { return active; },
-    get navigating() { return navigation !== null; },
     update,
-    setView(value) {
-      if (value === null || value === undefined) navigation = null;
-      else {
-        const ranges = { yaw: [-360, 360], pitch: [-180, 180], zoom: [.05, 20], panX: [-2000, 2000], panY: [-2000, 2000] };
-        navigation = {};
-        for (const [key, range] of Object.entries(ranges)) {
-          const number = value[key] ?? (key === 'zoom' ? 1 : 0);
-          if (!Number.isFinite(number) || number < range[0] || number > range[1]) throw new Error(`Invalid editor camera ${key}.`);
-          navigation[key] = number;
-        }
-      }
-      refresh();
-    },
     pointerOnPlane(u, v, depth = 0) {
-      pointer.set(u * 2 - 1, 1 - v * 2); raycaster.setFromCamera(pointer, active);
+      pointer.set(u * 2 - 1, 1 - v * 2); raycaster.setFromCamera(pointer, output);
       plane.constant = -depth / 100 * SCENE_VIEW_HEIGHT;
       if (Math.abs(raycaster.ray.direction.z) < 1e-6 || !raycaster.ray.intersectPlane(plane, intersection)) return null;
       const size = sceneDimensions(current.format);
       return { x: (intersection.x / size.width + .5) * 100, y: (.5 - intersection.y / size.height) * 100, z: depth };
-    },
-    dispose() { navigation = null; }
+    }
   };
 }
 

@@ -28,7 +28,7 @@ function Timecode({ clock, fps, duration }) {
 }
 
 // `zoom` is owned by the app so commands can fit or reset the view.
-export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, clock, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, selection = selected == null ? [] : [selected], onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom, onZoom, sceneView = null, onSceneViewChange, arrange, onArrange }) {
+export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, future, canvasEditing, ready, positionPreview, clock, time, playing, onTimeChange, onSetPlaying, onError, onReady, onUndo, onRedo, selected, selection = selected == null ? [] : [selected], onSelect, onToggle, onPatch, onMoveGroup, onPreview, onPendingEdit, onDropAsset, zoom, onZoom, arrange, onArrange }) {
   const [panning, setPanning] = useState(false);
   const [viewport, setViewport] = useState({ scale: 1, canPan: false });
   const pendingEdit = useRef();
@@ -38,9 +38,7 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
     setViewport(current => current.scale === next.scale && current.canPan === next.canPan ? current : next);
   }, []);
   function changeZoom(value) { pendingEdit.current?.(); setPanning(false); onZoom(value); }
-  function changeSceneView(value) { pendingEdit.current?.(); setPanning(false); onSceneViewChange?.(value); }
   const multi = selection.length > 1;
-  const exploring = sceneView !== null;
   const selectedLayer = !multi && project.layers.find(layer => layer.id === selected && layer.visible && !layer.locked && time >= layer.start && time < layer.end && !['music', 'effect'].includes(layer.type));
   // Depth controls: the posed frame's pieces come from the stage after each paused seek.
   const [depthInfo, setDepthInfo] = useState(null);
@@ -53,26 +51,21 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
   const guide = useMemo(() => depthGuide(depthInfo ?? [], selected), [depthInfo, selected]);
   const previewDepth = positionPreview?.id === selected && Number.isFinite(positionPreview.z) ? positionPreview.z : null;
   const depth = previewDepth ?? depthLayer?.z ?? 0;
-  const depthReady = ready && !exploring && !panning && !playing && depthLayer && depthInfo;
+  const depthReady = ready && !panning && !playing && depthLayer && depthInfo;
   const depthHint = depthReady && (previewDepth !== null || depthActive) ? depthLabel(guide, depth) : null;
   const names = useMemo(() => Object.fromEntries(project.layers.map(layer => [layer.id, layer.name])), [project.layers]);
   return <section className="center-panel">
     <div className="preview-wrap">
-      <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} onDepthInfo={reportDepth} onDepthGesture={flashDepth} onDropAsset={onDropAsset && ((asset, point) => { pendingEdit.current?.(); onDropAsset(asset, point); })} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)} sceneView={sceneView} onSceneViewChange={onSceneViewChange}/>
+      <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} onDepthInfo={reportDepth} onDepthGesture={flashDepth} onDropAsset={onDropAsset && ((asset, point) => { pendingEdit.current?.(); onDropAsset(asset, point); })} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
-      {ready && exploring && <div className="canvas-gesture-hint" role="status">Drag to orbit · Shift-drag to pan · Wheel to dolly · Escape returns to Camera view</div>}
       {depthHint && <div className="canvas-gesture-hint" role="status">{depthHint}</div>}
-      {ready && !exploring && !panning && selectedLayer && !depthHint && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · {depthLayer && 'Alt+wheel depth · '}Esc cancels</div>}
-      {ready && !exploring && !panning && multi && <div className="canvas-gesture-hint">{selection.length} layers · Drag any to move together · Shift-click toggles · Esc clears</div>}
+      {ready && !panning && selectedLayer && !depthHint && <div className="canvas-gesture-hint">Drag to move · {['carousel', 'model'].includes(selectedLayer.type) && 'Shift-drag X/Y · '}Shift+Alt-drag Z · {depthLayer && 'Alt+wheel depth · '}Esc cancels</div>}
+      {ready && !panning && multi && <div className="canvas-gesture-hint">{selection.length} layers · Drag any to move together · Shift-click toggles · Esc clears</div>}
       {depthReady && <DepthRuler key={selected} layer={depthLayer} z={depth} guide={guide} names={names} onBegin={id => pendingEdit.current?.(id ?? null)} onPreview={onPreview} onPatch={onPatch} onGesture={flashDepth}/>}
       <div className="canvas-toolbar">
         <div className="canvas-meta" role="group" aria-label="Edit history"><IconButton label="Undo last edit (⌘/Ctrl+Z)" disabled={!history.length && !canvasEditing} onClick={onUndo}><ArrowCounterClockwise size={17}/></IconButton><IconButton label="Redo last edit (⌘/Ctrl+Shift+Z)" disabled={!future.length || canvasEditing} onClick={onRedo}><ArrowClockwise size={17}/></IconButton></div>
         <IconButton label="Nudge amount" onClick={onOpenNudge}><SlidersHorizontal size={17}/></IconButton>
         {arrange?.canAlign && <ArrangeControls className="canvas-arrange" target={arrange.target} canAlign={arrange.canAlign} canDistribute={arrange.canDistribute} onArrange={value => { pendingEdit.current?.(); onArrange(value); }}/>}
-        <div className="canvas-scene-view" role="group" aria-label="Scene navigation">
-          <button type="button" aria-pressed={!exploring} title="Return to the authored output camera" onClick={() => changeSceneView(null)}>Camera view</button>
-          <button type="button" aria-pressed={exploring} title="Explore the scene without changing the output camera" onClick={() => { if (!exploring) changeSceneView({ yaw: 0, pitch: 0, zoom: 1, panX: 0, panY: 0 }); }}>Explore 3D</button>
-        </div>
         <div className="canvas-zoom" role="group" aria-label="Canvas view">
           <button type="button" title={`Fit ${FORMATS[project.format].join(' × ')} canvas to view`} aria-pressed={zoom === 'fit'} onClick={() => changeZoom('fit')}>Fit</button>
           <IconButton label="Zoom out" disabled={viewport.scale <= 0.05} onClick={() => changeZoom(Math.max(0.05, viewport.scale / 1.25))}><Minus size={14}/></IconButton>
