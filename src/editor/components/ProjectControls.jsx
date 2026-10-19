@@ -29,7 +29,7 @@ export function ProjectControls({ project, onChangeProject, onChangeDuration, on
       {cameraRange('pitch', 'Camera pitch', { suffix: '°' })}
       {cameraRange('roll', 'Camera roll', { suffix: '°' })}
       {['targetX', 'targetY', 'targetZ'].map(key => <NumberField key={key} label={`Target ${key.slice(-1)}`} value={camera[key]} min={SCENE_CAMERA_RANGES[key][0]} max={SCENE_CAMERA_RANGES[key][1]} step={0.1} suffix="%" onChange={value => patchCamera({ [key]: value })}/>)}
-      <p className="helper">Sets the composition's preview and export camera. Explore 3D changes only your editor view.</p>
+      <p className="helper">Sets the composition's preview and export camera.</p>
     </Section>
     <LayoutControls project={project} detail={[layout.enabled && `Margins ${layout.marginX} / ${layout.marginY}%`, layout.guides && 'Guides'].filter(Boolean).join(' · ') || 'Off'} onChange={onChangeProject}/>
   </>;

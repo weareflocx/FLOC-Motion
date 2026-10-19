@@ -28,9 +28,9 @@ test('one shared scene depth-tests photos, editable text and actual model geomet
     }
     const item = value => ({...value,src:local.get(value.src)??value.src});
     const transport = value => ({...value,images:value.images.map(item),layers:value.layers.map(layer=>({...item(layer),...(layer.images?{images:layer.images.map(item)}:{})}))});
-    async function mount(value, renderMode=false) {
+    async function mount(value) {
       engine?.dispose(); project=validateProject(value); root.innerHTML=stageMarkup(transport(project));
-      engine=await createScene(root,transport(project),{renderMode,onMediaError:error=>errors.push(error.message)});
+      engine=await createScene(root,transport(project),{onMediaError:error=>errors.push(error.message)});
       engine.setResolution(360,360); await engine.seek(.7); return pixels();
     }
     const pixels=()=>{const c=root.querySelector('[data-floc-scene-output]');return c.getContext('2d').getImageData(0,0,c.width,c.height).data;};
@@ -71,20 +71,15 @@ test('one shared scene depth-tests photos, editable text and actual model geomet
       result.wheel.front=black(await patch('title',{z:60}));
       await patch('title',{z:0});
       const glyph=result.wheel.middle.first;result.wheel.textPick=glyph?engine.pick((glyph.x+.5)/360,(glyph.y+.5)/360):null;
-      const saved=JSON.stringify(project),before=pixels();engine.setView({yaw:30,pitch:20,zoom:1.1,panX:0,panY:0});await engine.seek(.7);
-      result.navigation={changed:difference(before,pixels()),unchangedProject:JSON.stringify(project)===saved};
-      engine.setView(null);await engine.seek(.7);result.navigation.restored=difference(before,pixels());
-      const exported=await mount(wheelProject(),true);engine.setView({yaw:50,pitch:25,zoom:2,panX:0,panY:0});await engine.seek(.7);
-      result.exportViewUnchanged=difference(exported,pixels());
       const legacy=modelProject();legacy.version=13;delete legacy.scene;
       for(const layer of legacy.layers){delete layer.space;delete layer.z;if(['text','media','logo'].includes(layer.type)){delete layer.tilt;delete layer.yaw;}}
       const flat=await mount(legacy);result.legacy={center:center(flat),spaces:project.layers.filter(layer=>['model','media'].includes(layer.type)).map(layer=>layer.space)};
       const flatModel=structuredClone(legacy);flatModel.layers=flatModel.layers.filter(layer=>layer.id==='cube');
       flatModel.layers[0].modelStyle.zoom=.55;
       result.flatBounds={front:flatSelection(await mount(flatModel))};
-      engine.setView({yaw:45,pitch:18,zoom:1.1,panX:0,panY:0});await engine.seek(.7);
-      result.flatBounds.orbit=flatSelection(pixels());
-      const perspective=structuredClone(project);perspective.scene.camera.projection='perspective';
+      const base=structuredClone(project),orbit=structuredClone(base);Object.assign(orbit.scene.camera,{yaw:45,pitch:18,zoom:1.1});
+      result.flatBounds.orbit=flatSelection(await mount(orbit));
+      const perspective=structuredClone(base);perspective.scene.camera.projection='perspective';
       perspective.layers[0].z=30;
       result.flatBounds.perspective=flatSelection(await mount(perspective));
       result.flatOffscreen=flatSelection(await patch('cube',{x:200}));
@@ -114,10 +109,6 @@ test('one shared scene depth-tests photos, editable text and actual model geomet
   assert.equal(result.wheel.behind.count, 0, JSON.stringify(result.wheel));
   assert.ok(result.wheel.middle.count > 100 && result.wheel.middle.count < result.wheel.front.count*.8, `wheel photos pass on both sides of the same text plane: ${JSON.stringify(result.wheel)}`);
   assert.equal(result.wheel.textPick, 'title');
-  assert.ok(result.navigation.changed > 1000);
-  assert.equal(result.navigation.unchangedProject, true);
-  assert.equal(result.navigation.restored, 0);
-  assert.equal(result.exportViewUnchanged, 0, 'editor navigation never changes the render camera');
   assert.deepEqual(result.legacy.center, [0,0,255,255], 'old independent presentations retain their original layer-stack appearance');
   assert.deepEqual(result.legacy.spaces, ['flat','flat']);
   for (const [view, selection] of Object.entries(result.flatBounds)) {
