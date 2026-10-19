@@ -82,8 +82,10 @@ test('setup reuses a connection the editor still recognises and pairs otherwise'
   const server = createServer(async (request, response) => {
     let text = ''; for await (const chunk of request) text += chunk;
     requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization, body: text && JSON.parse(text) });
-    response.writeHead(request.url === '/api/render-worker/identity' ? identity : 200, { 'Content-Type': 'application/json' });
-    if (request.url === '/api/render-worker/identity') response.end(JSON.stringify(identity === 200 ? { id: 'device', name: 'Studio Mac' } : { error: 'Unauthorized' }));
+    // `identity` is a status, or a list of statuses answered in turn.
+    const status = request.url !== '/api/render-worker/identity' ? 200 : Array.isArray(identity) ? identity.shift() : identity;
+    response.writeHead(status, { 'Content-Type': 'application/json' });
+    if (request.url === '/api/render-worker/identity') response.end(JSON.stringify(status === 200 ? { id: 'device', name: 'Studio Mac' } : { error: 'Unauthorized' }));
     else response.end(JSON.stringify({ token: paired }));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -93,7 +95,7 @@ test('setup reuses a connection the editor still recognises and pairs otherwise'
   const save = () => writeFile(configFile, JSON.stringify({ origin, token, browserPath: '/old/browser' }));
   const config = async () => JSON.parse(await readFile(configFile, 'utf8'));
   let asked = 0;
-  const options = { configFile, askCode: async () => { asked++; return 'abcde-12345'; }, browserPath: '/new/browser', version: async () => 'v'.repeat(64), name: 'Studio Mac' };
+  const options = { configFile, askCode: async () => { asked++; return 'abcde-12345'; }, browserPath: '/new/browser', version: async () => 'v'.repeat(64), name: 'Studio Mac', retryDelayMs: 0 };
 
   await save();
   assert.deepEqual(await connectRenderer({ ...options, origin: null }), { reused: true, name: 'Studio Mac' });
@@ -114,6 +116,21 @@ test('setup reuses a connection the editor still recognises and pairs otherwise'
 
   identity = 503; requests.length = 0; await save();
   await assert.rejects(connectRenderer({ ...options, origin }), /could not check the existing connection \(503\)/);
+  assert.equal(requests.length, 3, 'an unavailable editor is retried before giving up');
   assert.deepEqual(await config(), { origin, token, browserPath: '/old/browser' }, 'an unavailable editor never replaces the connection');
+  assert.equal(asked, 1);
+
+  identity = [502, 200]; requests.length = 0; await save();
+  assert.deepEqual(await connectRenderer({ ...options, origin }), { reused: true, name: 'Studio Mac' }, 'a brief outage still reuses the connection');
+  assert.equal(asked, 1);
+
+  // A port nobody listens on: every attempt fails to connect and the connection is kept.
+  const closed = createServer();
+  await new Promise(resolve => closed.listen(0, '127.0.0.1', resolve));
+  const offline = `http://127.0.0.1:${closed.address().port}`;
+  await new Promise(resolve => closed.close(resolve));
+  await writeFile(configFile, JSON.stringify({ origin: offline, token, browserPath: '/old/browser' }));
+  await assert.rejects(connectRenderer({ ...options, origin: null, attempts: 2 }), /Could not reach/);
+  assert.deepEqual(await config(), { origin: offline, token, browserPath: '/old/browser' });
   assert.equal(asked, 1);
 });

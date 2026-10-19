@@ -50,15 +50,21 @@ export function trustedOrigin(value) {
 }
 
 // Reuses a saved connection the editor still recognises, so reinstalling never needs a
-// new code; otherwise pairs with a connection code. `code` forces pairing.
-export async function connectRenderer({ configFile, origin, code, askCode, browserPath, version, name = os.hostname() }) {
+// new code; otherwise pairs with a connection code. `code` forces pairing. A brief network
+// or editor outage (for example a stopped machine starting) is retried before giving up.
+export async function connectRenderer({ configFile, origin, code, askCode, browserPath, version, name = os.hostname(), attempts = 3, retryDelayMs = 5000 }) {
   const existing = code === undefined ? await readJson(configFile, { missing: null }).catch(() => null) : null;
   let saved = null;
   try { if (typeof existing?.token === 'string' && existing.token.length >= 32) saved = trustedOrigin(existing.origin).origin; } catch {}
   if (saved && (!origin || origin === saved)) {
-    let response;
-    try { response = await fetch(`${saved}/api/render-worker/identity`, { headers: { Authorization: `Bearer ${existing.token}` }, signal: AbortSignal.timeout(15000), redirect: 'error' }); }
-    catch (cause) { throw new Error(`Could not reach ${saved} to check the existing connection. Check your internet connection and try again.`, { cause }); }
+    let response, failure;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      if (attempt > 1) await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      try { response = await fetch(`${saved}/api/render-worker/identity`, { headers: { Authorization: `Bearer ${existing.token}` }, signal: AbortSignal.timeout(15000), redirect: 'error' }); failure = null; }
+      catch (cause) { response = null; failure = cause; continue; }
+      if (response.status < 500) break;
+    }
+    if (failure) throw new Error(`Could not reach ${saved} to check the existing connection. Check your internet connection and try again.`, { cause: failure });
     if (response.ok) {
       const identity = await response.json();
       await writeJsonAtomic(configFile, { ...existing, origin: saved, browserPath }, { mode: 0o600 });

@@ -111,7 +111,12 @@ export function createPersonalRenderers({ data, jobs, version, now = Date.now })
       device.updateRequested = true;
       return this.status(device);
     },
-    identity: device => ({ id: device.id, name: device.name || 'This computer' }),
+    // The installer confirmed this saved connection, so a Reconnect code the browser opened
+    // for the same renderer is no longer needed and must not hold its exports back.
+    identity(device) {
+      for (const [code, entry] of codes) if (entry.device === device) { codes.delete(code); device.connecting = false; }
+      return { id: device.id, name: device.name || 'This computer' };
+    },
     // `fonts` are the workspace font faces the project needs; the renderer downloads them with its token.
     async enqueue(device, input, options, fonts = []) {
       await expire(device);

@@ -196,6 +196,22 @@ test('pairing codes expire, are single use, and incompatible engines cannot expo
   } finally { await rm(data, { recursive: true, force: true }); }
 });
 
+test('reusing the saved connection in the installer ends a pending Reconnect code', async () => {
+  const data = await mkdtemp(path.join(os.tmpdir(), 'floc-pairing-reuse-'));
+  const service = createPersonalRenderers({ data, jobs: new Map(), version: 'v2', now: () => 100000 });
+  try {
+    const pairing = await service.startPairing();
+    const credentials = await service.finishPairing({ code: pairing.code, name: 'Mac', version: 'v2' });
+    const cookie = rendererCookie(pairing.key, false), engine = await service.engine(`Bearer ${credentials.token}`);
+    const reconnect = await service.startPairing(cookie);
+    await assert.rejects(service.claim(engine, { version: 'v2' }), /Finish connecting/);
+    service.identity(engine);
+    assert.equal((await service.status(await service.browser(cookie))).connecting, false);
+    assert.equal(await service.claim(engine, { version: 'v2' }), null, 'the renderer checks in and waits for work');
+    await assert.rejects(service.finishPairing({ code: reconnect.code, version: 'v2' }), /invalid/);
+  } finally { await rm(data, { recursive: true, force: true }); }
+});
+
 test('updater renderers update their engine when outdated or asked, and old renderers keep the original contract', async () => {
   const data = await mkdtemp(path.join(os.tmpdir(), 'floc-personal-update-'));
   let clock = 100000;
