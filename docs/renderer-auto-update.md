@@ -8,7 +8,8 @@ El Renderer de FLOC Motion ya no hay que descargarlo ni volver a conectarlo con 
 
 1. En el editor, abre **Export → Download renderer**.
 2. Descomprime el ZIP en una carpeta nueva y abre **Install-Mac.command** (Mac) o **Install-Windows.cmd** (Windows).
-3. Si este ordenador ya estaba conectado, el instalador muestra **“Using the existing connection: …”** y **no pide código**. Solo lo pide en un ordenador nuevo o si el editor ya no reconoce este Renderer.
+3. Si este ordenador ya estaba conectado, el instalador muestra **“Using the existing connection: …”** y **no pide código**. Solo lo pide en un ordenador nuevo o si el editor ya no reconoce este Renderer. No hace falta pulsar **Reconnect**; si ya lo pulsaste, el instalador cancela ese código al reutilizar la conexión.
+4. Si el editor no responde un momento, el instalador reintenta. Si sigue sin conexión, se detiene sin tocar la conexión guardada: vuelve a abrirlo cuando haya internet.
 
 ### A partir de ahí
 
