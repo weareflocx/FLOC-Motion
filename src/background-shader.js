@@ -233,7 +233,8 @@ vec2 pattern(vec2 p, vec2 size) {
   // Noise never repeats, so a loop crossfades towards the state one loop
   // earlier, which at the loop's end is exactly its first frame.
   vec2 earlier = uPattern == P_AURORA ? aurora(uv, s, t - uLoop) : clouds(uv, s, t - uLoop);
-  return mix(now, earlier, t / uLoop);
+  // Animated speed can reverse, so the weight stays within the two states.
+  return mix(now, earlier, clamp(t / uLoop, 0.0, 1.0));
 }
 
 void main() {

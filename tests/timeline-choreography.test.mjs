@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { transform } from 'esbuild';
 import { editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
 import { fitFades } from '../src/project.js';
-import { moveState, choreographyFields } from '../src/choreography.js';
+import { moveState, supportsChoreography } from '../src/choreography.js';
 import { LAYER_COLORS } from '../src/editor/layer-colors.js';
 import { LAYER_KINDS } from '../src/editor/layer-kinds.js';
 
@@ -21,7 +21,7 @@ function timeline({ locked = false, time = 3, mode = 'choreography', width = 800
   const summaries = {};
   const setSourceDuration = duration => { if (Number.isFinite(duration)) summaries[layer.src] = { status: 'ready', data: { duration, peaks: [0, .1, .8, .2, 0, .3] } }; else delete summaries[layer.src]; };
   if (music) setSourceDuration(sourceDuration);
-  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, AudioWaveform() {}, AudioWaveformStatus() {}, useAudioWaveforms: () => ({ summaries, retry() {} }), editClip, editFade, timeAtPointer, fitFades, moveState, choreographyFields, LAYER_COLORS, LAYER_KINDS,
+  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, AudioWaveform() {}, AudioWaveformStatus() {}, useAudioWaveforms: () => ({ summaries, retry() {} }), editClip, editFade, timeAtPointer, fitFades, moveState, supportsChoreography, LAYER_COLORS, LAYER_KINDS,
     useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value: value === 0 ? width : value }; return [slots[i].value, next => { slots[i].value = next; }]; } };

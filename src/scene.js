@@ -160,6 +160,8 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   const cardBox = new THREE.Box3();
   // Last animated typography and color written to each text node.
   const textStyles = new Map();
+  // Last animated base color written to each solid or media background fill.
+  const backgroundFills = new Map();
   const scenePass = createScenePass();
   const material = new THREE.ShaderMaterial({ vertexShader: vertex, fragmentShader: fragment, transparent: true,
     uniforms: { ...scenePass.uniforms, flocSceneOpaque: { value: false }, ...cardUniforms(null, 1), uCardSize: { value: layer.size }, uShape: { value: 0 }, uWindow: { value: new THREE.Vector2() }, uCanvasPixels: { value: new THREE.Vector2(width, height) } } });
@@ -188,6 +190,9 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
         for (const node of opacityNodes.filter(node => node.dataset.flocLayer === l.id)) {
           node.style.transform = `translate(${pos.x ?? 0}%,${pos.y ?? 0}%) rotate(${pos.roll ?? 0}deg)`;
         }
+        // Procedural backgrounds draw their animated base color in the shader.
+        const fill = l.mode === 'procedural' ? null : l.mode === 'color' || !l.src ? el : el.firstElementChild;
+        if (fill && backgroundFills.get(fill) !== pos.color) { fill.style.background = pos.color; backgroundFills.set(fill, pos.color); }
         continue;
       }
       const sizeProperty = l.type === 'text' ? 'fontSize' : 'width';

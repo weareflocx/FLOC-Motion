@@ -3,15 +3,15 @@ import { BRAND } from './brand.js';
 import { textFontValid } from './fonts.js';
 import { DEFAULT_LAYOUT } from './layout.js';
 import { DEFAULT_MOTION, motionBaseline, validateMotion } from './motion-timing.js';
-import { choreographyFields, optionalChoreographyFields, evaluateChoreography } from './choreography.js';
+import { choreographyFields, optionalChoreographyFields, evaluateChoreography, supportsChoreography } from './choreography.js';
 import { isEasing } from './easing.js';
 import { CONTENT_PROPERTIES, normalizeContentField } from './template-content.js';
-import { DEFAULT_PROCEDURAL_BACKGROUND, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults } from './backgrounds.js';
+import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, proceduralDefaults } from './backgrounds.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from './text-style.js';
 import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
 import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
-import { PROJECT_LIMITS } from './project-limits.js';
+import { PATTERN_SCALE, PROJECT_LIMITS } from './project-limits.js';
 import { normalizeModelStyle } from './model-style.js';
 import { SPATIAL_LAYER_TYPES, LAYER_SPACES, SCENE_DEPTH_RANGE, normalizeScene, assertPlainSceneRecord } from './scene-settings.js';
 export { PROJECT_LIMITS } from './project-limits.js';
@@ -63,6 +63,7 @@ function validateChoreography(layer) {
     previousTime = state.time;
     if (!isEasing(state.easing)) fail('Unknown choreography easing.');
     if (!state.values || typeof state.values !== 'object' || Array.isArray(state.values) || Object.keys(state.values).some(key => !Object.hasOwn(fields, key) && !Object.hasOwn(optional, key))) fail('Invalid choreography values.');
+    if (!Object.keys(state.values).length && !Object.keys(fields).length) fail('A choreography state must hold at least one value.');
     for (const [field, [min, max]] of Object.entries(fields)) {
       if (['z', 'tilt', 'yaw', 'roll'].includes(field) && state.values[field] === undefined) state.values[field] = layer[field] ?? 0;
       finite(state.values[field], min, max, `State ${field}`);
@@ -278,6 +279,9 @@ export function validateProject(input) {
       validateChoreography(l);
       l.fadeIn ??= 0; l.fadeOut ??= 0; finite(l.fadeIn, 0, 30, 'Fade in'); finite(l.fadeOut, 0, 30, 'Fade out');
       Object.assign(l, fitFades(l.fadeIn, l.fadeOut, l.end - l.start));
+    } else if (supportsChoreography(l)) {
+      // Backgrounds have no fades; their optional states animate colors and pattern values.
+      if (l.choreography !== undefined) validateChoreography(l);
     } else if (Object.hasOwn(l, 'choreography')) fail('This layer cannot have choreography.');
   }
   if (Object.hasOwn(p, 'linkedFormats')) p.linkedFormats = normalizeLinkedFormats(p, FORMATS, validateProject);
@@ -388,7 +392,7 @@ export function patchLayer(project, id, patch) {
   if (Object.keys(patch).some(key => !LAYER_KEYS[layer.type]?.has(key)
     || key === 'effects' && !EFFECT_LAYER_TYPES.includes(layer.type)
     || key === 'opacity' && !EFFECT_LAYER_TYPES.includes(layer.type)
-    || key === 'choreography' && !FADE_LAYERS.includes(layer.type)
+    || key === 'choreography' && !supportsChoreography(layer)
     || key === 'effectScope' && layer.type !== 'effect'
     || key === 'contentField' && !Object.hasOwn(CONTENT_PROPERTIES, layer.type))) fail('Unknown layer property.');
   if (layer.locked && Object.keys(patch).some(key => !['locked', 'visible'].includes(key))) fail('Unlock the layer before editing it.');

@@ -34,6 +34,31 @@ test('exports at any resolution share scene geometry, and inputs are clamped', (
   assert.deepEqual([extreme.scale, extreme.weight, extreme.time, extreme.vignette, extreme.grain], [4, 0, 0, 1, 0]);
 });
 
+test('animated speed and direction integrate over time, so keyframes never make the pattern jump', () => {
+  const keyed = (values, easing = 'linear') => values.map(([time, value], i) => ({ id: `s${i}`, time, easing, values: value }));
+  const grid = { type: 'background', mode: 'procedural', pattern: 'grid', start: 0, end: 6, patternSpeed: 0, patternDirection: 315 };
+  // Speed ramps linearly from 0 to 1 over 4 s: the pattern travels the ramp's area.
+  const ramp = { ...grid, choreography: keyed([[0, { patternSpeed: 0 }], [4, { patternSpeed: 1 }]]) };
+  const at = seconds => backgroundUniforms(ramp, seconds, 1080, 1080);
+  assert.ok(Math.abs(at(2).time - 0.5) < 1e-9 && Math.abs(at(4).time - 2) < 1e-9 && Math.abs(at(5).time - 3) < 1e-9);
+  assert.equal(at(0).frame, 0, 'grain is frozen while the animated speed is zero');
+  // While a state turns the direction, the pattern moves along the current
+  // direction at the current speed instead of swinging its whole path around.
+  const turn = { ...grid, patternSpeed: 1, choreography: keyed([[0, { patternDirection: 0 }], [3, { patternDirection: 90 }]], 'ease-in-out') };
+  for (const seconds of [0.75, 1.5, 2.25]) {
+    const before = backgroundUniforms(turn, seconds - 1e-4, 1080, 1080).drift, after = backgroundUniforms(turn, seconds + 1e-4, 1080, 1080).drift;
+    const { direction } = backgroundUniforms(turn, seconds, 1080, 1080), rate = 0.25 * Math.SQRT2;
+    assert.ok([0, 1].every(i => Math.abs((after[i] - before[i]) / 2e-4 - rate * direction[i]) < 1e-3), `velocity follows the direction at ${seconds} s`);
+  }
+  // A looping background with animated speed still ends on whole lattice steps.
+  const loop = backgroundUniforms({ ...ramp, patternLoop: true }, 6 - 1e-9, 1080, 1080);
+  assert.ok(loop.drift.every(cells => Math.abs(cells - Math.round(cells)) < 1e-6) && loop.drift.some(cells => Math.round(cells) !== 0), JSON.stringify(loop.drift));
+  assert.ok(Math.abs(loop.time - loop.loop) < 1e-6);
+  // Animated colors and pattern values reach the shader.
+  const colors = backgroundUniforms({ ...grid, color: '#000000', choreography: keyed([[0, { color: '#000000', patternIntensity: 0 }], [2, { color: '#ffffff', patternIntensity: 1 }]]) }, 2, 1080, 1080);
+  assert.deepEqual([colors.base, colors.weight], [[1, 1, 1], 1]);
+});
+
 test('procedural stage markup has native dimensions, timing and authored stacking', () => {
   const p = validateProject(demoProject());
   const background = p.layers.find(layer => layer.type === 'background');

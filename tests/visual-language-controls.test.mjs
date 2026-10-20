@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults } from '../src/backgrounds.js';
+import { PROCEDURAL_BACKGROUNDS, proceduralDefaults } from '../src/backgrounds.js';
+import { PATTERN_SCALE } from '../src/project-limits.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from '../src/text-style.js';
 
 async function compile(path) {

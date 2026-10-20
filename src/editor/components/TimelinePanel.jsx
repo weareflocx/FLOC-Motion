@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { DotsNine, Circle, Images, CaretDown, CaretUp, ImageSquare, MusicNotes, Sparkle, TextT } from '@phosphor-icons/react';
 import { TimelineTracks } from '../../timeline.jsx';
-import { evaluateChoreography } from '../../choreography.js';
-import { ChoreographyControls, supportsChoreography } from './ChoreographyControls.jsx';
+import { evaluateChoreography, supportsChoreography } from '../../choreography.js';
+import { ChoreographyControls } from './ChoreographyControls.jsx';
 import { TimelineControlsPopover } from './TimelineControlsPopover.jsx';
 import { usePlaybackTime } from '../usePlayback.js';
 import { ASSET_DRAG_TYPE, assetKind } from '../media-library.js';

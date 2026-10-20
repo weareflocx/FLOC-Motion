@@ -1,10 +1,9 @@
 import React from 'react';
 import { Diamond, Trash } from '@phosphor-icons/react';
-import { capturedProperties, captureState, moveState, stateAtTime } from '../../choreography.js';
+import { capturedProperties, captureState, choreographyFields, moveState, stateAtTime, supportsChoreography } from '../../choreography.js';
 import { EASINGS, EASING_GROUPS, easeProgress, isCubicBezier } from '../../easing.js';
 import { IconButton, NumberField } from '../controls.jsx';
 
-export const supportsChoreography = layer => ['text', 'logo', 'carousel', 'media', 'model', 'effect'].includes(layer?.type);
 const formatTime = time => `${Number(time).toFixed(2)} s`;
 const CUSTOM_EASING = [0.25, 0.1, 0.25, 1];
 const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
@@ -48,7 +47,7 @@ export function ChoreographyControls({ project, layer, time = 0, onPatch, onSeek
 
   return <div className="timeline-choreography-controls" role="group" aria-label="Choreography">
     <fieldset className="timeline-edit-fields" disabled={layer.locked}>
-      <NumberField scale={100} suffix="%" label="Opacity" value={layer.opacity ?? 1} min={0} max={1} step={0.01} onChange={opacity => onPatch(layer.id, { opacity })}/>
+      {Object.hasOwn(choreographyFields(layer), 'opacity') && <NumberField scale={100} suffix="%" label="Opacity" value={layer.opacity ?? 1} min={0} max={1} step={0.01} onChange={opacity => onPatch(layer.id, { opacity })}/>}
       <button type="button" className="outline-button timeline-save-state" disabled={!insideClip || (!selected && states.length >= 32)} onClick={saveState}><Diamond size={15} aria-hidden="true"/>{selected ? 'Update state' : 'Save state'}</button>
     </fieldset>
     <label className="timeline-state-picker" title="Select any state, including overlapping markers"><span>State</span><select aria-label="Choreography state" value={selected?.id ?? ''} disabled={!states.length} onChange={event => {

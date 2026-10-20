@@ -1,4 +1,6 @@
 import { backgroundRenderer, disposeBackgroundRenderer } from './background-renderer.js';
+import { animatedFields, choreographyValueAt, evaluateChoreography } from './choreography.js';
+import { PATTERN_SCALE } from './project-limits.js';
 
 // `controls` lists the pattern-specific settings the editor shows: direction
 // for patterns that drift across the frame, focus for those with a center.
@@ -23,8 +25,6 @@ export const PROCEDURAL_BACKGROUNDS = [
 // frame. Their defaults depend on pattern and seed: see `proceduralDefaults`.
 export const DEFAULT_PROCEDURAL_BACKGROUND = { pattern: 'grid', patternColor: '#ffffff', patternScale: 1, patternIntensity: 0.35, patternSpeed: 0.2, patternSeed: 1, patternVignette: 0, patternGrain: 0,
   patternLoop: false, patternDirection: 315, patternFocusX: 50, patternFocusY: 50 };
-// Below 0.25 the shader also thins strokes so fine patterns stay open.
-export const PATTERN_SCALE = Object.freeze({ min: 0.1, max: 4 });
 
 // Calibration, measured on rendered frames: `gain` gives every pattern a
 // comparable visual weight at the same intensity, and `pace` a comparable
@@ -70,12 +70,12 @@ export function proceduralDefaults(layer = {}) {
     patternFocusX: (0.3 + 0.4 * seededRandom(seed, 1)) * 100, patternFocusY: (0.3 + 0.4 * seededRandom(seed, 2)) * 100 };
 }
 
-// Drift in the pattern's lattice cells for `amount` units of pattern time.
-// Grid, dots and checkerboard use screen axes, halftone its 45° screen and
-// stripes the distance along their normal (x only).
-function latticeDrift({ rate, lattice }, [nx, ny], amount) {
-  if (lattice === 'line') return [rate * amount, 0];
-  const x = nx * rate * amount, y = ny * rate * amount;
+// Drift in the pattern's lattice cells from a screen-axis sweep and pattern
+// time (see `travel`). Grid, dots and checkerboard use screen axes, halftone
+// its 45° screen and stripes the distance along their normal (x only).
+function latticeDrift({ rate, lattice }, [sx, sy], time) {
+  if (lattice === 'line') return [rate * time, 0];
+  const x = rate * sx, y = rate * sy;
   return lattice === 'diagonal' ? [Math.SQRT1_2 * (x - y), Math.SQRT1_2 * (x + y)] : [x, y];
 }
 const STEPS = { square: [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]], checker: [[1, 1], [1, -1], [-1, 1], [-1, -1], [2, 0], [-2, 0], [0, 2], [0, -2]] };
@@ -93,26 +93,58 @@ function wholeDrift([x, y], lattice) {
   return (STEPS[lattice] ?? STEPS.square).reduce((best, step) => closeness(step) > closeness(best) ? step : best);
 }
 
+// Pattern time (∫ speed · pace) and screen-axis sweep (∫ speed · pace ·
+// direction, y down) from the layer's start to `seconds`. Animated speed or
+// direction is integrated state to state with Simpson's rule, so the pattern
+// never jumps when a keyframe changes them; constant values use the exact form.
+const SIMPSON_STEPS = 16;
+function travel(layer, pace, seconds) {
+  const animated = animatedFields(layer).filter(field => field === 'patternSpeed' || field === 'patternDirection');
+  const value = (field, time) => animated.includes(field) ? choreographyValueAt(layer, field, time) : layer[field];
+  const rate = time => {
+    const speed = clamp(Number.isFinite(value('patternSpeed', time)) ? value('patternSpeed', time) : 0, -2, 2) * pace;
+    const angle = (Number.isFinite(value('patternDirection', time)) ? value('patternDirection', time) : 0) * Math.PI / 180;
+    return [speed, speed * Math.cos(angle), -speed * Math.sin(angle)];
+  };
+  if (!animated.length) return rate(0).map(component => component * seconds);
+  const stops = [0, ...layer.choreography.map(state => state.time).filter(time => time > 0 && time < seconds), seconds];
+  const total = [0, 0, 0];
+  for (let i = 1; i < stops.length; i++) {
+    const start = stops[i - 1], step = (stops[i] - start) / SIMPSON_STEPS;
+    if (!(step > 0)) continue;
+    for (let k = 0; k <= SIMPSON_STEPS; k++) {
+      const weight = (k === 0 || k === SIMPSON_STEPS ? 1 : k % 2 ? 4 : 2) * step / 3;
+      rate(start + k * step).forEach((component, c) => { total[c] += weight * component; });
+    }
+  }
+  return total;
+}
+
 // Everything the shader needs, derived only from the layer and a supplied
-// time, so reverse seeks and exports reproduce the same frame. Speed zero
-// freezes the pattern, its grain included. Editor tiles show a magnified
-// crop with thicker strokes so the pattern stays legible at thumbnail size.
+// time, so reverse seeks and exports reproduce the same frame. Choreography
+// states animate colors and pattern values. Speed zero freezes the pattern,
+// its grain included. Editor tiles show a magnified crop with thicker
+// strokes so the pattern stays legible at thumbnail size.
 // A seamless loop spans the layer's duration: pattern time runs from 0 to
-// `loop`, drift travels whole lattice steps and the shader rounds every other
-// motion to whole cycles, so the last frame leads straight into the first.
+// `loop`, drift is corrected to whole lattice steps and the shader rounds
+// every other motion to whole cycles, so the last frame leads into the first.
 export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { tile = false } = {}) {
   const settings = { ...proceduralDefaults(layer), ...layer };
+  const seconds = Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
+  const live = settings.choreography?.length && Number.isFinite(settings.start) ? evaluateChoreography(settings, settings.start + seconds) : settings;
   const id = IDS.includes(settings.pattern) ? settings.pattern : DEFAULT_PROCEDURAL_BACKGROUND.pattern;
   const { gain, pace, drift } = TUNING[id];
-  const seconds = Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
-  const speed = clamp(Number.isFinite(settings.patternSpeed) ? settings.patternSpeed : 0, -2, 2);
-  const span = settings.end - settings.start;
-  const loop = settings.patternLoop === true && speed !== 0 && span > 0 ? span * speed * pace : 0;
-  const phase = loop ? (seconds % span) / span : 0;
-  const time = loop ? phase * loop : seconds * speed * pace;
-  const angle = (Number.isFinite(settings.patternDirection) ? settings.patternDirection : 0) * Math.PI / 180;
-  const direction = [Math.cos(angle), -Math.sin(angle)];
-  const travel = !drift ? [0, 0] : loop ? wholeDrift(latticeDrift(drift, direction, loop), drift.lattice).map(cells => cells * phase) : latticeDrift(drift, direction, time);
+  const speed = clamp(Number.isFinite(live.patternSpeed) ? live.patternSpeed : 0, -2, 2);
+  const span = settings.end - settings.start, looping = settings.patternLoop === true && span > 0;
+  const at = looping ? seconds % span : seconds;
+  const [time, ...sweep] = travel(settings, pace, at);
+  const [loop, ...wholeSweep] = looping ? travel(settings, pace, span) : [0, 0, 0];
+  let travelled = drift ? latticeDrift(drift, sweep, time) : [0, 0];
+  if (drift && looping) {
+    const end = latticeDrift(drift, wholeSweep, loop), whole = wholeDrift(end, drift.lattice);
+    travelled = travelled.map((cells, i) => cells + (whole[i] - end[i]) * (at / span));
+  }
+  const angle = (Number.isFinite(live.patternDirection) ? live.patternDirection : 0) * Math.PI / 180;
   return {
     unit: Math.min(width, height) / (tile ? 324 : 1080),
     line: tile ? 2 : 1,
@@ -120,16 +152,16 @@ export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { ti
     loop,
     frame: speed === 0 ? 0 : Math.floor(seconds * fps + 1e-4) >>> 0,
     pattern: IDS.indexOf(id),
-    scale: clamp(settings.patternScale, PATTERN_SCALE.min, PATTERN_SCALE.max),
-    weight: clamp(settings.patternIntensity, 0, 1) * gain,
+    scale: clamp(live.patternScale, PATTERN_SCALE.min, PATTERN_SCALE.max),
+    weight: clamp(live.patternIntensity, 0, 1) * gain,
     seed: settings.patternSeed >>> 0,
-    drift: travel,
-    direction,
-    focus: [clamp(settings.patternFocusX, 0, 100) / 100, clamp(settings.patternFocusY, 0, 100) / 100],
-    base: rgb(settings.color ?? '#080808'),
-    ink: rgb(settings.patternColor),
-    vignette: clamp(settings.patternVignette, 0, 1),
-    grain: clamp(settings.patternGrain, 0, 1)
+    drift: travelled,
+    direction: [Math.cos(angle), -Math.sin(angle)],
+    focus: [clamp(live.patternFocusX, 0, 100) / 100, clamp(live.patternFocusY, 0, 100) / 100],
+    base: rgb(live.color ?? '#080808'),
+    ink: rgb(live.patternColor),
+    vignette: clamp(live.patternVignette, 0, 1),
+    grain: clamp(live.patternGrain, 0, 1)
   };
 }
 
