@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
-import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview } from '../../backgrounds.js';
+import { PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview, proceduralDefaults } from '../../backgrounds.js';
 import { Color, Field, NumberField, Range } from '../controls.jsx';
 import './visual-language.css';
 
@@ -9,13 +9,15 @@ const SOURCES = [['color', 'Solid'], ['image', 'Image'], ['video', 'Video'], ['p
 function BackgroundPreview({ layer, pattern }) {
   const canvas = useRef(null);
   useEffect(() => {
-    drawBackgroundPreview(canvas.current, { ...DEFAULT_PROCEDURAL_BACKGROUND, ...layer, pattern: pattern.id });
-  }, [layer.color, layer.patternColor, layer.patternScale, layer.patternIntensity, layer.patternSpeed, layer.patternSeed, layer.patternVignette, layer.patternGrain, pattern.id]);
+    drawBackgroundPreview(canvas.current, { ...proceduralDefaults(layer), ...layer, pattern: pattern.id });
+  }, [layer.color, layer.patternColor, layer.patternScale, layer.patternIntensity, layer.patternSpeed, layer.patternSeed, layer.patternVignette, layer.patternGrain,
+    layer.patternLoop, layer.patternDirection, layer.patternFocusX, layer.patternFocusY, layer.start, layer.end, pattern.id]);
   return <canvas ref={canvas} width={144} height={81} aria-hidden="true"/>;
 }
 
 export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
-  const settings = { ...DEFAULT_PROCEDURAL_BACKGROUND, ...layer };
+  const settings = { ...proceduralDefaults(layer), ...layer };
+  const controls = PROCEDURAL_BACKGROUNDS.find(pattern => pattern.id === settings.pattern)?.controls ?? [];
   function selectSource(mode) {
     const mediaType = mode === 'video' ? /\.(mp4|webm)$/i : mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : null;
     onPatch(layer.id, { mode, ...(mediaType && layer.src && !mediaType.test(layer.src) ? { src: '' } : {}) });
@@ -32,9 +34,16 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
           <BackgroundPreview layer={settings} pattern={pattern}/><span>{pattern.name}</span>
         </button>)}
       </div>
-      <Range label="Pattern scale" value={settings.patternScale} min={0.25} max={4} step={0.05} onChange={patternScale => onPatch(layer.id, { patternScale })}/>
+      <Range label="Pattern scale" value={settings.patternScale} min={PATTERN_SCALE.min} max={PATTERN_SCALE.max} step={0.05} onChange={patternScale => onPatch(layer.id, { patternScale })}/>
       <Range label="Pattern intensity" value={settings.patternIntensity} min={0} max={1} step={0.05} onChange={patternIntensity => onPatch(layer.id, { patternIntensity })}/>
       <Range label="Pattern speed" value={settings.patternSpeed} min={-2} max={2} step={0.05} onChange={patternSpeed => onPatch(layer.id, { patternSpeed })}/>
+      <label className="check-field"><input type="checkbox" checked={settings.patternLoop} onChange={event => onPatch(layer.id, { patternLoop: event.target.checked })}/>Seamless loop</label>
+      {settings.patternLoop && <p className="helper">Motion repeats exactly every {Number((layer.end - layer.start).toFixed(2))} s, the layer's duration. Speed rounds to whole cycles.</p>}
+      {controls.includes('direction') && <Range label="Direction" value={settings.patternDirection} min={0} max={360} step={1} suffix="°" onChange={patternDirection => onPatch(layer.id, { patternDirection })}/>}
+      {controls.includes('focus') && <>
+        <Range label="Focus X" value={settings.patternFocusX} min={0} max={100} step={1} suffix="%" onChange={patternFocusX => onPatch(layer.id, { patternFocusX })}/>
+        <Range label="Focus Y" value={settings.patternFocusY} min={0} max={100} step={1} suffix="%" onChange={patternFocusY => onPatch(layer.id, { patternFocusY })}/>
+      </>}
       <NumberField label="Pattern seed" value={settings.patternSeed} min={0} max={65535} onChange={patternSeed => { if (Number.isInteger(patternSeed)) onPatch(layer.id, { patternSeed }); }}/>
       <Range label="Vignette" value={settings.patternVignette} min={0} max={1} step={0.05} onChange={patternVignette => onPatch(layer.id, { patternVignette })}/>
       <Range label="Grain overlay" value={settings.patternGrain} min={0} max={1} step={0.05} onChange={patternGrain => onPatch(layer.id, { patternGrain })}/>

@@ -6,7 +6,7 @@ import { DEFAULT_MOTION, motionBaseline, validateMotion } from './motion-timing.
 import { choreographyFields, optionalChoreographyFields, evaluateChoreography } from './choreography.js';
 import { isEasing } from './easing.js';
 import { CONTENT_PROPERTIES, normalizeContentField } from './template-content.js';
-import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from './backgrounds.js';
+import { DEFAULT_PROCEDURAL_BACKGROUND, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults } from './backgrounds.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from './text-style.js';
 import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
 import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
@@ -234,11 +234,13 @@ export function validateProject(input) {
       str(baseline.name, 100, 'motion baseline name'); finite(baseline.speed, -90, 90, 'Original speed'); finite(baseline.loopDuration, 0, 60, 'Original loop duration'); validateMotion(baseline.motion);
     } else if (l.type === 'background') {
       if (!['color', 'image', 'video', 'procedural'].includes(l.mode) || !['cover', 'contain'].includes(l.fit)) fail('Unknown background setting.');
-      for (const [field, value] of Object.entries(DEFAULT_PROCEDURAL_BACKGROUND)) if (l[field] === undefined) l[field] = value;
+      for (const [field, value] of Object.entries(proceduralDefaults(l))) if (l[field] === undefined) l[field] = value;
       if (!PROCEDURAL_BACKGROUNDS.some(({ id }) => id === l.pattern)) fail('Unknown background pattern.');
-      color(l.patternColor); finite(l.patternScale, 0.25, 4, 'Pattern scale'); finite(l.patternIntensity, 0, 1, 'Pattern intensity'); finite(l.patternSpeed, -2, 2, 'Pattern speed'); finite(l.patternVignette, 0, 1, 'Vignette'); finite(l.patternGrain, 0, 1, 'Grain overlay');
+      color(l.patternColor); finite(l.patternScale, PATTERN_SCALE.min, PATTERN_SCALE.max, 'Pattern scale'); finite(l.patternIntensity, 0, 1, 'Pattern intensity'); finite(l.patternSpeed, -2, 2, 'Pattern speed'); finite(l.patternVignette, 0, 1, 'Vignette'); finite(l.patternGrain, 0, 1, 'Grain overlay');
       if (!Number.isInteger(l.patternSeed)) fail('Pattern seed must be an integer.');
       finite(l.patternSeed, 0, 65535, 'Pattern seed');
+      if (typeof l.patternLoop !== 'boolean') fail('Pattern loop must be true or false.');
+      finite(l.patternDirection, 0, 360, 'Pattern direction'); finite(l.patternFocusX, 0, 100, 'Pattern focus X'); finite(l.patternFocusY, 0, 100, 'Pattern focus Y');
       color(l.color); asset(l.src); if (l.src && !(l.mode === 'video' ? /\.(mp4|webm)$/i : l.mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid background asset type.'); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
     } else if (l.type === 'logo') { asset(l.src); if (l.src && !/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(l.src)) fail('Logo requires an image.'); finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Logo size');
     } else if (l.type === 'media' || l.type === 'model') {

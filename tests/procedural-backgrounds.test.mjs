@@ -64,7 +64,23 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
       coverage: (layer, time) => coverage(pixels(layer, time, 960, 540)),
       // Brightest pixel of one row segment that a grid line crosses.
       linePeak: (layer, time) => { const data = pixels(layer, time, 1920, 1080); let max = 0; for (let x = 200; x < 400; x++) max = Math.max(max, data[(540 * 1920 + x) * 4]); return max; },
-      tile: layer => { const canvas = document.createElement('canvas'); canvas.width = 144; canvas.height = 81; drawBackgroundPreview(canvas, layer); const data = canvas.getContext('2d').getImageData(0, 0, 144, 81).data; let max = 0; for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i]); return { max, mean: coverage(data) * 255 }; }
+      tile: layer => { const canvas = document.createElement('canvas'); canvas.width = 144; canvas.height = 81; drawBackgroundPreview(canvas, layer); const data = canvas.getContext('2d').getImageData(0, 0, 144, 81).data; let max = 0; for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i]); return { max, mean: coverage(data) * 255 }; },
+      // Mean absolute RGB difference (0–255) between frame b and frame a moved up by \`up\` pixels.
+      difference: (a, timeA, b, timeB, up = 0) => {
+        const first = pixels(a, timeA), second = pixels(b, timeB);
+        let sum = 0, count = 0;
+        for (let y = Math.max(0, -up); y < 270 - Math.max(0, up); y++) for (let x = 0; x < 480; x++) for (let c = 0; c < 3; c++) {
+          sum += Math.abs(second[(y * 480 + x) * 4 + c] - first[((y + up) * 480 + x) * 4 + c]); count++;
+        }
+        return sum / count;
+      },
+      // Mean red value of the square of radius r pixels around a point given as fractions of the frame.
+      region: (layer, time, fx, fy, r) => {
+        const data = pixels(layer, time), cx = Math.round(fx * 480), cy = Math.round(fy * 270);
+        let sum = 0, count = 0;
+        for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) { sum += data[(y * 480 + x) * 4]; count++; }
+        return sum / count;
+      }
     };` }, bundle: true, write: false, format: 'iife' });
   const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--force-color-profile=srgb'] });
   t.after(() => browser.close());
@@ -86,9 +102,11 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
     const still = { ...layer, patternSpeed: 0, patternGrain: 0.4 };
     assert.equal(await run('digest', still, 80), await run('digest', still, 0), `${pattern} frozen`);
     digests.push(before);
-    // At full intensity no pattern disappears or floods the frame.
-    const weight = await run('coverage', { ...layer, patternIntensity: 1 }, 2);
-    assert(weight > 0.008 && weight < 0.4, `${pattern} visual weight ${weight}`);
+    // At full intensity no pattern disappears or floods the frame, even at the smallest scale.
+    for (const patternScale of [1, 0.1]) {
+      const weight = await run('coverage', { ...layer, patternIntensity: 1, patternScale }, 2);
+      assert(weight > 0.008 && weight < 0.4, `${pattern} visual weight ${weight} at scale ${patternScale}`);
+    }
     const tile = await run('tile', layer);
     assert(tile.max >= 20 && tile.mean >= 1.5, `${pattern} tile ${JSON.stringify(tile)}`);
   }
@@ -104,6 +122,34 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
   assert(await run('coverage', { ...plain, patternVignette: 1 }, 1) < await run('coverage', plain, 1) - 0.05);
   assert(Math.abs(await run('coverage', { ...plain, patternGrain: 1 }, 1) - await run('coverage', plain, 1)) < 0.01);
   assert.notEqual(await run('digest', { ...plain, patternGrain: 1 }, 1), await run('digest', plain, 1));
+
+  // Seamless loops: approaching the layer's end converges on its first frame,
+  // while every pattern still moves mid-loop. Grain frames are independent,
+  // so grain needs no loop.
+  const looping = { ...base, start: 0, end: 6, patternLoop: true, patternSpeed: 0.7, patternIntensity: 1 };
+  for (const pattern of IDS.filter(id => id !== 'grain')) {
+    const layer = { ...looping, pattern };
+    const seam = await run('difference', layer, 0, layer, 6 - 1e-3);
+    assert(seam < 0.3, `${pattern} loop seam ${seam}`);
+    const midway = await run('difference', layer, 0, layer, 3);
+    assert(midway > 1, `${pattern} moves within its loop ${midway}`);
+    const unlooped = { ...layer, patternLoop: false };
+    assert(await run('difference', unlooped, 0, unlooped, 6 - 1e-3) > seam + 0.5, `${pattern} only closes when looping`);
+  }
+
+  // Direction 90° moves straight up: dots cells are 23 px at 480×270, and
+  // this much time drifts them 10 px.
+  const rising = { ...base, pattern: 'dots', patternIntensity: 1, patternSpeed: 1, patternDirection: 90 };
+  const tenPixels = 10 / 23 / (0.25 * Math.SQRT2);
+  assert(await run('difference', rising, 0, rising, tenPixels, 10) < 1, 'direction 90 moves up');
+  assert(await run('difference', rising, 0, rising, tenPixels, -10) > 5, 'direction 90 does not move down');
+
+  // Rays leave their focus dark, wherever it is placed.
+  for (const [x, y] of [[20, 80], [80, 20]]) {
+    const rays = { ...base, pattern: 'rays', patternIntensity: 1, patternFocusX: x, patternFocusY: y };
+    assert(await run('region', rays, 1, x / 100, y / 100, 4) < 2, `rays centered on ${x}, ${y}`);
+    assert(await run('coverage', rays, 1) > 0.02);
+  }
   assert.deepEqual(errors, []);
 });
 
