@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from '../src/backgrounds.js';
+import { PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults } from '../src/backgrounds.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from '../src/text-style.js';
 
 async function compile(path) {
@@ -21,7 +21,7 @@ function controls(component, initial) {
   const changes = [], uploads = [], effects = [];
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    UploadSimple() {}, DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
+    UploadSimple() {}, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
     useState: value => [value, () => {}],
     useRef: value => ({ current: value }), useEffect: effect => effects.push(effect),
     createContext: value => ({ value }), useContext: context => context.value, useSyncExternalStore: (subscribe, snapshot) => snapshot()
@@ -87,6 +87,20 @@ test('pattern selection and bounded controls keep other background settings inta
   assert.equal(h.layer().patternSeed, 42);
   h.input('Pattern color').props.onChange({ target: { value: '#ff0000' } });
   assert.equal(h.layer().patternColor, '#ff0000');
+});
+
+test('direction and focus follow the pattern registry, and the loop toggles alone', () => {
+  const h = controls('background', { ...background, mode: 'procedural', start: 0, end: 6 });
+  assert.equal(h.input('Direction').props.value, 315, 'grid starts with its native drift');
+  assert.equal(h.input('Focus X'), undefined);
+  h.input('Direction').props.onChange({ target: { value: 90 } });
+  h.button('Rings background').props.onClick();
+  assert.equal(h.input('Direction'), undefined);
+  h.input('Focus X').props.onChange({ target: { value: 20 } });
+  h.input('Focus Y').props.onChange({ target: { value: 80 } });
+  h.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } });
+  const { patternDirection, patternFocusX, patternFocusY, patternLoop, pattern } = h.layer();
+  assert.deepEqual({ patternDirection, patternFocusX, patternFocusY, patternLoop, pattern }, { patternDirection: 90, patternFocusX: 20, patternFocusY: 80, patternLoop: true, pattern: 'rings' });
 });
 
 test('typography preserves precise spacing, and the reveal keeps its duration when disabled', () => {

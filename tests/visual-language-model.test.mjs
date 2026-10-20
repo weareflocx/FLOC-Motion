@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { demoProject, validateProject, patchLayer, linkFormats, switchFormat, resizeDuration } from '../src/project.js';
-import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS } from '../src/backgrounds.js';
+import { PROCEDURAL_BACKGROUNDS, proceduralDefaults } from '../src/backgrounds.js';
 import { DEFAULT_TEXT_STYLE } from '../src/text-style.js';
 import { stageMarkup } from '../src/scene.js';
 import { createTools } from '../src/webmcp.js';
@@ -13,7 +13,7 @@ test('legacy compositions keep their appearance and gain idempotent style defaul
   const p = validateProject(raw);
   assert.deepEqual(raw, before);
   for (const [key, value] of Object.entries(DEFAULT_TEXT_STYLE)) assert.equal(layer(p, 'headline')[key], value);
-  for (const [key, value] of Object.entries(DEFAULT_PROCEDURAL_BACKGROUND)) assert.equal(layer(p, 'background')[key], value);
+  for (const [key, value] of Object.entries(proceduralDefaults(layer(raw, 'background')))) assert.equal(layer(p, 'background')[key], value);
   assert.equal(layer(p, 'background').mode, 'color');
   assert.equal(stageMarkup(raw), stageMarkup(p));
   assert.deepEqual(validateProject(p), p);
@@ -31,8 +31,10 @@ test('all installed procedural backgrounds validate while retaining inactive med
 });
 
 test('style validation rejects unsafe, invalid and out-of-range edits through canonical patches', () => {
-  const backgrounds = [{ pattern: 'eval' }, { patternColor: 'red' }, { patternScale: 0 }, { patternIntensity: 1.1 }, { patternSpeed: Infinity }, { patternSeed: 1.5 }, { patternSeed: 65536 }];
+  const backgrounds = [{ pattern: 'eval' }, { patternColor: 'red' }, { patternScale: 0.09 }, { patternScale: 4.01 }, { patternIntensity: 1.1 }, { patternSpeed: Infinity }, { patternSeed: 1.5 }, { patternSeed: 65536 },
+    { patternLoop: 'yes' }, { patternDirection: 361 }, { patternDirection: -1 }, { patternFocusX: -1 }, { patternFocusY: 101 }];
   for (const patch of backgrounds) assert.throws(() => patchLayer(demoProject(), 'background', patch));
+  assert.equal(layer(patchLayer(demoProject(), 'background', { patternScale: 0.1 }), 'background').patternScale, 0.1);
   for (const patch of [{ lineHeight: 0.49 }, { letterSpacing: NaN }, { letterSpacing: 0.51 }, { textAlign: 'justify' }, { reveal: 'runtime-code' }, { revealDuration: 5.1 }]) assert.throws(() => patchLayer(demoProject(), 'headline', patch));
   assert.throws(() => patchLayer(demoProject(), 'logo', { reveal: 'up' }), /Unknown layer property/);
   assert.throws(() => patchLayer(demoProject(), 'headline', { pattern: 'waves' }), /Unknown layer property/);

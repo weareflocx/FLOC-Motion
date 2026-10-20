@@ -2,7 +2,7 @@ import { Vector4 } from 'three';
 import { BACKGROUND_VERTEX, backgroundFragment } from './background-shader.js';
 import { watchContextLoss } from './scene-resources.js';
 
-const UNIFORMS = ['uResolution', 'uUnit', 'uLine', 'uTime', 'uFrame', 'uPattern', 'uScale', 'uWeight', 'uSeed', 'uBase', 'uInk', 'uVignette', 'uGrain'];
+const UNIFORMS = ['uResolution', 'uUnit', 'uLine', 'uTime', 'uLoop', 'uFrame', 'uPattern', 'uScale', 'uWeight', 'uSeed', 'uDrift', 'uDirection', 'uFocus', 'uBase', 'uInk', 'uVignette', 'uGrain'];
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source); gl.compileShader(shader);
@@ -32,9 +32,10 @@ function draw(gl, resource, width, height, uniforms) {
   const u = resource.locations;
   gl.uniform2f(u.uResolution, width, height);
   gl.uniform1f(u.uUnit, uniforms.unit); gl.uniform1f(u.uLine, uniforms.line);
-  gl.uniform1f(u.uTime, uniforms.time); gl.uniform1ui(u.uFrame, uniforms.frame);
+  gl.uniform1f(u.uTime, uniforms.time); gl.uniform1f(u.uLoop, uniforms.loop); gl.uniform1ui(u.uFrame, uniforms.frame);
   gl.uniform1i(u.uPattern, uniforms.pattern); gl.uniform1f(u.uScale, uniforms.scale);
   gl.uniform1f(u.uWeight, uniforms.weight); gl.uniform1ui(u.uSeed, uniforms.seed);
+  gl.uniform2fv(u.uDrift, uniforms.drift); gl.uniform2fv(u.uDirection, uniforms.direction); gl.uniform2fv(u.uFocus, uniforms.focus);
   gl.uniform3fv(u.uBase, uniforms.base); gl.uniform3fv(u.uInk, uniforms.ink);
   gl.uniform1f(u.uVignette, uniforms.vignette); gl.uniform1f(u.uGrain, uniforms.grain);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
