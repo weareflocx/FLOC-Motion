@@ -25,6 +25,8 @@ uniform vec2 uDirection;   // drift direction in device axes, y down
 uniform vec2 uFocus;       // rings and rays center, as a fraction of the frame
 uniform vec3 uBase;
 uniform vec3 uInk;
+uniform vec3 uAccent;
+uniform float uAccentAmount;
 uniform float uVignette;
 uniform float uGrain;
 out vec4 outColor;
@@ -237,11 +239,23 @@ vec2 pattern(vec2 p, vec2 size) {
   return mix(now, earlier, clamp(t / uLoop, 0.0, 1.0));
 }
 
+// Where the accent color takes over the ink, 0–1. Gradient and Aurora place
+// it in their highlights (glow and hem); the others, Noise included, get
+// two-tone regions across the frame that drift with pattern time and close
+// in loops.
+float accentField(vec2 p, vec2 size, float highlight) {
+  if (uPattern == P_GRADIENT || uPattern == P_AURORA) return clamp(highlight * 2.0, 0.0, 1.0);
+  vec2 q = (p - size * 0.5) / length(size);
+  float phase = random(5u) * TAU + looped(TAU);
+  return smoothstep(-0.6, 0.6, sin(q.x * 4.2 + phase) + cos(q.y * 3.4 - phase));
+}
+
 void main() {
   vec2 pixel = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
   vec2 size = uResolution / uUnit;
   vec2 coverage = pattern(pixel / uUnit, size);
   vec3 ink = mix(uInk, vec3(1.0), coverage.y * 0.45);
+  if (uAccentAmount > 0.0) ink = mix(ink, uAccent, uAccentAmount * accentField(pixel / uUnit, size, coverage.y));
   vec3 color = mix(uBase, ink, clamp(coverage.x * uWeight, 0.0, 1.0));
   vec2 centered = (pixel / uResolution - 0.5) * 2.0;
   color *= 1.0 - uVignette * 0.8 * smoothstep(0.35, 1.0, length(centered) * 0.70710678);

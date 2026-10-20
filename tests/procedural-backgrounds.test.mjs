@@ -87,6 +87,8 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
     window.probe = {
       digest: (layer, time) => digest(pixels(layer, time)),
       coverage: (layer, time) => coverage(pixels(layer, time, 960, 540)),
+      // Share of pixels whose blue clearly dominates red: accent ink on black.
+      accented: (layer, time) => { const data = pixels(layer, time); let count = 0; for (let i = 0; i < data.length; i += 4) if (data[i + 2] > data[i] + 60) count++; return count / (data.length / 4); },
       // Brightest pixel of one row segment that a grid line crosses.
       linePeak: (layer, time) => { const data = pixels(layer, time, 1920, 1080); let max = 0; for (let x = 200; x < 400; x++) max = Math.max(max, data[(540 * 1920 + x) * 4]); return max; },
       tile: layer => { const canvas = document.createElement('canvas'); canvas.width = 144; canvas.height = 81; drawBackgroundPreview(canvas, layer); const data = canvas.getContext('2d').getImageData(0, 0, 144, 81).data; let max = 0; for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i]); return { max, mean: coverage(data) * 255 }; },
@@ -151,7 +153,7 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
   // Seamless loops: approaching the layer's end converges on its first frame,
   // while every pattern still moves mid-loop. Grain frames are independent,
   // so grain needs no loop.
-  const looping = { ...base, start: 0, end: 6, patternLoop: true, patternSpeed: 0.7, patternIntensity: 1 };
+  const looping = { ...base, start: 0, end: 6, patternLoop: true, patternSpeed: 0.7, patternIntensity: 1, patternAccent: '#0000ff', patternAccentAmount: 0.8 };
   for (const pattern of IDS.filter(id => id !== 'grain')) {
     const layer = { ...looping, pattern };
     const seam = await run('difference', layer, 0, layer, 6 - 1e-3);
@@ -175,6 +177,18 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
     assert(await run('region', rays, 1, x / 100, y / 100, 4) < 2, `rays centered on ${x}, ${y}`);
     assert(await run('coverage', rays, 1) > 0.02);
   }
+
+  // The accent tints part of the ink, never all of it: drifting regions for
+  // geometric patterns, highlights for soft ones. At zero it is absent.
+  for (const pattern of ['grid', 'dots', 'gradient', 'aurora']) {
+    const layer = { ...base, pattern, patternIntensity: 1, patternAccent: '#0000ff' };
+    assert.equal(await run('accented', { ...layer, patternAccentAmount: 0 }, 1), 0, `${pattern} without accent`);
+    const share = await run('accented', { ...layer, patternAccentAmount: 1 }, 1);
+    assert(share > 0.005, `${pattern} shows its accent (${share})`);
+    assert.notEqual(await run('digest', { ...layer, patternAccentAmount: 1, patternAccent: '#ff0000' }, 1), await run('digest', { ...layer, patternAccentAmount: 1 }, 1));
+  }
+  const tinted = await run('coverage', { ...base, pattern: 'grid', patternIntensity: 1, patternAccentAmount: 1 }, 1), plainGrid = await run('coverage', { ...base, pattern: 'grid', patternIntensity: 1 }, 1);
+  assert(tinted < plainGrid, 'part of the white ink turns blue rather than all of it staying white');
   assert.deepEqual(errors, []);
 });
 

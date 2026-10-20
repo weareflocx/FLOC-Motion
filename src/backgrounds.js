@@ -1,4 +1,5 @@
 import { backgroundRenderer, disposeBackgroundRenderer } from './background-renderer.js';
+import { BRAND } from './brand.js';
 import { animatedFields, choreographyValueAt, evaluateChoreography } from './choreography.js';
 import { PATTERN_SCALE } from './project-limits.js';
 
@@ -23,8 +24,10 @@ export const PROCEDURAL_BACKGROUNDS = [
 ];
 // Direction is in degrees (0 moves right, 90 up); focus is a percentage of the
 // frame. Their defaults depend on pattern and seed: see `proceduralDefaults`.
+// The accent color takes over the ink by `patternAccentAmount`: in the
+// highlights of soft patterns, in drifting regions of the others.
 export const DEFAULT_PROCEDURAL_BACKGROUND = { pattern: 'grid', patternColor: '#ffffff', patternScale: 1, patternIntensity: 0.35, patternSpeed: 0.2, patternSeed: 1, patternVignette: 0, patternGrain: 0,
-  patternLoop: false, patternDirection: 315, patternFocusX: 50, patternFocusY: 50 };
+  patternLoop: false, patternDirection: 315, patternFocusX: 50, patternFocusY: 50, patternAccent: BRAND.colors.blue, patternAccentAmount: 0 };
 
 // Calibration, measured on rendered frames: `gain` gives every pattern a
 // comparable visual weight at the same intensity, and `pace` a comparable
@@ -160,6 +163,8 @@ export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { ti
     focus: [clamp(live.patternFocusX, 0, 100) / 100, clamp(live.patternFocusY, 0, 100) / 100],
     base: rgb(live.color ?? '#080808'),
     ink: rgb(live.patternColor),
+    accent: rgb(live.patternAccent),
+    accentAmount: clamp(live.patternAccentAmount, 0, 1),
     vignette: clamp(live.patternVignette, 0, 1),
     grain: clamp(live.patternGrain, 0, 1)
   };

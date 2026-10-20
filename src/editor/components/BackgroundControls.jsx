@@ -13,7 +13,7 @@ function BackgroundPreview({ layer, pattern }) {
   useEffect(() => {
     drawBackgroundPreview(canvas.current, { ...proceduralDefaults(layer), ...layer, choreography: undefined, pattern: pattern.id });
   }, [layer.color, layer.patternColor, layer.patternScale, layer.patternIntensity, layer.patternSpeed, layer.patternSeed, layer.patternVignette, layer.patternGrain,
-    layer.patternLoop, layer.patternDirection, layer.patternFocusX, layer.patternFocusY, layer.start, layer.end, pattern.id]);
+    layer.patternLoop, layer.patternDirection, layer.patternFocusX, layer.patternFocusY, layer.patternAccent, layer.patternAccentAmount, layer.start, layer.end, pattern.id]);
   return <canvas ref={canvas} width={144} height={81} aria-hidden="true"/>;
 }
 
@@ -31,6 +31,8 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
     <Color label="Base color" value={layer.color} onChange={color => onPatch(layer.id, { color })}/>
     {layer.mode === 'procedural' && <>
       <Color label="Pattern color" value={settings.patternColor} onChange={patternColor => onPatch(layer.id, { patternColor })}/>
+      <Color label="Accent color" value={settings.patternAccent} onChange={patternAccent => onPatch(layer.id, { patternAccent })}/>
+      <Range label="Accent" value={settings.patternAccentAmount} min={0} max={1} step={0.05} onChange={patternAccentAmount => onPatch(layer.id, { patternAccentAmount })}/>
       <div className="procedural-background-list" role="group" aria-label="Background pattern">
         {PROCEDURAL_BACKGROUNDS.map(pattern => <button type="button" key={pattern.id} className={`procedural-background-option${settings.pattern === pattern.id ? ' selected' : ''}`} aria-label={`${pattern.name} background`} title={pattern.name} aria-pressed={settings.pattern === pattern.id} onClick={() => onPatch(layer.id, { pattern: pattern.id })}>
           <BackgroundPreview layer={settings} pattern={pattern}/><span>{pattern.name}</span>
