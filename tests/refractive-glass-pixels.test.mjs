@@ -22,7 +22,7 @@ test('Flat refractive presentations preserve lower pixels, alpha and upper-layer
     const errors = [], urls = [];
     let engine, canonical, modelURL, imageURL;
     const root = document.getElementById('stage');
-    const style = { ...DEFAULT_MODEL_STYLE, mode: 'replace', shader: 'refractive', color: '#ffffff', roughness: 0,
+    const style = { ...DEFAULT_MODEL_STYLE, base: 'custom', look: 'physical', glass: 'refractive', color: '#ffffff', roughness: 0,
       ior: 1.6, dispersion: 0, refractionThickness: .7, refractionSamples: 8, refractionResolution: 512,
       environment: 'none', ambientIntensity: 0, keyIntensity: 0, fillIntensity: 0, rimIntensity: 0,
       animationClip: -1, motion: 'none', toneMapping: 'none' };
@@ -117,7 +117,7 @@ test('Flat refractive presentations preserve lower pixels, alpha and upper-layer
       result.alpha = { cleared, clearedHalf, overlap, opaqueHalf };
       const layerOpacity = await change('lens', { opacity: .35 });
       await setup(.35);
-      const sourceOpacity = await mount({ transparent: true, modelStyle: { mode: 'original' } });
+      const sourceOpacity = await mount({ transparent: true, modelStyle: { base: 'imported' } });
       result.sourceOpacity = difference(layerOpacity, sourceOpacity);
       await mount({ transparent: true, modelStyle: { ior: 1, refractionThickness: 0, roughness: .4 } });
       const whiteEdges = await change('title', { color: '#ffffff' });

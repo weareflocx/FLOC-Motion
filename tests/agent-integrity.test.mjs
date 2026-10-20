@@ -52,9 +52,9 @@ test('agent discovers installed model controls and saves canonical validated edi
   const call = (name, args) => tools.find(tool => tool.name === name).execute(args);
   const discovery = JSON.parse(await call('floc_list_effects'));
   assert.deepEqual(discovery.model.defaults, DEFAULT_MODEL_STYLE);
-  assert.deepEqual(discovery.model.materialPresets.map(preset => preset.id), ['original', 'matte', 'plastic', 'ceramic', 'lacquer', 'rubber', 'chrome', 'satin', 'gold', 'rose-gold', 'copper', 'brushed-aluminium', 'brushed-gold', 'gunmetal', 'iridescent', 'holographic', 'titanium', 'oil-slick', 'pearl', 'velvet', 'clear-glass', 'frosted-glass', 'tinted-glass', 'smoked-glass', 'bubble', 'prism', 'diamond', 'frosted-crystal', 'refractive-clear', 'refractive-frosted', 'refractive-prism']);
-  assert.ok(discovery.model.materialPresets.every(preset => ['basic', 'metal', 'iridescent', 'fabric', 'glass', 'crystal', 'refractive'].includes(preset.family)));
-  assert.deepEqual(discovery.model.shaders, ['standard', 'toon', 'fresnel', 'wireframe', 'glass', 'crystal', 'refractive']);
+  assert.deepEqual(discovery.model.materialPresets.map(preset => preset.id), ['original', 'matte', 'plastic', 'ceramic', 'lacquer', 'rubber', 'chrome', 'satin', 'gold', 'rose-gold', 'copper', 'brushed-aluminium', 'brushed-gold', 'gunmetal', 'iridescent', 'holographic', 'titanium', 'oil-slick', 'pearl', 'velvet', 'clear-glass', 'frosted-glass', 'tinted-glass', 'smoked-glass', 'bubble', 'refractive-clear', 'refractive-frosted', 'refractive-prism', 'prism', 'diamond', 'frosted-crystal']);
+  assert.ok(discovery.model.materialPresets.every(preset => ['basic', 'metal', 'iridescent', 'fabric', 'see-through', 'refractive', 'environment'].includes(preset.family)));
+  assert.deepEqual([discovery.model.bases, discovery.model.looks, discovery.model.glass], [['imported', 'tinted', 'custom'], ['physical', 'toon', 'wireframe'], ['none', 'see-through', 'refractive', 'environment']]);
   assert.deepEqual(discovery.model.refractionSamples, [4, 8, 16]);
   assert.deepEqual(discovery.model.refractionResolutions, [256, 512, 1024, 2048]);
   assert.deepEqual(discovery.model.environments, ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
@@ -77,21 +77,21 @@ test('agent discovers installed model controls and saves canonical validated edi
     const snapshot = JSON.parse(saved.at(-1));
     assert.deepEqual(snapshot, validateProject(snapshot));
     assert.deepEqual(snapshot.layers[0].modelStyle, { ...DEFAULT_MODEL_STYLE, ...preset.settings });
-    assert.equal(snapshot.layers[0].modelStyle.mode, preset.id === 'original' ? 'original' : 'replace');
+    assert.equal(snapshot.layers[0].modelStyle.base, preset.id === 'original' ? 'imported' : 'custom');
   }
-  await call('floc_update_layer', { id: 'model', patch: { modelStyle: { shader: 'refractive', refractionThickness: 2, refractionSamples: 16, refractionResolution: 2048 } } });
+  await call('floc_update_layer', { id: 'model', patch: { modelStyle: { glass: 'refractive', refractionThickness: 2, refractionSamples: 16, refractionResolution: 2048 } } });
   const refractiveSource = saved.at(-1);
   const refractiveImport = await parseProjectFile({ size: Buffer.byteLength(refractiveSource), async text() { return refractiveSource; } });
-  assert.deepEqual([refractiveImport.layers[0].modelStyle.shader, refractiveImport.layers[0].modelStyle.refractionThickness, refractiveImport.layers[0].modelStyle.refractionSamples, refractiveImport.layers[0].modelStyle.refractionResolution], ['refractive', 2, 16, 2048]);
+  assert.deepEqual([refractiveImport.layers[0].modelStyle.glass, refractiveImport.layers[0].modelStyle.refractionThickness, refractiveImport.layers[0].modelStyle.refractionSamples, refractiveImport.layers[0].modelStyle.refractionResolution], ['refractive', 2, 16, 2048]);
   for (const settings of [{ refractionThickness: -1 }, { refractionThickness: 2.1 }, { refractionSamples: 12 }, { refractionSamples: '8' }, { refractionResolution: 768 }, { refractionResolution: '1024' }]) {
     const source = JSON.stringify({ ...refractiveImport, layers: [{ ...refractiveImport.layers[0], modelStyle: { ...refractiveImport.layers[0].modelStyle, ...settings } }] });
     await assert.rejects(parseProjectFile({ size: Buffer.byteLength(source), async text() { return source; } }));
   }
-  await call('floc_update_layer', { id: 'model', patch: { modelStyle: { shader: 'wireframe', motion: 'spin', motionSpeed: -2, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .4, pause: .8, curve: 'back', intensity: .9 }, animationClip: -1 } } });
-  assert.equal(project.layers[0].modelStyle.shader, 'wireframe');
+  await call('floc_update_layer', { id: 'model', patch: { modelStyle: { look: 'wireframe', motion: 'spin', motionSpeed: -2, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .4, pause: .8, curve: 'back', intensity: .9 }, animationClip: -1 } } });
+  assert.equal(project.layers[0].modelStyle.look, 'wireframe');
   assert.equal(project.layers[0].modelStyle.motionSpeed, -2);
   assert.equal(project.layers[0].modelStyle.animationClip, -1);
-  assert.equal(project.layers[0].modelStyle.mode, 'original', 'omitted partial settings normalize to canonical defaults');
+  assert.equal(project.layers[0].modelStyle.base, 'imported', 'omitted partial settings normalize to canonical defaults');
   assert.equal(project.layers[0].modelStyle.motionAxis, 'x');
   assert.equal(project.layers[0].modelStyle.motionSteps, 7);
   assert.deepEqual(project.layers[0].modelStyle.motionTiming, { mode: 'steps', action: .4, pause: .8, curve: 'back', intensity: .9 });
@@ -118,7 +118,7 @@ test('agent discovers installed model controls and saves canonical validated edi
   assert.equal(saved.length, saves);
   assert.equal(audited.length, audits);
   project = patchLayer(project, 'model', { locked: true });
-  for (const modelStyle of [{ mode: 'replace' }, { motionAxis: 'z' }, { motionSteps: 12 }, { motionTiming: { mode: 'steps', action: .3 } }]) await assert.rejects(call('floc_update_layer', { id: 'model', patch: { modelStyle } }), /Unlock/);
+  for (const modelStyle of [{ base: 'custom' }, { motionAxis: 'z' }, { motionSteps: 12 }, { motionTiming: { mode: 'steps', action: .3 } }]) await assert.rejects(call('floc_update_layer', { id: 'model', patch: { modelStyle } }), /Unlock/);
   assert.equal(saved.length, saves);
   const source = saved.at(-1);
   const imported = await parseProjectFile({ size: Buffer.byteLength(source), async text() { return source; } });

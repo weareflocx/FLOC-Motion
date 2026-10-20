@@ -1,18 +1,19 @@
 import React, { useCallback, useSyncExternalStore } from 'react';
-import { MODEL_ENVIRONMENTS, MODEL_GLASS_SHADERS, MODEL_LIGHTING_PRESETS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_MODES, MODEL_MATERIAL_PRESETS, MODEL_REFRACTION_SAMPLES, MODEL_REFRACTION_RESOLUTIONS, MODEL_SHADERS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
+import { MODEL_BASES, MODEL_ENVIRONMENTS, MODEL_GLASS, MODEL_LIGHTING_PRESETS, MODEL_LOOKS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_PRESETS, MODEL_REFRACTION_SAMPLES, MODEL_REFRACTION_RESOLUTIONS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
 import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.js';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
 import { ModelMotionControls } from './ModelMotionControls.jsx';
 import { SpatialControls } from './SpatialControls.jsx';
 
-const names = { original: 'Original', tint: 'Tint', replace: 'Replace', standard: 'Standard', toon: 'Toon', fresnel: 'Fresnel', wireframe: 'Wireframe', glass: 'Glass', crystal: 'Studio glass', refractive: 'Refractive glass' };
+const names = { imported: 'Imported', tinted: 'Tinted', custom: 'Custom', physical: 'Physical', toon: 'Toon', wireframe: 'Wireframe', none: 'None', 'see-through': 'See-through', refractive: 'Refractive', environment: 'Environment' };
+const glassHelp = { 'see-through': 'Shows the layers below without bending them.', refractive: 'Bends and blurs the actual layers below; higher sample counts and resolutions cost more.', environment: 'Refracts its own reflection environment and is opaque.' };
 const environmentNames = { none: 'None', studio: 'Classic room', softbox: 'Studio softboxes', stage: 'Dark stage', sunset: 'Sunset sky', neon: 'Neon tubes' };
 const toneNames = { none: 'None (classic)', neutral: 'Neutral', agx: 'AgX (soft)' };
 const serverMetadata = () => null;
 
 // Model Design (rightTab 'composition') and Motion ('animation') sections. Controls that do
-// not apply to the current mode or shader are hidden rather than disabled.
+// not apply to the current base, look or glass are hidden rather than disabled.
 export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
   const subscribe = useCallback(listener => subscribeModelMetadata(layer.src, listener), [layer.src]);
   const snapshot = useCallback(() => getModelMetadata(layer.src), [layer.src]);
@@ -20,16 +21,16 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
   const style = normalizeModelStyle(layer.modelStyle);
   const patchStyle = changes => onPatch(layer.id, { modelStyle: { ...style, ...changes } });
   const range = (key, label, options = {}) => <Range label={label} value={style[key]} min={MODEL_STYLE_RANGES[key][0]} max={MODEL_STYLE_RANGES[key][1]} step={0.01} scale={100} {...options} onChange={value => patchStyle({ [key]: value })}/>;
-  const select = (key, label, values) => <Field label={label}><select aria-label={label} value={style[key]} onChange={event => patchStyle({ [key]: event.target.value })}>{values.map(value => <option key={value} value={value}>{names[value]}</option>)}</select></Field>;
+  const select = (key, label, values, changes = value => ({ [key]: value })) => <Field label={label}><select aria-label={label} value={style[key]} onChange={event => patchStyle(changes(event.target.value))}>{values.map(value => <option key={value} value={value}>{names[value]}</option>)}</select></Field>;
   const quality = (key, label, values) => <Field label={label}><select aria-label={label} value={style[key]} onChange={event => patchStyle({ [key]: Number(event.target.value) })}>{values.map(value => <option key={value} value={value}>{value}</option>)}</select></Field>;
   const clips = metadata?.clips ?? [];
   const missingClip = metadata !== null && style.animationClip >= 0 && !clips.some(clip => clip.index === style.animationClip) && (clips.length > 0 || style.animationClip > 0);
   const clipActive = metadata !== null && clips.some(clip => clip.index === style.animationClip);
-  const replacement = style.mode === 'replace';
-  const glass = MODEL_GLASS_SHADERS.includes(style.shader);
-  const refractive = style.shader === 'refractive';
-  const pbr = replacement && !refractive && (['standard', 'fresnel'].includes(style.shader) || glass);
-  const reflects = !['toon', 'wireframe'].includes(style.shader);
+  const custom = style.base === 'custom';
+  const physical = style.look === 'physical';
+  const glass = style.glass !== 'none';
+  const refractive = style.glass === 'refractive';
+  const pbr = custom && physical && !refractive;
   const lighting = selectedLightingPreset(style);
   const details = [style.clearcoat > 0 && style.clearcoatRoughness > 0 && 'Soft coat', style.anisotropy > 0 && 'Brushed', style.sheen > 0 && 'Sheen', style.iridescence > 0 && 'Iridescent film'].filter(Boolean);
 
@@ -74,10 +75,12 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
         <option value="custom" disabled>Custom</option>
         {MODEL_MATERIAL_FAMILIES.map(([family, label]) => <optgroup key={family} label={label}>{MODEL_MATERIAL_PRESETS.filter(preset => preset.family === family).map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</optgroup>)}
       </select></Field>
-      {select('mode', 'Material mode', MODEL_MATERIAL_MODES)}
-      {style.mode !== 'original' && <Color label="Material color" value={style.color} onChange={color => patchStyle({ color })}/>}
-      {select('shader', 'Surface shader', MODEL_SHADERS)}
-      {!replacement && !refractive && <p className="helper">Original and Tint keep the imported surface; choose Replace to edit it.</p>}
+      {select('base', 'Base surface', MODEL_BASES)}
+      {style.base !== 'imported' && <Color label="Material color" value={style.color} onChange={color => patchStyle({ color })}/>}
+      {/* Glass and edge glow exist only on the Physical look, so leaving it turns them off. */}
+      {select('look', 'Look', MODEL_LOOKS, look => ({ look, ...(look !== 'physical' && { glass: 'none', fresnelIntensity: 0 }) }))}
+      {physical && select('glass', 'Glass', MODEL_GLASS, value => ({ glass: value, ...(value !== 'none' && { fresnelIntensity: 0 }) }))}
+      {!custom && !refractive && <p className="helper">Imported and Tinted keep the imported finish; choose Custom to edit it.</p>}
       {refractive && range('roughness', 'Roughness')}
       {pbr && <>
         {range('roughness', 'Roughness')}
@@ -98,27 +101,29 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
           <p className="helper">Brushing and a flowing film need model UV coordinates.</p>
         </details>
       </>}
-      {replacement && !refractive && style.shader !== 'wireframe' && <>
+      {custom && !refractive && style.look !== 'wireframe' && <>
         <Color label="Emissive color" value={style.emissive} onChange={emissive => patchStyle({ emissive })}/>
         {range('emissiveIntensity', 'Emissive intensity')}
       </>}
       {glass && <>
         {range('ior', 'Refractive index ×100', { scale: 100, suffix: ' ' })}
-        {style.shader === 'glass' ? range('glassOpacity', 'Glass body', { suffix: '%' }) : range('dispersion', 'Dispersion', { suffix: '%' })}
+        {style.glass === 'see-through' ? range('glassOpacity', 'Glass body', { suffix: '%' }) : range('dispersion', 'Dispersion', { suffix: '%' })}
         {refractive && <>
           {range('refractionThickness', 'Thickness', { suffix: '%' })}
           {quality('refractionSamples', 'Refraction samples', MODEL_REFRACTION_SAMPLES)}
           {quality('refractionResolution', 'Refraction resolution', MODEL_REFRACTION_RESOLUTIONS)}
         </>}
-        <p className="helper">{refractive ? 'Bends and blurs the actual layers below; higher sample counts and resolutions cost more.' : style.shader === 'glass' ? 'Shows the layers below without bending them.' : 'Refracts its own environment and is opaque.'}</p>
+        <p className="helper">{glassHelp[style.glass]}</p>
       </>}
-      {style.shader === 'toon' && range('toonSteps', 'Toon steps', { step: 1, scale: 1 })}
-      {style.shader === 'fresnel' && <>
-        <Color label="Fresnel color" value={style.fresnelColor} onChange={fresnelColor => patchStyle({ fresnelColor })}/>
-        {range('fresnelIntensity', 'Fresnel intensity')}
-        {range('fresnelPower', 'Fresnel power', { step: 1, scale: 1 })}
+      {style.look === 'toon' && range('toonSteps', 'Toon steps', { step: 1, scale: 1 })}
+      {physical && !glass && <>
+        {range('fresnelIntensity', 'Edge glow')}
+        {style.fresnelIntensity > 0 && <>
+          <Color label="Edge glow color" value={style.fresnelColor} onChange={fresnelColor => patchStyle({ fresnelColor })}/>
+          {range('fresnelPower', 'Edge glow power', { step: 1, scale: 1 })}
+        </>}
       </>}
-      {metadata?.unlit && !refractive && <p className="helper">Unlit source materials stay unlit in Original and Tint.</p>}
+      {metadata?.unlit && !refractive && <p className="helper">Unlit source materials stay unlit on Imported and Tinted bases.</p>}
       {((pbr && style.metalness >= .5) || (glass && !refractive)) && style.environment === 'none' && <p className="helper">{glass ? 'Glass' : 'Metal'} needs a Lighting environment, such as Studio, to reflect.</p>}
     </Section>
     <Section title="Lighting" detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
@@ -127,13 +132,13 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
         {MODEL_LIGHTING_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
       </select></Field>
       <Field label="Reflection environment"><select aria-label="Reflection environment" value={style.environment} onChange={event => patchStyle({ environment: event.target.value })}>{MODEL_ENVIRONMENTS.map(id => <option key={id} value={id}>{environmentNames[id]}</option>)}</select></Field>
-      {style.environment !== 'none' && (reflects ? <>
+      {style.environment !== 'none' && (physical ? <>
         {range('environmentIntensity', 'Environment intensity')}
         {range('environmentRotation', 'Environment rotation', { step: 1, scale: 1, suffix: '°' })}
       </> : <p className="helper">Toon and Wireframe ignore the environment.</p>)}
       <Field label="Tone mapping"><select aria-label="Tone mapping" value={style.toneMapping} onChange={event => patchStyle({ toneMapping: event.target.value })}>{MODEL_TONE_MAPPINGS.map(id => <option key={id} value={id}>{toneNames[id]}</option>)}</select></Field>
       {style.toneMapping !== 'none' && range('exposure', 'Exposure')}
-      {style.shader === 'wireframe' ? <p className="helper">Wireframe is unlit.</p> : <>
+      {style.look === 'wireframe' ? <p className="helper">Wireframe is unlit.</p> : <>
         {range('ambientIntensity', 'Ambient intensity')}
         {range('keyIntensity', 'Key intensity')}
         <Color label="Key color" value={style.keyColor} onChange={keyColor => patchStyle({ keyColor })}/>

@@ -27,9 +27,9 @@ test('v8 models receive frozen source-material, lighting and animation defaults 
   const input = { ...demoProject(), version: 8, layers: [...demoProject().layers, source] }, before = structuredClone(input);
   const migrated = migrateProject(input), model = migrated.layers.at(-1);
   assert.deepEqual(model.modelStyle, {
-    mode: 'original', color: '#ffffff', roughness: 0.5, metalness: 0, clearcoat: 0, iridescence: 0,
+    base: 'imported', color: '#ffffff', roughness: 0.5, metalness: 0, clearcoat: 0, iridescence: 0,
     emissive: '#000000', emissiveIntensity: 0,
-    shader: 'standard', toonSteps: 4, fresnelColor: '#ffffff', fresnelIntensity: 0.5, fresnelPower: 3,
+    look: 'physical', glass: 'none', toonSteps: 4, fresnelColor: '#ffffff', fresnelIntensity: 0, fresnelPower: 3,
     environment: 'none', environmentIntensity: 1, environmentRotation: 0,
     ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0,
     motion: 'none', motionDuration: 6, motionSpeed: 1, motionAmplitude: 1,
@@ -55,7 +55,7 @@ test('model migration preserves partial settings but never repairs invalid neste
   const source = fileLayer({ name: 'GLB', src: '/assets/12345678-1234-1234-1234-123456789012.glb' }, 12, 'model');
   const input = { ...demoProject(), version: 8, layers: [{ ...source, modelStyle: { mode: 'tint', color: '#123456' } }] };
   const result = validateProject(input);
-  assert.equal(result.layers[0].modelStyle.mode, 'tint');
+  assert.equal(result.layers[0].modelStyle.base, 'tinted');
   assert.equal(result.layers[0].modelStyle.color, '#123456');
   assert.equal(result.layers[0].modelStyle.keyIntensity, 3);
   for (const modelStyle of [null, [], new Date(0), new Map(), Object.create({ mode: 'replace' }), { [Symbol('shader')]: 'custom' }, 'chrome', { roughness: 2 }, { shader: 'void main() {}' }, { environmentUrl: 'https://example.com/a.hdr' }]) {
@@ -91,7 +91,8 @@ test('v10 models keep the fixed camera while new models fit their motion', () =>
   Object.assign(model.modelStyle, { motion: 'pulse', mode: 'tint', color: '#335577' });
   const input = { ...demoProject(), version: 10, layers: [model] }, before = structuredClone(input);
   const migrated = migrateProject(input);
-  assert.deepEqual(migrated.layers[0].modelStyle, { ...before.layers[0].modelStyle, framing: 'fixed', zoom: 1, perspective: 38, motionSpace: 'euler' });
+  const { mode, ...beforeStyle } = before.layers[0].modelStyle;
+  assert.deepEqual(migrated.layers[0].modelStyle, { ...beforeStyle, base: 'tinted', framing: 'fixed', zoom: 1, perspective: 38, motionSpace: 'euler' });
   assert.deepEqual(input, before);
   assert.deepEqual(validateProject(migrated), validateProject(input));
   assert.deepEqual(migrateProject(migrated), migrated);
@@ -130,6 +131,35 @@ test('v12 models keep the classic light while new models start in the Studio pre
   }
 });
 
+test('v14 material modes and shaders become independent base, look and glass with edge glow only from Fresnel', () => {
+  const v14Model = (id, style) => {
+    const model = { ...fileLayer({ name: id, src: '/assets/12345678-1234-1234-1234-123456789012.glb' }, 12, 'model'), id };
+    const { base, look, glass, fresnelIntensity, ...rest } = model.modelStyle;
+    return { ...model, modelStyle: { ...rest, ...style } };
+  };
+  const cases = {
+    original: [{ mode: 'original', shader: 'standard', fresnelIntensity: .5 }, ['imported', 'physical', 'none', 0]],
+    tint: [{ mode: 'tint', shader: 'toon', fresnelIntensity: 1.2 }, ['tinted', 'toon', 'none', 0]],
+    replace: [{ mode: 'replace', shader: 'wireframe' }, ['custom', 'wireframe', 'none', 0]],
+    fresnel: [{ mode: 'replace', shader: 'fresnel', fresnelIntensity: 1.5 }, ['custom', 'physical', 'none', 1.5]],
+    'fresnel-default': [{ mode: 'replace', shader: 'fresnel' }, ['custom', 'physical', 'none', .5]],
+    glass: [{ mode: 'replace', shader: 'glass', fresnelIntensity: .5 }, ['custom', 'physical', 'see-through', 0]],
+    crystal: [{ mode: 'replace', shader: 'crystal' }, ['custom', 'physical', 'environment', 0]],
+    refractive: [{ mode: 'tint', shader: 'refractive' }, ['tinted', 'physical', 'refractive', 0]],
+    defaults: [{}, ['imported', 'physical', 'none', 0]]
+  };
+  const input = { ...demoProject(), version: 14, layers: Object.entries(cases).map(([id, [style]]) => v14Model(id, style)) }, before = structuredClone(input);
+  const project = validateProject(input);
+  assert.equal(project.version, CURRENT_PROJECT_VERSION);
+  for (const [id, [, expected]] of Object.entries(cases)) {
+    const style = project.layers.find(layer => layer.id === id).modelStyle;
+    assert.deepEqual([style.base, style.look, style.glass, style.fresnelIntensity], expected, id);
+    assert.equal(Object.hasOwn(style, 'mode') || Object.hasOwn(style, 'shader'), false, id);
+  }
+  assert.deepEqual(input, before);
+  assert.deepEqual(validateProject(project), project, 'a migrated project is current');
+  assert.throws(() => validateProject({ ...input, layers: [v14Model('plasma', { mode: 'replace', shader: 'plasma' })] }), /3D/);
+});
 
 test('v2 content labels become typed fields with deterministic unique ids', async () => {
   const input = await fixture('v2-content-fields'), before = structuredClone(input);

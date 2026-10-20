@@ -91,7 +91,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
         environment.invalidate(); environment.update(style);
         if (lastTime !== undefined) {
           draw(lastTime, lastDraft);
-          if (style.shader === 'refractive' && refractionMask) renderRefraction();
+          if (style.glass === 'refractive' && refractionMask) renderRefraction();
         }
       }
       catch (error) { onError(error); }
@@ -217,7 +217,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     materials.setScenePass(SCENE_PASS.source);
     if (spatial) return;
     // A composition draws these later, when its lower-layer framebuffer is ready.
-    if (deferRefraction && style.shader === 'refractive') return;
+    if (deferRefraction && style.glass === 'refractive') return;
     if (shared.lost) {
       if (renderMode) throw new Error('The graphics context was lost while rendering a 3D model.');
       return;
@@ -232,7 +232,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     shared.draw(scene, camera, canvas, TONE_MAPPINGS[style.toneMapping], style.exposure);
   }
   function drawRefraction(backdrop, rect, time, draft, planeMatrix = null) {
-    if (style.shader !== 'refractive') throw new Error('Refraction requires a Refractive glass material.');
+    if (style.glass !== 'refractive') throw new Error('Refraction requires Refractive glass.');
     lastTime = time; lastDraft = draft; pose(time, draft);
     if (!refractionMask) {
       refractionMask = document.createElement('canvas');

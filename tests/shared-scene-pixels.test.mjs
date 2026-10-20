@@ -39,7 +39,7 @@ test('one shared scene depth-tests photos, editable text and actual model geomet
     const difference=(a,b)=>{let count=0;for(let i=0;i<a.length;i++)if(a[i]!==b[i])count++;return count;};
     function modelProject() {
       const p=blankProject('Shared cube');
-      p.layers.push({...fileLayer({name:'Red cube',src:paths.model},12,'cube'),x:20,y:20,size:60,modelStyle:{...DEFAULT_MODEL_STYLE,mode:'original',environment:'none',toneMapping:'none',motion:'none',animationClip:-1}});
+      p.layers.push({...fileLayer({name:'Red cube',src:paths.model},12,'cube'),x:20,y:20,size:60,modelStyle:{...DEFAULT_MODEL_STYLE,base:'imported',environment:'none',toneMapping:'none',motion:'none',animationClip:-1}});
       p.layers.push({...fileLayer({name:'Blue plane',src:paths.blue},12,'plane'),x:20,y:20,size:60});
       return validateProject(p);
     }

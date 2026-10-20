@@ -52,27 +52,36 @@ function inspector(initial = {}, component = 'model') {
   };
 }
 
-test('material and shader transitions hide inapplicable overrides without erasing preserved settings', () => {
+test('material base and look transitions hide inapplicable overrides without erasing preserved settings', () => {
   const h = inspector({ modelStyle: { color: '#445566', metalness: .7, motion: 'float', animationClip: -1 } });
   assert.equal(h.find('Material color'), undefined);
   assert.equal(h.find('Metalness'), undefined);
-  h.change('Material mode', 'tint');
+  h.change('Base surface', 'tinted');
   assert.equal(h.find('Material color').blocked, false);
   assert.equal(h.find('Metalness'), undefined);
-  h.change('Material mode', 'replace'); h.change('Surface shader', 'toon');
+  h.change('Base surface', 'custom'); h.change('Look', 'toon');
+  assert.equal(h.find('Glass'), undefined, 'glass needs the Physical look');
+  assert.equal(h.find('Edge glow'), undefined);
   assert.equal(h.find('Metalness'), undefined);
   assert.equal(h.find('Emissive intensity').blocked, false);
   h.change('Toon steps', 6);
-  h.change('Surface shader', 'wireframe');
+  h.change('Look', 'wireframe');
   assert.equal(h.find('Emissive intensity'), undefined);
   assert.equal(h.find('Key intensity'), undefined);
-  h.change('Surface shader', 'fresnel');
+  h.change('Look', 'physical');
   assert.equal(h.find('Metalness').blocked, false);
-  h.change('Fresnel power', 5);
+  assert.equal(h.find('Edge glow power'), undefined, 'edge glow details appear only once it glows');
+  h.change('Edge glow', .8);
+  h.change('Edge glow power', 5);
   assert.equal(h.layer.modelStyle.metalness, .7);
   assert.equal(h.layer.modelStyle.motion, 'float');
   assert.equal(h.layer.modelStyle.animationClip, -1);
-  assert.equal(h.layer.modelStyle.fresnelPower, 5);
+  assert.deepEqual([h.layer.modelStyle.fresnelIntensity, h.layer.modelStyle.fresnelPower], [.8, 5]);
+  h.change('Glass', 'see-through');
+  assert.equal(h.layer.modelStyle.fresnelIntensity, 0, 'glass turns edge glow off');
+  assert.equal(h.find('Edge glow'), undefined);
+  h.change('Look', 'toon');
+  assert.equal(h.layer.modelStyle.glass, 'none', 'leaving Physical turns glass off');
   assert.equal(Object.keys(h.patches.at(-1).modelStyle).length, Object.keys(modelStyle.DEFAULT_MODEL_STYLE).length);
 });
 
@@ -86,13 +95,13 @@ test('material presets change only the surface; lighting presets change only the
   assert.equal(h.layer.modelStyle.motionSpeed, -2);
   assert.equal(h.layer.modelStyle.animationClip, 2);
   h.change('Material preset', 'original');
-  assert.equal(h.layer.modelStyle.mode, 'original');
+  assert.equal(h.layer.modelStyle.base, 'imported');
   assert.equal(h.layer.modelStyle.fillIntensity, 5);
   h.change('Lighting preset', 'classic');
   assert.equal(h.layer.modelStyle.environment, 'none');
   assert.equal(h.layer.modelStyle.toneMapping, 'none');
   assert.equal(h.layer.modelStyle.fillIntensity, 0);
-  assert.equal(h.layer.modelStyle.mode, 'original', 'lighting presets keep the surface');
+  assert.equal(h.layer.modelStyle.base, 'imported', 'lighting presets keep the surface');
   assert.equal(h.find('Lighting preset').props.value, 'classic');
   h.change('Material preset', 'chrome');
   assert.ok(h.render().some(node => node.type === 'p' && h.text(node).includes('Metal needs a Lighting environment')), 'metal without an environment explains how to see reflections');
@@ -106,7 +115,7 @@ test('material presets change only the surface; lighting presets change only the
 test('material presets are grouped by family and the film thickness range stays ordered', () => {
   const h = inspector();
   const groups = h.find('Material preset').children.flat().filter(node => node.type === 'optgroup');
-  assert.deepEqual(groups.map(group => group.props.label), ['Basics', 'Metals', 'Iridescent', 'Fabric', 'Glass', 'Studio glass', 'Refractive glass']);
+  assert.deepEqual(groups.map(group => group.props.label), ['Basics', 'Metals', 'Iridescent', 'Fabric', 'See-through glass', 'Refractive glass', 'Environment glass']);
   assert.ok(groups.find(group => group.props.label === 'Metals').children.flat().some(option => option.props.value === 'brushed-aluminium'));
   h.change('Material preset', 'brushed-aluminium');
   assert.equal(h.find('Material preset').props.value, 'brushed-aluminium');
@@ -120,36 +129,36 @@ test('material presets are grouped by family and the film thickness range stays 
   assert.equal(h.find('Material preset').props.value, 'custom');
 });
 
-test('glass presets show the controls of their shader and switching shader leaves the preset', () => {
+test('glass presets show the controls of their glass and switching glass leaves the preset', () => {
   const h = inspector();
   h.change('Material preset', 'tinted-glass');
-  assert.equal(h.layer.modelStyle.shader, 'glass');
+  assert.equal(h.layer.modelStyle.glass, 'see-through');
   assert.equal(h.find('Glass body').props.value, .35);
   assert.equal(h.find('Dispersion'), undefined);
   assert.equal(h.find('Roughness').blocked, false);
   h.change('Material preset', 'diamond');
-  assert.deepEqual([h.layer.modelStyle.shader, h.layer.modelStyle.ior, h.layer.modelStyle.dispersion], ['crystal', 2.42, 1]);
+  assert.deepEqual([h.layer.modelStyle.glass, h.layer.modelStyle.ior, h.layer.modelStyle.dispersion], ['environment', 2.42, 1]);
   assert.equal(h.find('Glass body'), undefined);
   h.change('Dispersion', .3);
   assert.equal(h.find('Material preset').props.value, 'custom');
   h.change('Material preset', 'diamond');
-  h.change('Surface shader', 'standard');
-  assert.equal(h.find('Material preset').props.value, 'custom', 'a preset includes its shader');
+  h.change('Glass', 'none');
+  assert.equal(h.find('Material preset').props.value, 'custom', 'a preset includes its glass');
   assert.equal(h.find('Refractive index ×100'), undefined);
 });
 
-test('refractive controls edit canonical quality and roughness in every mode without inactive surface overrides', () => {
+test('refractive controls edit canonical quality and roughness on every base without inactive surface overrides', () => {
   const h = inspector({ modelStyle: { motion: 'spin', zoom: 1.7, keyIntensity: 4 } });
   const optionValues = label => h.find(label).children.flat().map(option => option.props.value);
-  assert.ok(optionValues('Surface shader').includes('refractive'));
+  assert.ok(optionValues('Glass').includes('refractive'));
   h.change('Material preset', 'refractive-frosted');
-  assert.equal(h.layer.modelStyle.shader, 'refractive');
-  assert.equal(h.layer.modelStyle.mode, 'replace');
+  assert.equal(h.layer.modelStyle.glass, 'refractive');
+  assert.equal(h.layer.modelStyle.base, 'custom');
   assert.equal(h.find('Material preset').props.value, 'refractive-frosted');
   assert.deepEqual(optionValues('Refraction samples'), [4, 8, 16]);
   assert.deepEqual(optionValues('Refraction resolution'), [256, 512, 1024, 2048]);
-  for (const mode of ['original', 'tint', 'replace']) {
-    h.change('Material mode', mode);
+  for (const mode of ['imported', 'tinted', 'custom']) {
+    h.change('Base surface', mode);
     for (const label of ['Roughness', 'Refractive index ×100', 'Dispersion', 'Thickness', 'Refraction samples', 'Refraction resolution']) assert.equal(h.find(label).blocked, false, `${mode}: ${label}`);
     for (const label of ['Glass body', 'Metalness', 'Clearcoat', 'Iridescence', 'Sheen', 'Brushed', 'Emissive intensity']) assert.equal(h.find(label), undefined, `${mode}: ${label}`);
     h.change('Roughness', .37);
@@ -162,7 +171,7 @@ test('refractive controls edit canonical quality and roughness in every mode wit
   assert.equal(h.find('Thickness').props.scale, 100);
   assert.equal(h.find('Thickness').props.suffix, '%');
   assert.deepEqual([h.layer.modelStyle.motion, h.layer.modelStyle.zoom, h.layer.modelStyle.keyIntensity], ['spin', 1.7, 4]);
-  h.change('Surface shader', 'glass');
+  h.change('Glass', 'see-through');
   for (const label of ['Thickness', 'Refraction samples', 'Refraction resolution', 'Dispersion']) assert.equal(h.find(label), undefined);
   assert.equal(h.find('Glass body').blocked, false);
 });
@@ -229,17 +238,17 @@ test('automatic motion and embedded playback dependencies remain independent', (
   } finally { release(); }
 });
 
-test('environment controls preserve reflection settings while incompatible shaders hide them', () => {
+test('environment controls preserve reflection settings while incompatible looks hide them', () => {
   const h = inspector({ modelStyle: { environment: 'none' } });
   assert.equal(h.find('Environment intensity'), undefined);
   assert.deepEqual(h.find('Reflection environment').children.flat().map(option => option.props.value), ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
   h.change('Reflection environment', 'sunset');
   h.change('Environment intensity', 1.7);
   h.change('Environment rotation', -35);
-  h.change('Surface shader', 'toon');
+  h.change('Look', 'toon');
   assert.equal(h.find('Environment intensity'), undefined);
   assert.ok(h.render().some(node => node.type === 'p' && h.text(node).includes('ignore the environment')));
-  h.change('Surface shader', 'standard');
+  h.change('Look', 'physical');
   assert.equal(h.find('Environment intensity').blocked, false);
   assert.equal(h.layer.modelStyle.environmentIntensity, 1.7);
   assert.equal(h.layer.modelStyle.environmentRotation, -35);
@@ -317,7 +326,7 @@ test('curve selection and strength update the real progress graph, with overshoo
 test('Reset motion preserves model appearance, authored pose, embedded playback and selected motion', () => {
   const initial = {
     x: 18, y: -8, size: 84, tilt: 31, yaw: -25, roll: 9, offset: 2.5, loop: false,
-    modelStyle: { mode: 'replace', shader: 'fresnel', color: '#123456', keyIntensity: 5, environment: 'studio', animationClip: 3, animationSpeed: .65, motion: 'pulse', motionAxis: 'z', motionSteps: 12, motionDuration: 24, motionSpeed: -3, motionAmplitude: .2, motionTiming: { mode: 'steps', action: .25, pause: 4, curve: 'back', intensity: .9 } }
+    modelStyle: { base: 'custom', look: 'physical', fresnelIntensity: .5, color: '#123456', keyIntensity: 5, environment: 'studio', animationClip: 3, animationSpeed: .65, motion: 'pulse', motionAxis: 'z', motionSteps: 12, motionDuration: 24, motionSpeed: -3, motionAmplitude: .2, motionTiming: { mode: 'steps', action: .25, pause: 4, curve: 'back', intensity: .9 } }
   };
   const h = inspector(initial, 'animation');
   h.click('Reset motion');
@@ -328,7 +337,7 @@ test('Reset motion preserves model appearance, authored pose, embedded playback 
   assert.equal(h.layer.modelStyle.motionAxis, 'auto');
   assert.equal(h.layer.modelStyle.motionSteps, 4);
   assert.deepEqual(JSON.parse(JSON.stringify(h.layer.modelStyle.motionTiming)), motionTiming.DEFAULT_MOTION);
-  for (const key of ['mode', 'shader', 'color', 'keyIntensity', 'environment', 'animationClip', 'animationSpeed']) assert.equal(h.layer.modelStyle[key], initial.modelStyle[key], key);
+  for (const key of ['base', 'look', 'fresnelIntensity', 'color', 'keyIntensity', 'environment', 'animationClip', 'animationSpeed']) assert.equal(h.layer.modelStyle[key], initial.modelStyle[key], key);
   for (const key of ['x', 'y', 'size', 'tilt', 'yaw', 'roll', 'offset', 'loop']) assert.equal(h.layer[key], initial[key], key);
   assert.deepEqual(Object.keys(h.patches.at(-1)), ['modelStyle']);
   assert.equal(h.find('Action'), undefined);

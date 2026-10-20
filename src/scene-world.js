@@ -231,7 +231,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
       for (const node of leaves.values()) {
         node.value = { ...evaluateChoreography(node.layer, at), ...draft(node.id) };
         node.alpha = layerAlpha(node.layer, at); node.background = node.layer.type === 'background' && node.index === 0;
-        node.refractive = node.layer.type === 'model' && node.layer.modelStyle?.shader === 'refractive';
+        node.refractive = node.layer.type === 'model' && node.layer.modelStyle?.glass === 'refractive';
         node.hasEffects = node.layer.effects?.some(effect => effect.enabled) ?? false;
         node.projected = false; node.raster = !(node.layer.space === 'spatial' && (node.model || node.carousel));
         if (node.model && node.layer.space === 'spatial') {

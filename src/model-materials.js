@@ -96,16 +96,16 @@ const STUDIO_GLASS = `
     gl_FragColor.a = 1.0;
   #endif
 `;
-function glass(material, shader) {
+function glass(material, kind) {
   const uniforms = { modelGlassIOR: { value: 1.5 }, modelGlassBody: { value: .08 }, modelGlassDispersion: { value: 0 } };
   material.onBeforeCompile = program => {
     Object.assign(program.uniforms, uniforms);
     program.fragmentShader = program.fragmentShader
       .replace('void main() {', STUDIO_GLASS_PARS)
-      .replace('#include <opaque_fragment>', shader === 'glass' ? OVERLAY_GLASS : STUDIO_GLASS);
+      .replace('#include <opaque_fragment>', kind === 'see-through' ? OVERLAY_GLASS : STUDIO_GLASS);
   };
-  material.customProgramCacheKey = () => `floc-model-${shader}-v1`;
-  if (shader === 'glass') {
+  material.customProgramCacheKey = () => `floc-model-glass-${kind}-v1`;
+  if (kind === 'see-through') {
     // Back faces render first, then front faces, so the far wall shows through the near one.
     material.transparent = true; material.depthWrite = false; material.side = THREE.DoubleSide; material.premultipliedAlpha = true;
   } else {
@@ -142,13 +142,16 @@ export function createModelMaterials(model, { spatial = false } = {}) {
     if (!film) film = filmThicknessMap();
     return film;
   }
+  // One variant per lighting look; glass and edge glow are variants of the Physical look.
+  const surfaceKind = style => style.look !== 'physical' ? style.look : style.glass !== 'none' ? style.glass : style.fresnelIntensity > 0 ? 'edge-glow' : 'physical';
   function variant(source, style, mesh) {
-    const key = `${style.mode}/${mesh ? style.shader : 'standard'}${mesh && style.shader === 'refractive' ? `/${style.refractionSamples}` : ''}`;
+    const kind = mesh ? surfaceKind(style) : 'physical';
+    const key = `${style.base}/${kind}${kind === 'refractive' ? `/${style.refractionSamples}` : ''}`;
     let table = variants.get(key);
     if (!table) { table = new Map(); variants.set(key, table); }
     let value = table.get(source);
     if (value) return value;
-    const shader = mesh ? style.shader : 'standard', preserve = style.mode !== 'replace';
+    const preserve = style.base !== 'custom', glassy = ['see-through', 'environment', 'refractive'].includes(kind);
     let material;
     if (!mesh) {
       material = source.clone();
@@ -157,33 +160,33 @@ export function createModelMaterials(model, { spatial = false } = {}) {
         if ('alphaMap' in material) material.alphaMap = null;
         material.vertexColors = false; material.opacity = 1; material.transparent = false; material.alphaTest = 0; material.depthWrite = true;
       }
-    } else if (shader === 'wireframe') material = adapt(source, new THREE.MeshBasicMaterial(), preserve);
-    else if (shader === 'toon') material = adapt(source, new THREE.MeshToonMaterial(), preserve);
-    else if (shader === 'glass' || shader === 'crystal' || shader === 'refractive') {
+    } else if (kind === 'wireframe') material = adapt(source, new THREE.MeshBasicMaterial(), preserve);
+    else if (kind === 'toon') material = adapt(source, new THREE.MeshToonMaterial(), preserve);
+    else if (glassy) {
       material = adapt(source, new THREE.MeshPhysicalMaterial(), preserve);
-      // Original and Tint keep the imported surface finish, which glass reflects and refracts.
+      // Imported and tinted bases keep the imported surface finish, which glass reflects and refracts.
       if (preserve && source.isMeshStandardMaterial) for (const key of ['roughness', 'metalness', 'roughnessMap', 'metalnessMap']) material[key] = source[key];
     }
     else if (!preserve) material = adapt(source, new THREE.MeshPhysicalMaterial(), false);
-    else if (shader === 'fresnel' && !source.isMeshStandardMaterial) material = adapt(source, new THREE.MeshPhysicalMaterial(), true);
+    else if (kind === 'edge-glow' && !source.isMeshStandardMaterial) material = adapt(source, new THREE.MeshPhysicalMaterial(), true);
     else material = source.clone();
-    if (shader === 'wireframe') material.wireframe = true;
-    if (shader === 'refractive') {
+    if (kind === 'wireframe') material.wireframe = true;
+    if (kind === 'refractive') {
       refraction ??= createModelRefraction();
       refraction.attach(material, style.refractionSamples);
     }
-    value = { source, material, refractive: shader === 'refractive', rim: shader === 'fresnel' ? fresnel(material) : null, glass: shader === 'glass' || shader === 'crystal' ? glass(material, shader) : null };
-    bindScenePass(material, scenePass, { spatial, authoredOpaque: !['glass', 'refractive'].includes(shader) && !material.transparent, lateAlpha: ['glass', 'refractive'].includes(shader) || material.transmission > 0 });
+    value = { source, material, refractive: kind === 'refractive', rim: kind === 'edge-glow' ? fresnel(material) : null, glass: kind === 'see-through' || kind === 'environment' ? glass(material, kind) : null };
+    bindScenePass(material, scenePass, { spatial, authoredOpaque: !['see-through', 'refractive'].includes(kind) && !material.transparent, lateAlpha: ['see-through', 'refractive'].includes(kind) || material.transmission > 0 });
     table.set(source, value); owned.add(material);
     return value;
   }
   function updateMaterial(value, style) {
     const { source, material, rim, glass } = value;
     if (material.color) {
-      if (style.mode === 'replace') material.color.set(style.color);
-      else { material.color.copy(source.color ?? tint.set('#ffffff')); if (style.mode === 'tint') material.color.multiply(tint.set(style.color)); }
+      if (style.base === 'custom') material.color.set(style.color);
+      else { material.color.copy(source.color ?? tint.set('#ffffff')); if (style.base === 'tinted') material.color.multiply(tint.set(style.color)); }
     }
-    if (style.mode === 'replace') {
+    if (style.base === 'custom') {
       if (material.isMeshStandardMaterial) {
         material.roughness = style.roughness; material.metalness = style.metalness;
         material.clearcoat = style.clearcoat; material.iridescence = style.iridescence;

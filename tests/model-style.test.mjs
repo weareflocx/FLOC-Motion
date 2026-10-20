@@ -32,21 +32,24 @@ test('automatic model motion loops, reverses and freezes without accumulating po
 test('material presets keep lighting, motion and embedded clip clocks; lighting presets keep the surface', () => {
   const original = normalizeModelStyle({ motion: 'spin', motionDuration: 8, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .4, pause: .7, curve: 'spring', intensity: .9 }, animationClip: 3, animationSpeed: 2, keyIntensity: 6 });
   const chrome = applyModelPreset(original, 'chrome');
-  assert.equal(chrome.mode, 'replace');
+  assert.equal(chrome.base, 'custom');
   assert.equal(chrome.metalness, 1);
   assert.equal(chrome.environment, original.environment, 'material presets keep the environment');
   assert.equal(chrome.keyIntensity, 6);
   assert.equal(selectedModelPreset(chrome), 'chrome');
   assert.equal(selectedModelPreset({ ...chrome, color: '#ff0040' }), 'custom');
-  const restored = applyModelPreset({ ...chrome, shader: 'wireframe', environment: 'studio' }, 'original');
-  assert.equal(restored.mode, 'original');
-  assert.equal(restored.shader, 'standard');
+  const restored = applyModelPreset({ ...chrome, look: 'wireframe', environment: 'studio' }, 'original');
+  assert.equal(restored.base, 'imported');
+  assert.deepEqual([restored.look, restored.glass, restored.fresnelIntensity], ['physical', 'none', 0]);
+  assert.equal(selectedModelPreset(restored), 'original');
+  assert.equal(selectedModelPreset({ ...restored, look: 'toon' }), 'custom', 'An imported base with another look is not the Original preset');
+  assert.equal(selectedModelPreset({ ...restored, fresnelIntensity: .5 }), 'custom', 'An imported base with edge glow is not the Original preset');
   assert.equal(restored.environment, 'studio');
   assert.deepEqual([restored.motion, restored.motionDuration, restored.animationClip, restored.animationSpeed], ['spin', 8, 3, 2]);
   for (const key of ['motionAxis', 'motionSteps', 'motionTiming']) assert.deepEqual(restored[key], original[key]);
   assert.equal(selectedLightingPreset(restored), 'custom');
   const studio = applyLightingPreset(restored, 'studio');
-  assert.deepEqual([studio.environment, studio.toneMapping, studio.keyIntensity, studio.mode, studio.shader], ['softbox', 'neutral', 1.6, 'original', 'standard']);
+  assert.deepEqual([studio.environment, studio.toneMapping, studio.keyIntensity, studio.base, studio.look], ['softbox', 'neutral', 1.6, 'imported', 'physical']);
   assert.equal(selectedLightingPreset(studio), 'studio');
   const classic = applyLightingPreset(studio, 'classic');
   assert.deepEqual([classic.environment, classic.toneMapping, classic.keyIntensity, classic.keyColor], ['none', 'none', 3, '#ffffff']);
@@ -56,20 +59,24 @@ test('material presets keep lighting, motion and embedded clip clocks; lighting 
 });
 
 test('model settings reject code, remote resources, invalid clocks and invalid clip selectors', () => {
-  for (const settings of [null, [], { shader: 'url(https://example.invalid/shader)' }, { environment: 'https://example.invalid/environment.hdr' }, { code: 'void main(){}' }, { color: 'red' }, { motionDuration: 0 }, { motionSpeed: Infinity }, { motionAmplitude: -.1 }, { animationClip: 1.5 }, { animationClip: -2 }, { animationSpeed: NaN }, { toonSteps: 2.5 }]) {
+  for (const settings of [null, [], { look: 'url(https://example.invalid/shader)' }, { environment: 'https://example.invalid/environment.hdr' }, { code: 'void main(){}' }, { color: 'red' }, { motionDuration: 0 }, { motionSpeed: Infinity }, { motionAmplitude: -.1 }, { animationClip: 1.5 }, { animationClip: -2 }, { animationSpeed: NaN }, { toonSteps: 2.5 }, { mode: 'replace' }, { shader: 'standard' }]) {
     assert.throws(() => normalizeModelStyle(settings));
   }
+  assert.throws(() => normalizeModelStyle({ look: 'toon', glass: 'see-through' }), /glass needs the Physical look/);
+  assert.throws(() => normalizeModelStyle({ look: 'wireframe', fresnelIntensity: .5 }), /edge glow needs the Physical look without glass/);
+  assert.throws(() => normalizeModelStyle({ glass: 'refractive', fresnelIntensity: .5 }), /edge glow needs the Physical look without glass/);
+  assert.equal(normalizeModelStyle({ look: 'physical', glass: 'none', fresnelIntensity: .5 }).fresnelIntensity, .5);
   const crossRealm = normalizeModelStyle(runInNewContext('({ motion: "spin", motionAxis: "x", motionTiming: { mode: "steps", action: .4 } })'));
   assert.deepEqual(crossRealm.motionTiming, { ...DEFAULT_MOTION, mode: 'steps', action: .4 });
   assert.equal(crossRealm.motionAxis, 'x');
 });
 
 test('refraction accepts only canonical bounded thickness and discrete quality settings', () => {
-  const legacy = normalizeModelStyle({ shader: 'glass', glassOpacity: .35, roughness: .2 });
-  assert.deepEqual([legacy.shader, legacy.glassOpacity, legacy.roughness], ['glass', .35, .2]);
-  assert.deepEqual([legacy.refractionThickness, legacy.refractionSamples, legacy.refractionResolution], [.5, 8, 1024]);
+  const seeThrough = normalizeModelStyle({ glass: 'see-through', glassOpacity: .35, roughness: .2 });
+  assert.deepEqual([seeThrough.glass, seeThrough.glassOpacity, seeThrough.roughness], ['see-through', .35, .2]);
+  assert.deepEqual([seeThrough.refractionThickness, seeThrough.refractionSamples, seeThrough.refractionResolution], [.5, 8, 1024]);
   for (const refractionThickness of [0, .5, 2]) for (const refractionSamples of [4, 8, 16]) for (const refractionResolution of [256, 512, 1024, 2048]) {
-    const settings = { shader: 'refractive', refractionThickness, refractionSamples, refractionResolution };
+    const settings = { glass: 'refractive', refractionThickness, refractionSamples, refractionResolution };
     const style = normalizeModelStyle(settings);
     for (const [key, value] of Object.entries(settings)) assert.equal(style[key], value);
     assert.deepEqual(normalizeModelStyle(JSON.parse(JSON.stringify(style))), style);
@@ -85,17 +92,17 @@ test('refractive presets select true refraction and preserve all nonsurface sett
   const original = normalizeModelStyle({ environment: 'neon', exposure: 2, motion: 'rock', motionAxis: 'z', animationClip: -1, zoom: 1.7, perspective: 52 });
   for (const id of ['refractive-clear', 'refractive-frosted', 'refractive-prism']) {
     const style = applyModelPreset(original, id);
-    assert.equal(style.shader, 'refractive');
-    assert.equal(style.mode, 'replace');
+    assert.equal(style.glass, 'refractive');
+    assert.deepEqual([style.base, style.look], ['custom', 'physical']);
     assert.equal(selectedModelPreset(style), id);
     for (const key of ['environment', 'exposure', 'motion', 'motionAxis', 'animationClip', 'zoom', 'perspective']) assert.equal(style[key], original[key]);
     assert.deepEqual([style.refractionSamples, style.refractionResolution], [8, 1024]);
     assert.equal(selectedModelPreset({ ...style, refractionSamples: 16 }), 'custom');
     const lighting = applyLightingPreset(style, 'sunset');
-    for (const key of ['shader', 'roughness', 'ior', 'dispersion', 'refractionThickness', 'refractionSamples', 'refractionResolution']) assert.equal(lighting[key], style[key]);
+    for (const key of ['look', 'glass', 'roughness', 'ior', 'dispersion', 'refractionThickness', 'refractionSamples', 'refractionResolution']) assert.equal(lighting[key], style[key]);
   }
-  assert.equal(applyModelPreset(original, 'clear-glass').shader, 'glass');
-  assert.equal(applyModelPreset(original, 'prism').shader, 'crystal');
+  assert.equal(applyModelPreset(original, 'clear-glass').glass, 'see-through');
+  assert.equal(applyModelPreset(original, 'prism').glass, 'environment');
 });
 
 test('all axes affect exactly their selected transform and reused samples clear stale motion', () => {
@@ -157,7 +164,7 @@ test('oscillating Actions complete a full cycle then hold rest; continuous curve
 });
 
 test('reset preserves selected motion, material, lights and clips while restoring fresh neutral timing', () => {
-  const style = normalizeModelStyle({ motion: 'pulse', mode: 'replace', color: '#123456', keyIntensity: 7, animationClip: 2, animationSpeed: .4, motionDuration: 12, motionSpeed: -3, motionAmplitude: .2, motionAxis: 'z', motionSteps: 11, motionTiming: { mode: 'steps', action: .3, pause: 2, curve: 'back', intensity: 1 } });
+  const style = normalizeModelStyle({ motion: 'pulse', base: 'custom', color: '#123456', keyIntensity: 7, animationClip: 2, animationSpeed: .4, motionDuration: 12, motionSpeed: -3, motionAmplitude: .2, motionAxis: 'z', motionSteps: 11, motionTiming: { mode: 'steps', action: .3, pause: 2, curve: 'back', intensity: 1 } });
   const before = structuredClone(style), reset = resetModelMotion(style);
   assert.deepEqual(reset, normalizeModelStyle({ ...style, motionDuration: 6, motionSpeed: 1, motionAmplitude: 1, motionAxis: 'auto', motionSteps: 4, motionTiming: DEFAULT_MOTION }));
   assert.notEqual(reset.motionTiming, DEFAULT_MOTION);
