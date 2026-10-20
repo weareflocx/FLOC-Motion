@@ -130,6 +130,14 @@ test('Flat refractive presentations preserve lower pixels, alpha and upper-layer
         }
       }
       result.transparentColor = { partialPixels, maxColorError };
+      result.dispersionTransitions = [];
+      for (const refractionSamples of [4, 8, 16]) {
+        await mount({ transparent: true, modelStyle: { roughness: .45, refractionSamples } });
+        const neutral = await change('title', { color: '#ffffff' });
+        const separated = await change('lens', { modelStyle: { ...style, roughness: .45, refractionSamples, dispersion: .6 } });
+        const restored = await change('lens', { modelStyle: { ...style, roughness: .45, refractionSamples, dispersion: 0 } });
+        result.dispersionTransitions.push({ refractionSamples, separated: difference(neutral, separated), restored: difference(neutral, restored) });
+      }
       const animated = await mount({ second: true });
       const animationPng = root.querySelector('[data-floc-scene-output]').toDataURL().split(',')[1];
       await engine.seek(1.5); const moving = pixels(); await engine.seek(.5);
@@ -195,6 +203,10 @@ test('Flat refractive presentations preserve lower pixels, alpha and upper-layer
   // Compare the displayed color over black: straight RGB magnifies 8-bit
   // rounding at low alpha, whereas two premultiplied channel steps are bounded.
   assert.ok(result.transparentColor.maxColorError <= 2, `filtered white keeps its coverage-weighted brightness without dark fringes: ${JSON.stringify(result.transparentColor)}`);
+  for (const transition of result.dispersionTransitions) {
+    assert.ok(transition.separated.changed > 20, `dispersion must visibly separate frosted glyph channels at ${transition.refractionSamples} samples`);
+    assert.equal(transition.restored.total, 0, 'returning dispersion to zero restores every color and alpha channel without rebuilding the scene');
+  }
   assert.ok(result.multiple.motion.changed > 100, `a second refractive model follows its own motion: ${JSON.stringify(result.multiple)}`);
   assert.equal(result.multiple.reverse.total, 0, 'multiple glass layers are seek-safe without feedback');
   assert.ok(result.quality.every(changed => changed > 500), 'every quality setting retains the actual refraction');
