@@ -68,7 +68,7 @@ export function createModelEnvironment(renderer, scene) {
   function clear() { scene.environment = null; target?.dispose(); target = undefined; current = undefined; }
   return {
     update(style) {
-      const id = style.shader === 'toon' || style.shader === 'wireframe' ? 'none' : style.environment;
+      const id = style.look === 'physical' ? style.environment : 'none';
       if (id !== current) {
         clear();
         if (id !== 'none') {

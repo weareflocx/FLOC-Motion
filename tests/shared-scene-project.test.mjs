@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import { demoProject, blankProject, fileLayer, validateProject, patchScene, patchLayer, linkFormats, switchFormat, assertLocksRespected } from '../src/project.js';
-import { migrateProject } from '../src/project-migrations.js';
+import { CURRENT_PROJECT_VERSION, migrateProject } from '../src/project-migrations.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { DEFAULT_SCENE, SPATIAL_LAYER_TYPES, normalizeScene, assertPlainSceneRecord } from '../src/scene-settings.js';
 import { createTools } from '../src/webmcp.js';
@@ -44,7 +44,7 @@ function legacyProject() {
 test('v13 visual presentations and every linked pose migrate to Flat without changing authored values', async () => {
   const old = legacyProject(), before = structuredClone(old);
   const migrated = validateProject(old);
-  assert.equal(migrated.version, 14);
+  assert.equal(migrated.version, CURRENT_PROJECT_VERSION);
   assert.deepEqual(migrated.scene, DEFAULT_SCENE);
   for (const source of old.layers) {
     const destination = layer(migrated, source.id);

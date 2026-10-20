@@ -127,7 +127,11 @@ export function validateProject(input) {
       if (['space', 'z', 'tilt', 'yaw'].includes(key) && !SPATIAL_LAYER_TYPES.includes(layer.type)) fail('Only spatial visual layers accept spatial settings.');
       if (key === 'space' ? !LAYER_SPACES.includes(layer[key]) : typeof layer[key] !== 'number' || !Number.isFinite(layer[key])) fail(`Invalid layer ${key}.`);
     }
-    if (layer?.type === 'model') normalizeModelStyle(layer.modelStyle);
+    // Older model settings are migrated later; inspect only record identity here.
+    if (layer?.type === 'model' && layer.modelStyle !== undefined) {
+      assertPlainSceneRecord(layer.modelStyle, '3D model settings');
+      if (layer.modelStyle.motionTiming && typeof layer.modelStyle.motionTiming === 'object') assertPlainSceneRecord(layer.modelStyle.motionTiming, '3D model motion timing');
+    }
     // Legacy curve names are migrated later; inspect only record identity here.
     if (layer?.type === 'carousel') for (const motion of [layer.motion, layer.motionBaseline?.motion]) {
       if (motion && typeof motion === 'object') assertPlainSceneRecord(motion, 'motion settings');

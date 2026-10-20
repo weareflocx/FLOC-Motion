@@ -88,13 +88,13 @@ test('shared model renderer produces real material, reflection, shader and deter
       }
       style('a', { motion: 'none', motionSpeed: 1 }); baseline.dispose();
       const original = frame('a', .4), originalMaterial = mesh('a').material, sourceMap = originalMaterial.map;
-      await mount('b', src, { ...DEFAULT_MODEL_STYLE, mode: 'replace', color: '#ff3322' }); const neighbor = frame('b', .4);
+      await mount('b', src, { ...DEFAULT_MODEL_STYLE, base: 'custom', color: '#ff3322' }); const neighbor = frame('b', .4);
       result.sharedGeometry = mesh('a').geometry === mesh('b').geometry;
       result.sharedMaterial = mesh('a').material === mesh('b').material;
-      style('a', { mode: 'tint', color: '#44ff88' }); const tinted = frame('a', .4);
+      style('a', { base: 'tinted', color: '#44ff88' }); const tinted = frame('a', .4);
       result.tint = difference(original, tinted); result.tintMapPreserved = mesh('a').material.map === sourceMap;
       result.neighbor = difference(neighbor, frame('b', .4)).total;
-      style('a', { mode: 'replace', color: '#44ff88' }); const replaced = frame('a', .4);
+      style('a', { base: 'custom', color: '#44ff88' }); const replaced = frame('a', .4);
       result.replace = difference(tinted, replaced); result.replaceMapDropped = mesh('a').material.map === null;
       result.presets = [];
       // Framebuffer-dependent presets are checked against actual lower layers in refractive-glass-pixels.test.mjs.
@@ -112,7 +112,7 @@ test('shared model renderer produces real material, reflection, shader and deter
       style('a', { fillIntensity: 3, rimIntensity: 2, lightRotation: 70 }); result.lightRig = difference(keyOnly, frame('a', .4));
       // Tone mapping rolls bright light off instead of clipping it; exposure, every environment and light color change real pixels.
       const white = p => { let count = 0; for (let i = 0; i < p.length; i += 4) if (p[i] >= 250 && p[i + 1] >= 250 && p[i + 2] >= 250 && p[i + 3] >= 250) count++; return count; };
-      style('a', { ...CLASSIC_LIGHTING, mode: 'replace', color: '#ffffff', roughness: .3, metalness: 0, clearcoat: .7, shader: 'standard' }); const clipped = frame('a', .4);
+      style('a', { ...CLASSIC_LIGHTING, base: 'custom', color: '#ffffff', roughness: .3, metalness: 0, clearcoat: .7, look: 'physical', glass: 'none' }); const clipped = frame('a', .4);
       style('a', { toneMapping: 'neutral' }); const neutral = frame('a', .4);
       style('a', { toneMapping: 'agx' }); const agx = frame('a', .4);
       result.toneMapping = { clippedWhite: white(clipped), neutralWhite: white(neutral), agxWhite: white(agx), neutral: difference(clipped, neutral), agx: difference(neutral, agx) };
@@ -126,7 +126,7 @@ test('shared model renderer produces real material, reflection, shader and deter
       let redder = 0; for (let i = 0; i < redKey.length; i += 4) if (redKey[i + 3] > 250 && redKey[i] - redKey[i + 2] > whiteKey[i] - whiteKey[i + 2] + 20) redder++;
       result.keyColor = { delta: difference(whiteKey, redKey), redder };
       // Replacement-surface details each change real pixels under the Studio light.
-      const surfaceBase = { environment: 'softbox', toneMapping: 'neutral', keyColor: '#ffffff', mode: 'replace', shader: 'standard', color: '#c4c5c4', roughness: .3, metalness: 1, clearcoat: 0 };
+      const surfaceBase = { environment: 'softbox', toneMapping: 'neutral', keyColor: '#ffffff', base: 'custom', look: 'physical', glass: 'none', color: '#c4c5c4', roughness: .3, metalness: 1, clearcoat: 0 };
       style('a', surfaceBase); const unbrushed = frame('a', .4);
       style('a', { anisotropy: .9 }); result.brushed = difference(unbrushed, frame('a', .4));
       style('a', { anisotropy: 0, color: '#f2efe8', metalness: 0, clearcoat: 1, clearcoatRoughness: 0 }); const sharpCoat = frame('a', .4);
@@ -139,7 +139,7 @@ test('shared model renderer produces real material, reflection, shader and deter
       style('a', { iridescenceThicknessMin: 600 }); result.filmVaries = difference(frame('a', .4), filmRange);
       style('a', { iridescence: 0, iridescenceIOR: 1.3, iridescenceThicknessMin: 400, iridescenceThicknessMax: 400 });
       // Glass leaves most covered pixels translucent so layers below show through; a fuller
-      // body covers more. Studio glass is opaque, refracts the environment and disperses it.
+      // body covers more. Environment glass is opaque, refracts the environment and disperses it.
       const alphaStats = p => { let covered = 0, translucent = 0, sum = 0; for (let i = 3; i < p.length; i += 4) if (p[i] > 0) { covered++; sum += p[i]; if (p[i] < 200) translucent++; } return { covered, translucent, mean: sum / Math.max(1, covered) }; };
       style('a', applyModelPreset(layers.get('a').modelStyle, 'clear-glass')); const clearGlass = frame('a', .4);
       style('a', { glassOpacity: .6 }); result.glass = { clear: alphaStats(clearGlass), bodied: alphaStats(frame('a', .4)) };
@@ -148,27 +148,27 @@ test('shared model renderer produces real material, reflection, shader and deter
       style('a', { environment: 'sunset' }); const sunsetPrism = frame('a', .4);
       style('a', { environment: 'none' }); const fallbackPrism = frame('a', .4);
       let fallbackLit = 0; for (let i = 0; i < fallbackPrism.length; i += 4) if (fallbackPrism[i + 3] > 0 && fallbackPrism[i] + fallbackPrism[i + 1] + fallbackPrism[i + 2] > 120) fallbackLit++;
-      result.crystal = { alpha: alphaStats(prism), dispersion: difference(prism, unspread), environment: difference(unspread, sunsetPrism), fallbackLit };
-      style('a', { environment: 'softbox', shader: 'standard' });
+      result.environmentGlass = { alpha: alphaStats(prism), dispersion: difference(prism, unspread), environment: difference(unspread, sunsetPrism), fallbackLit };
+      style('a', { environment: 'softbox', glass: 'none' });
       style('a', CLASSIC_LIGHTING);
-      style('a', { mode: 'replace', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, shader: 'standard' }); const standard = frame('a', .4);
-      result.shaders = [];
-      for (const shader of ['toon', 'fresnel', 'wireframe']) {
-        style('a', { shader, fresnelColor: '#ff0000', fresnelIntensity: 2 }); const output = frame('a', .4);
-        result.shaders.push({ shader, delta: difference(standard, output), coverage: opaque(output) });
+      style('a', { base: 'custom', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, look: 'physical', glass: 'none', fresnelIntensity: 0 }); const standard = frame('a', .4);
+      result.looks = [];
+      for (const [name, look, fresnelIntensity] of [['toon', 'toon', 0], ['edge glow', 'physical', 2], ['wireframe', 'wireframe', 0]]) {
+        style('a', { look, fresnelColor: '#ff0000', fresnelIntensity }); const output = frame('a', .4);
+        result.looks.push({ name, delta: difference(standard, output), coverage: opaque(output) });
       }
       result.standardCoverage = opaque(standard);
-      style('a', { shader: 'toon', toonSteps: 2 }); const twoSteps = frame('a', .4); style('a', { toonSteps: 8 }); result.toonSteps = difference(twoSteps, frame('a', .4));
-      style('a', { shader: 'fresnel', fresnelIntensity: 0 }); const noRim = frame('a', .4); style('a', { fresnelIntensity: 2 }); const rim = frame('a', .4);
-      result.fresnel = difference(noRim, rim);
+      style('a', { look: 'toon', fresnelIntensity: 0, toonSteps: 2 }); const twoSteps = frame('a', .4); style('a', { toonSteps: 8 }); result.toonSteps = difference(twoSteps, frame('a', .4));
+      style('a', { look: 'physical', fresnelIntensity: 0 }); const noRim = frame('a', .4); style('a', { fresnelIntensity: 2 }); const rim = frame('a', .4);
+      result.edgeGlow = difference(noRim, rim);
       let edgeGain = 0, centerGain = 0, edgeCount = 0, centerCount = 0;
       for (let y = 60; y < 125; y++) for (let x = 35; x < 140; x++) {
         const i = (y * 192 + x) * 4; if (noRim[i + 3] < 250) continue;
         const gain = rim[i] - noRim[i];
         if (x < 49 || x > 119) { edgeGain += gain; edgeCount++; } else if (x > 70 && x < 95) { centerGain += gain; centerCount++; }
       }
-      result.fresnelAngle = { edge: edgeGain / Math.max(1, edgeCount), center: centerGain / Math.max(1, centerCount) };
-      style('a', { mode: 'original', shader: 'standard', environment: 'none', ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0 });
+      result.edgeGlowAngle = { edge: edgeGain / Math.max(1, edgeCount), center: centerGain / Math.max(1, centerCount) };
+      style('a', { base: 'imported', look: 'physical', glass: 'none', fresnelIntensity: 0, environment: 'none', ambientIntensity: 3, keyIntensity: 3, fillIntensity: 0, rimIntensity: 0, lightRotation: 0 });
       result.restoration = difference(original, frame('a', .4)).total;
       result.originalMaterialRestored = mesh('a').material === originalMaterial;
       result.originalMapIntact = sourceMap === mesh('a').material.map && !disposal.textures.includes(sourceMap.uuid);
@@ -250,7 +250,7 @@ test('shared model renderer produces real material, reflection, shader and deter
       result.timingClipIndependent = JSON.stringify(clipB) === JSON.stringify(mesh('a').scale.toArray());
       try { style('a', { animationClip: 7 }); } catch (error) { result.invalidClip = error.message; }
       result.metadata = getModelMetadata(src);
-      style('a', { animationClip: -1, motion: 'none', environment: 'studio', environmentIntensity: 1, mode: 'replace', shader: 'standard' }); const beforeRestore = frame('a', 0);
+      style('a', { animationClip: -1, motion: 'none', environment: 'studio', environmentIntensity: 1, base: 'custom', look: 'physical', glass: 'none' }); const beforeRestore = frame('a', 0);
       const shared = captures.get('a').renderer, gl = shared.getContext(), extension = gl.getExtension('WEBGL_lose_context');
       if (!extension) throw new Error('Browser does not expose WEBGL_lose_context for recovery verification.');
       const lost = new Promise(resolve => shared.domElement.addEventListener('webglcontextlost', resolve, { once: true })); extension.loseContext(); await lost;
@@ -268,13 +268,13 @@ test('shared model renderer produces real material, reflection, shader and deter
       result.metadataReleased = getModelMetadata(src) === null;
       const coloredSrc = await fixture(false, { vertexColors: true, opacity: .35 });
       await mount('colored', coloredSrc); const coloredOriginal = frame('colored', .4);
-      style('colored', { mode: 'replace', color: '#ff0000' }); const solidRed = frame('colored', .4);
+      style('colored', { base: 'custom', color: '#ff0000' }); const solidRed = frame('colored', .4);
       let redPixels = 0;
       for (let i = 0; i < solidRed.length; i += 4) if (solidRed[i] > 200 && solidRed[i + 1] < 50 && solidRed[i + 2] < 50 && solidRed[i + 3] > 250) redPixels++;
       result.uniformReplacementPixels = redPixels;
-      style('colored', { mode: 'original' }); result.coloredRestoration = difference(coloredOriginal, frame('colored', .4)).total;
+      style('colored', { base: 'imported' }); result.coloredRestoration = difference(coloredOriginal, frame('colored', .4)).total;
       await mount('unlit', unlitSrc); result.unlitMetadata = getModelMetadata(unlitSrc).unlit;
-      const unlit = frame('unlit', .4); style('unlit', { shader: 'fresnel', fresnelIntensity: 2 }); result.unlitSurface = difference(unlit, frame('unlit', .4));
+      const unlit = frame('unlit', .4); style('unlit', { look: 'physical', glass: 'none', fresnelIntensity: 2 }); result.unlitSurface = difference(unlit, frame('unlit', .4));
       // Editor geometry: the reported silhouette contains the drawn pixels and hit-tests geometry only.
       const posed = frame('unlit', .4), drawnBox = opaqueBox(posed, 192), geometry = modelCanvasGeometry(canvas('unlit')), bounds = geometry.bounds();
       result.silhouette = { drawn: drawnBox, bounds: { left: bounds.x * 192, top: bounds.y * 192, right: (bounds.x + bounds.width) * 192, bottom: (bounds.y + bounds.height) * 192 } };
@@ -340,10 +340,10 @@ test('shared model renderer produces real material, reflection, shader and deter
   for (const preset of result.presets) assert.ok(preset.visible > 1000, `${preset.id} must draw actual geometry`);
   for (let i = 1; i < result.presets.length; i++) assert.notDeepEqual(result.presets[i].pixels, result.presets[i - 1].pixels, 'adjacent presets must have distinct visible surfaces');
   visible(result.environmentRotation, 'Environment rotation'); visible(result.environmentIntensity, 'Environment intensity'); visible(result.lightRig, 'Lighting rig');
-  for (const shader of result.shaders) visible(shader.delta, shader.shader);
-  assert.ok(result.shaders.find(item => item.shader === 'wireframe').coverage < result.standardCoverage * .8, 'wireframe shows triangle edges, not a recolored filled surface');
-  visible(result.toonSteps, 'Toon steps'); visible(result.fresnel, 'Fresnel intensity');
-  assert.ok(result.fresnelAngle.edge > result.fresnelAngle.center, `rim depends on view angle: ${JSON.stringify(result.fresnelAngle)}`);
+  for (const look of result.looks) visible(look.delta, look.name);
+  assert.ok(result.looks.find(item => item.name === 'wireframe').coverage < result.standardCoverage * .8, 'wireframe shows triangle edges, not a recolored filled surface');
+  visible(result.toonSteps, 'Toon steps'); visible(result.edgeGlow, 'Edge glow intensity');
+  assert.ok(result.edgeGlowAngle.edge > result.edgeGlowAngle.center, `edge glow depends on view angle: ${JSON.stringify(result.edgeGlowAngle)}`);
   assert.equal(result.restoration, 0); assert.equal(result.originalMaterialRestored, true); assert.equal(result.originalMapIntact, true);
   assert.equal(result.loop, 0); assert.equal(result.reverseSeek, 0); visible(result.clipSwitch, 'Clip selection');
   assert.equal(result.clipSpeed, 0); assert.equal(result.clipFreeze, 0); assert.equal(result.clipDisabled, 0);
@@ -376,9 +376,9 @@ test('shared model renderer produces real material, reflection, shader and deter
   const { clear, bodied } = result.glass;
   assert.ok(clear.covered > 1000 && clear.translucent > clear.covered * .5, `clear glass lets the layers below show through most of the model: ${JSON.stringify(clear)}`);
   assert.ok(bodied.mean > clear.mean + 40, `a fuller glass body covers more of the layers below: ${clear.mean} → ${bodied.mean}`);
-  assert.ok(result.crystal.alpha.covered > 1000 && result.crystal.alpha.translucent < result.crystal.alpha.covered * .15, `studio glass is opaque: ${JSON.stringify(result.crystal.alpha)}`);
-  visible(result.crystal.dispersion, 'Crystal dispersion'); visible(result.crystal.environment, 'Crystal refracting its environment');
-  assert.ok(result.crystal.fallbackLit > 500, `studio glass without an environment still shows a neutral horizon: ${result.crystal.fallbackLit}`);
+  assert.ok(result.environmentGlass.alpha.covered > 1000 && result.environmentGlass.alpha.translucent < result.environmentGlass.alpha.covered * .15, `environment glass is opaque: ${JSON.stringify(result.environmentGlass.alpha)}`);
+  visible(result.environmentGlass.dispersion, 'Environment glass dispersion'); visible(result.environmentGlass.environment, 'Environment glass refracting its environment');
+  assert.ok(result.environmentGlass.fallbackLit > 500, `environment glass without an environment still shows a neutral horizon: ${result.environmentGlass.fallbackLit}`);
   assert.deepEqual(result.unbrushedWithoutUv.delta, 0, 'brushing is ignored on meshes without UVs'); assert.ok(result.unbrushedWithoutUv.visible > 1000);
   assert.deepEqual(result.resolution, [192, 96, 288, 4096], 'canvas follows layer size, keyframed size and composition width, capped');
   assert.ok(result.fixedCrop > 0, 'fixed framing crops a rotated cube diagonal, as before');

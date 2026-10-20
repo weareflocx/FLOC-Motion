@@ -53,15 +53,17 @@ vec4 modelRefractionSample(vec2 uv) {
 }
 `;
 
-const output = samples => `
+const output = (samples, dispersed) => `
   float sourceOpacity = clamp(diffuseColor.a, 0.0, 1.0);
   {
     vec3 refractionN = normalize(geometryNormal);
     vec3 refractionV = normalize(geometryViewDir);
+    ${dispersed ? `
     float spread = modelRefractionDispersion * 0.05;
     vec2 uvR = modelRefractionUV(refractionN, refractionV, max(1.0, modelRefractionIOR * (1.0 - spread)));
     vec2 uvG = modelRefractionUV(refractionN, refractionV, modelRefractionIOR);
-    vec2 uvB = modelRefractionUV(refractionN, refractionV, modelRefractionIOR * (1.0 + spread));
+    vec2 uvB = modelRefractionUV(refractionN, refractionV, modelRefractionIOR * (1.0 + spread));` : `
+    vec2 uvG = modelRefractionUV(refractionN, refractionV, modelRefractionIOR);`}
     vec3 through = vec3(0.0);
     float throughAlpha = 0.0;
     // A fixed, evenly distributed disk is seek-safe and does not shimmer between frames.
@@ -69,11 +71,16 @@ const output = samples => `
       float radius = sqrt(float(i) / ${Math.max(1, samples - 1)}.0) * modelRefractionBlur;
       float angle = float(i) * 2.399963229728653;
       vec2 offset = vec2(cos(angle), sin(angle)) * radius;
+      ${dispersed ? `
       vec4 r = modelRefractionSample(uvR + offset);
       vec4 g = modelRefractionSample(uvG + offset);
       vec4 b = modelRefractionSample(uvB + offset);
       through += vec3(r.r, g.g, b.b);
-      throughAlpha += max(r.a, max(g.a, b.a));
+      throughAlpha += max(r.a, max(g.a, b.a));` : `
+      // Coincident RGB rays share the same premultiplied color and coverage.
+      vec4 transmitted = modelRefractionSample(uvG + offset);
+      through += transmitted.rgb;
+      throughAlpha += transmitted.a;`}
     }
     through /= ${samples}.0;
     throughAlpha /= ${samples}.0;
@@ -93,7 +100,8 @@ const output = samples => `
 
 export function createModelRefraction() {
   let canvas, context, texture;
-  let thickness = .5, worldScale = 1;
+  let thickness = .5, worldScale = 1, dispersed = false;
+  const materials = new Set();
   const uniforms = {
     modelRefractionBuffer: { value: null },
     modelRefractionRect: { value: new THREE.Vector4(0, 0, 1, 1) },
@@ -107,6 +115,7 @@ export function createModelRefraction() {
   };
   return {
     attach(material, samples) {
+      materials.add(material);
       material.transparent = false;
       material.transmission = 0;
       material.depthWrite = true;
@@ -126,11 +135,18 @@ export function createModelRefraction() {
             }`)
           // Only reflections use the model lighting, tone mapping and exposure.
           .replace('#include <opaque_fragment>', 'gl_FragColor = vec4(totalSpecular, 1.0);')
-          .replace('#include <premultiplied_alpha_fragment>', output(samples));
+          .replace('#include <premultiplied_alpha_fragment>', output(samples, dispersed));
       };
-      material.customProgramCacheKey = () => `floc-model-refractive-v5-${samples}`;
+      material.customProgramCacheKey = () => `floc-model-refractive-v6-${samples}-${dispersed}`;
     },
     update(style) {
+      const next = style.dispersion > 0;
+      if (next !== dispersed) {
+        dispersed = next;
+        // Keep the original spectral shader branch-free; crossing zero selects
+        // one of two cached programs rather than branching at every sample.
+        for (const material of materials) material.needsUpdate = true;
+      }
       thickness = style.refractionThickness;
       uniforms.modelRefractionThickness.value = thickness * 2 * worldScale;
       uniforms.modelRefractionIOR.value = style.ior;
@@ -166,6 +182,6 @@ export function createModelRefraction() {
       texture.needsUpdate = true;
     },
     mask(value) { uniforms.modelRefractionMask.value = value; },
-    dispose() { texture?.dispose(); if (canvas) canvas.width = canvas.height = 1; }
+    dispose() { materials.clear(); texture?.dispose(); if (canvas) canvas.width = canvas.height = 1; }
   };
 }

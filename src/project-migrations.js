@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 14;
+export const CURRENT_PROJECT_VERSION = 15;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -307,8 +307,27 @@ function v13ToV14(project) {
   return project;
 }
 
+// v14 models had one material mode (original, tint, replace) and one shader list that mixed
+// how a surface is lit with its glass type; Fresnel was Standard plus an edge glow. They become
+// independent base, look and glass settings, with edge glow on only for Fresnel. Unknown values
+// pass through for validation to reject. Frozen here so a v14 file always migrates alike.
+const V14_BASES = { original: 'imported', tint: 'tinted', replace: 'custom' };
+const V14_SHADERS = { standard: ['physical', 'none'], fresnel: ['physical', 'none'], toon: ['toon', 'none'], wireframe: ['wireframe', 'none'],
+  glass: ['physical', 'see-through'], crystal: ['physical', 'environment'], refractive: ['physical', 'refractive'] };
+const V14_FRESNEL_INTENSITY = 0.5;
+function v14ToV15(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'model' || !record(layer.modelStyle) || ![Object.prototype, null].includes(Object.getPrototypeOf(layer.modelStyle))) continue;
+    const { mode = 'original', shader = 'standard', ...style } = layer.modelStyle;
+    const [look, glass] = Object.hasOwn(V14_SHADERS, shader) ? V14_SHADERS[shader] : [shader, 'none'];
+    layer.modelStyle = { ...style, base: Object.hasOwn(V14_BASES, mode) ? V14_BASES[mode] : mode, look, glass,
+      fresnelIntensity: shader === 'fresnel' ? style.fresnelIntensity ?? V14_FRESNEL_INTENSITY : 0 };
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13, v13ToV14];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13, v13ToV14, v14ToV15];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

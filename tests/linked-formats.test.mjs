@@ -363,7 +363,7 @@ test('model material, lighting, automatic motion and clip settings are shared wh
   const square = structuredClone(layer(project, 'model'));
   project = switchFormat(project, 'portrait');
   const portraitStates = layer(project, 'model').choreography.map(state => ({ ...state, values: { ...state.values, x: 30, yaw: 37 } }));
-  const modelStyle = { ...layer(project, 'model').modelStyle, mode: 'replace', color: '#b8b8c0', roughness: 0.4, metalness: 1, environment: 'studio', environmentRotation: 35, fillIntensity: 2, motion: 'float', motionSpeed: -1, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .5, pause: .7, curve: 'spring', intensity: .8 }, animationClip: -1, animationSpeed: 0.5 };
+  const modelStyle = { ...layer(project, 'model').modelStyle, base: 'custom', color: '#b8b8c0', roughness: 0.4, metalness: 1, environment: 'studio', environmentRotation: 35, fillIntensity: 2, motion: 'float', motionSpeed: -1, motionAxis: 'x', motionSteps: 7, motionTiming: { mode: 'steps', action: .5, pause: .7, curve: 'spring', intensity: .8 }, animationClip: -1, animationSpeed: 0.5 };
   project = patchLayer(project, 'model', { x: 32, y: 40, size: 70, yaw: 45, tilt: -28, roll: 8, choreography: portraitStates, modelStyle });
   const portrait = structuredClone(layer(project, 'model'));
   const saved = validateProject(JSON.parse(JSON.stringify(project)));
@@ -376,9 +376,9 @@ test('model material, lighting, automatic motion and clip settings are shared wh
   for (const key of ['x', 'y', 'size', 'yaw', 'tilt', 'roll', 'choreography']) assert.deepEqual(master[key], square[key], key);
   const restored = layer(switchFormat(switchFormat(saved, 'square'), 'portrait'), 'model');
   assert.deepEqual(restored, portrait);
-  const changed = patchLayer(switchFormat(saved, 'square'), 'model', { modelStyle: { ...modelStyle, shader: 'toon', toonSteps: 6 } });
+  const changed = patchLayer(switchFormat(saved, 'square'), 'model', { modelStyle: { ...modelStyle, look: 'toon', toonSteps: 6 } });
   const other = layer(switchFormat(changed, 'portrait'), 'model');
-  assert.equal(other.modelStyle.shader, 'toon');
+  assert.equal(other.modelStyle.look, 'toon');
   assert.equal(other.modelStyle.toonSteps, 6);
   assert.equal(other.x, portrait.x);
   assert.deepEqual(other.choreography, portrait.choreography);
@@ -389,7 +389,7 @@ test('linked caches cannot hide per-format material overrides or malformed neste
   const model = fileLayer({ name: 'Model', src: '/assets/12345678-1234-1234-1234-123456789012.glb' }, 12, 'model');
   const project = linkFormats(validateProject({ ...demoProject(), layers: [model] }));
   for (const format of ['square', 'portrait']) {
-    for (const modelStyle of [{ mode: 'replace' }, { motionAxis: 'z' }, { motionSteps: 12 }, { motionTiming: { mode: 'steps', action: .4 } }, { shader: 'void main() {}' }, null]) {
+    for (const modelStyle of [{ base: 'custom' }, { motionAxis: 'z' }, { motionSteps: 12 }, { motionTiming: { mode: 'steps', action: .4 } }, { look: 'void main() {}' }, null]) {
       const invalid = structuredClone(project);
       invalid.linkedFormats.layouts[format].layers.model.modelStyle = modelStyle;
       assert.throws(() => validateProject(invalid), /Only framing and typography may vary by format/);

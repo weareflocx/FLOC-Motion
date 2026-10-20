@@ -59,7 +59,7 @@ test('model styles normalize partial edits without mutating input and survive sa
   assert.equal(Object.hasOwn(fileLayer(asset('png'), 12, 'image'), 'modelStyle'), false);
   const legacy = { ...model }; delete legacy.modelStyle;
   const raw = { ...demoProject(), layers: [legacy] }, before = structuredClone(raw);
-  const style = { mode: 'replace', color: '#225588', roughness: 0.18, metalness: 0.8, shader: 'fresnel', environment: 'studio', keyIntensity: 5, fillIntensity: 2, motion: 'rock', motionSpeed: -2, animationClip: -1, animationSpeed: 0.5 };
+  const style = { base: 'custom', color: '#225588', roughness: 0.18, metalness: 0.8, look: 'physical', fresnelIntensity: 0.5, environment: 'studio', keyIntensity: 5, fillIntensity: 2, motion: 'rock', motionSpeed: -2, animationClip: -1, animationSpeed: 0.5 };
   const patch = { modelStyle: style }, patchBefore = structuredClone(patch);
   const edited = patchLayer(raw, 'model', patch);
   assert.deepEqual(edited.layers[0].modelStyle, { ...DEFAULT_MODEL_STYLE, ...style });
@@ -68,7 +68,7 @@ test('model styles normalize partial edits without mutating input and survive sa
   const serialized = JSON.stringify(edited);
   const imported = await parseProjectFile({ size: Buffer.byteLength(serialized), async text() { return serialized; } });
   assert.deepEqual(imported, edited);
-  const invalid = JSON.stringify({ ...edited, layers: [{ ...edited.layers[0], modelStyle: { shader: 'void main() {}' } }] });
+  const invalid = JSON.stringify({ ...edited, layers: [{ ...edited.layers[0], modelStyle: { look: 'void main() {}' } }] });
   await assert.rejects(parseProjectFile({ size: Buffer.byteLength(invalid), async text() { return invalid; } }), /3D/);
   const copied = duplicateLayer(imported, 'model', 'copy');
   assert.deepEqual(copied.layers[1].modelStyle, edited.layers[0].modelStyle);
@@ -84,8 +84,8 @@ test('model settings reject malformed nested values, uninstalled shaders and rem
   const project = validateProject({ ...demoProject(), layers: [fileLayer(asset('glb'), 12, 'model')] });
   const before = structuredClone(project);
   const badStyles = [
-    null, [], true, 'chrome', { mode: 'chrome' }, { shader: 'custom' }, { shader: 'void main() {}' },
-    new Date(0), new Map(), Object.create({ mode: 'replace' }), { [Symbol('shader')]: 'custom' },
+    null, [], true, 'chrome', { base: 'chrome' }, { look: 'custom' }, { look: 'void main() {}' }, { glass: 'crystal' }, { mode: 'replace' }, { shader: 'standard' },
+    new Date(0), new Map(), Object.create({ base: 'custom' }), { [Symbol('look')]: 'custom' },
     { motion: 'eval' }, { environment: 'https://example.com/studio.hdr' },
     { environmentUrl: 'https://example.com/studio.hdr' }, { fragmentShader: 'void main() {}' },
     { material: { roughness: 0.5 } }, { color: { value: '#ffffff' } }, { color: '#fff' },
@@ -96,7 +96,7 @@ test('model settings reject malformed nested values, uninstalled shaders and rem
     { motionTiming: { [Symbol('curve')]: 'spring' } }, { motionTiming: new Date(0) }, { motionTiming: new Map() },
     { motionTiming: { action: 0 } }, { motionTiming: { pause: -1 } }, { motionTiming: { intensity: 2 } },
     { motionTiming: { curve: 'custom' } }, { motionTiming: JSON.parse('{"__proto__":{"curve":"back"}}') },
-    JSON.parse('{"__proto__":{"shader":"custom"}}'),
+    JSON.parse('{"__proto__":{"look":"custom"}}'),
     { iridescenceThicknessMin: 500, iridescenceThicknessMax: 400 }
   ];
   // Each film bound is checked with the other at its widest so the range stays ordered.
@@ -117,7 +117,7 @@ test('model settings reject malformed nested values, uninstalled shaders and rem
 });
 
 test('model source and pose bounds remain enforced beside styling, and replacing a source resets only clip selection', () => {
-  const modelStyle = { ...DEFAULT_MODEL_STYLE, mode: 'tint', color: '#556677', motion: 'spin', motionAxis: 'z', motionSteps: 9, motionTiming: { mode: 'steps', action: .4, pause: .8, curve: 'spring', intensity: 1 }, animationClip: 7, animationSpeed: 0.4 };
+  const modelStyle = { ...DEFAULT_MODEL_STYLE, base: 'tinted', color: '#556677', motion: 'spin', motionAxis: 'z', motionSteps: 9, motionTiming: { mode: 'steps', action: .4, pause: .8, curve: 'spring', intensity: 1 }, animationClip: 7, animationSpeed: 0.4 };
   const project = validateProject({ ...demoProject(), layers: [{ ...fileLayer(asset('glb'), 12, 'model'), modelStyle }] });
   for (const src of ['https://example.com/model.glb', '/assets/../model.glb', `${asset('glb').src}?url=https://example.com`, asset('obj').src, asset('png').src, '']) {
     assert.throws(() => patchLayer(project, 'model', { src }));
@@ -130,18 +130,18 @@ test('model source and pose bounds remain enforced beside styling, and replacing
   assert.equal(replaced.layers[0].src, src);
   assert.deepEqual(replaced.layers[0].modelStyle, { ...modelStyle, animationClip: 0 });
   assert.equal(project.layers[0].modelStyle.animationClip, 7);
-  assert.throws(() => patchLayer(project, 'model', { src, modelStyle: { shader: 'void main() {}' } }), /3D/);
+  assert.throws(() => patchLayer(project, 'model', { src, modelStyle: { look: 'void main() {}' } }), /3D/);
 });
 
 test('locked model styling cannot change through patches or composition-wide format exceptions', () => {
   let project = linkFormats(validateProject({ ...demoProject(), layers: [fileLayer(asset('glb'), 12, 'model')] }));
   project = patchLayer(project, 'model', { locked: true });
-  assert.throws(() => patchLayer(project, 'model', { modelStyle: { mode: 'replace' } }), /Unlock/);
-  assert.throws(() => patchLayer(project, 'model', { locked: false, modelStyle: { mode: 'replace' } }), /Unlock/);
+  assert.throws(() => patchLayer(project, 'model', { modelStyle: { base: 'custom' } }), /Unlock/);
+  assert.throws(() => patchLayer(project, 'model', { locked: false, modelStyle: { base: 'custom' } }), /Unlock/);
   const portrait = switchFormat(project, 'portrait');
   assert.doesNotThrow(() => assertLocksRespected(project, portrait, { allow: ['format'] }));
   const changed = validateProject({ ...portrait, layers: portrait.layers.map(layer => ({ ...layer, modelStyle: { ...layer.modelStyle, keyIntensity: 8 } })) });
   for (const allow of [[], ['format'], ['timing'], ['content']]) assert.throws(() => assertLocksRespected(project, changed, { allow }), /Unlock/);
   const unlocked = patchLayer(project, 'model', { locked: false });
-  assert.equal(patchLayer(unlocked, 'model', { modelStyle: { shader: 'wireframe' } }).layers[0].modelStyle.shader, 'wireframe');
+  assert.equal(patchLayer(unlocked, 'model', { modelStyle: { look: 'wireframe' } }).layers[0].modelStyle.look, 'wireframe');
 });
