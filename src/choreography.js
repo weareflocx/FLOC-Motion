@@ -1,11 +1,13 @@
 import { easeProgress } from './easing.js';
 import { DEFAULT_TEXT_STYLE } from './text-style.js';
-import { PROJECT_LIMITS } from './project-limits.js';
+import { PATTERN_SCALE, PROJECT_LIMITS } from './project-limits.js';
 import { SCENE_DEPTH_RANGE, assertPlainSceneRecord } from './scene-settings.js';
 
-// The pose every state holds: framing, size, opacity and orientation.
+// The pose every state holds: framing, size, opacity and orientation. A
+// background has no pose: its states hold only optional values.
 const COMMON_FIELDS = { x: [0, 95], y: [0, 95], z: SCENE_DEPTH_RANGE, opacity: [0, 1], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] };
 const FIELDS = {
+  background: {},
   effect: { opacity: [0, 1] },
   text: { ...COMMON_FIELDS, size: [12, 180] },
   logo: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
@@ -33,12 +35,18 @@ const EFFECT_BOUNDS = Object.fromEntries(Object.entries(EFFECT_FIELDS).map(([fie
 const OPTIONAL_FIELDS = {
   text: { color: 'color', letterSpacing: [-0.15, 0.5], lineHeight: [0.5, 3], ...EFFECT_BOUNDS },
   carousel: { stretch: [0, 1], ...EFFECT_BOUNDS },
-  logo: EFFECT_BOUNDS, media: EFFECT_BOUNDS, model: EFFECT_BOUNDS, effect: EFFECT_BOUNDS
+  logo: EFFECT_BOUNDS, media: EFFECT_BOUNDS, model: EFFECT_BOUNDS, effect: EFFECT_BOUNDS,
+  background: { color: 'color', patternColor: 'color', patternIntensity: [0, 1], patternScale: [PATTERN_SCALE.min, PATTERN_SCALE.max], patternSpeed: [-2, 2],
+    patternDirection: [0, 360], patternFocusX: [0, 100], patternFocusY: [0, 100], patternVignette: [0, 1], patternGrain: [0, 1], ...EFFECT_BOUNDS }
 };
 const LABELS = { x: 'Position', y: 'Position', z: 'Depth', size: 'Size', opacity: 'Opacity', roll: 'Rotation', tilt: 'Tilt', yaw: 'Yaw',
   stretch: 'Edge stretch', color: 'Color', letterSpacing: 'Letter spacing', lineHeight: 'Line height',
+  patternColor: 'Pattern color', patternIntensity: 'Pattern intensity', patternScale: 'Pattern scale', patternSpeed: 'Pattern speed',
+  patternDirection: 'Direction', patternFocusX: 'Focus', patternFocusY: 'Focus', patternVignette: 'Vignette', patternGrain: 'Grain overlay',
   blurAmount: 'Blur', noiseOpacity: 'Noise', monochromeAmount: 'Monochrome', warpAmount: 'Optical warp',
   duotoneAmount: 'Duotone', chromaticAmount: 'Chromatic split', waveAmount: 'Liquid wave', halftoneAmount: 'Halftone', ditheringAmount: 'Dithering', glassAmount: 'Fluted glass' };
+
+export const supportsChoreography = layer => Object.hasOwn(FIELDS, layer?.type);
 
 export const choreographyFields = layer => FIELDS[layer?.type] ?? {};
 export const optionalChoreographyFields = layer => OPTIONAL_FIELDS[layer?.type] ?? {};
@@ -49,9 +57,11 @@ const heldBy = (states, field) => states?.some(state => Object.hasOwn(state.valu
 // Optional fields at least one state holds.
 export const animatedFields = layer => Object.keys(optionalChoreographyFields(layer)).filter(field => heldBy(layer.choreography, field));
 
-// Optional fields this layer can capture now: effect amounts need their effect.
+// Optional fields this layer can capture now: effect amounts need their
+// effect, and pattern values a procedural background.
 export const capturableFields = layer => Object.keys(optionalChoreographyFields(layer))
-  .filter(field => !Object.hasOwn(EFFECT_FIELDS, field) || effectIndex(layer, field) !== -1);
+  .filter(field => !Object.hasOwn(EFFECT_FIELDS, field) || effectIndex(layer, field) !== -1)
+  .filter(field => layer.type !== 'background' || !field.startsWith('pattern') || layer.mode === 'procedural');
 
 // The current value of a pose or optional field on a (possibly evaluated) layer.
 export function choreographyValue(layer, field) {
@@ -111,6 +121,14 @@ export function evaluateChoreography(layer, absoluteTime) {
   return pose;
 }
 
+// One pose or optional (non-effect) field at a layer-local time, as
+// `evaluateChoreography` would sample it; the layer's own value when no state
+// holds the field.
+export function choreographyValueAt(layer, field, localTime) {
+  const kind = choreographyFields(layer)[field] ?? optionalChoreographyFields(layer)[field];
+  return sample(layer.choreography ?? [], field, localTime, layer[field], kind);
+}
+
 function frameRate(fps) {
   if (!Number.isFinite(fps) || fps <= 0) throw new Error('A positive frame rate is required.');
   return fps;
@@ -129,7 +147,7 @@ export function stateAtTime(layer, absoluteTime, fps) {
 export function captureState(layer, absoluteTime, fps, patch = {}, id = crypto.randomUUID(), { all = false } = {}) {
   frameRate(fps);
   const fields = choreographyFields(layer), optional = optionalChoreographyFields(layer);
-  if (!Object.keys(fields).length) throw new Error('This layer cannot have choreography.');
+  if (!supportsChoreography(layer)) throw new Error('This layer cannot have choreography.');
   if (!Number.isFinite(absoluteTime)) throw new Error('State time must be finite.');
   assertPlainSceneRecord(patch, 'choreography values');
   if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).some(field => !Object.hasOwn(fields, field) && !Object.hasOwn(optional, field))) throw new Error('Invalid choreography values.');
@@ -146,6 +164,7 @@ export function captureState(layer, absoluteTime, fps, patch = {}, id = crypto.r
     else if (existing && Object.hasOwn(existing.values, field) && !capturable.has(field)) values[field] = existing.values[field];
     else if (capturable.has(field) && (all || animated.has(field))) values[field] = choreographyValue(pose, field);
   }
+  if (!Object.keys(values).length) throw new Error('This layer has nothing to animate yet.');
   const state = { id: existing?.id ?? id, time, easing: existing?.easing ?? 'ease-in-out', values };
   return [...(layer.choreography ?? []).filter(entry => entry.id !== existing?.id), state].sort((a, b) => a.time - b.time);
 }

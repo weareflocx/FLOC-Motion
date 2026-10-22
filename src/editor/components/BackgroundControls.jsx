@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
-import { PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, drawBackgroundPreview, proceduralDefaults } from '../../backgrounds.js';
+import { PROCEDURAL_BACKGROUNDS, drawBackgroundPreview, proceduralDefaults } from '../../backgrounds.js';
+import { PATTERN_SCALE } from '../../project-limits.js';
 import { Color, Field, NumberField, Range } from '../controls.jsx';
 import './visual-language.css';
 
@@ -8,8 +9,9 @@ const SOURCES = [['color', 'Solid'], ['image', 'Image'], ['video', 'Video'], ['p
 
 function BackgroundPreview({ layer, pattern }) {
   const canvas = useRef(null);
+  // The inspector shows values at the playhead; tiles preview exactly those.
   useEffect(() => {
-    drawBackgroundPreview(canvas.current, { ...proceduralDefaults(layer), ...layer, pattern: pattern.id });
+    drawBackgroundPreview(canvas.current, { ...proceduralDefaults(layer), ...layer, choreography: undefined, pattern: pattern.id });
   }, [layer.color, layer.patternColor, layer.patternScale, layer.patternIntensity, layer.patternSpeed, layer.patternSeed, layer.patternVignette, layer.patternGrain,
     layer.patternLoop, layer.patternDirection, layer.patternFocusX, layer.patternFocusY, layer.start, layer.end, pattern.id]);
   return <canvas ref={canvas} width={144} height={81} aria-hidden="true"/>;

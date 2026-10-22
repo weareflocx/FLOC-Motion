@@ -48,13 +48,14 @@ test('imports reject malformed states, unsupported fields, duplicate identities 
   const first = state(layer, 'first', 0);
   const malformed = [null, {}, 'states', [null], [{ ...first, id: '' }], [{ ...first, id: '  ' }], [{ ...first, id: 'x'.repeat(81) }], [{ ...first, time: -1 }], [{ ...first, time: PROJECT_LIMITS.maxDuration + 1 }], [{ ...first, time: NaN }], [{ ...first, time: Infinity }], [{ ...first, easing: 'script' }], [{ ...first, values: null }], [{ ...first, values: [] }], [{ ...first, values: { x: 50 } }], [{ ...first, values: { ...first.values, shader: 'wave' } }], [{ ...first, eval: 'code' }], [first, { ...first, time: 1 }], [first, { ...first, id: 'second' }], [state(layer, 'late', 4), first], Array.from({ length: 33 }, (_, i) => state(layer, `s${i}`, i * 0.1))];
   for (const choreography of malformed) assert.throws(() => patchLayer(p, layer.id, { choreography }));
-  for (const id of ['background', 'music']) {
-    for (const patch of [...(id === 'music' ? [{ opacity: 0.5 }] : []), { choreography: [] }, { choreography: [first] }]) {
-      assert.throws(() => patchLayer(p, id, patch), /Unknown layer property/);
-      const raw = structuredClone(p); Object.assign(getLayer(raw, id), patch);
-      assert.throws(() => validateProject(raw), /Only visual layers|cannot have choreography/);
-    }
+  for (const patch of [{ opacity: 0.5 }, { choreography: [] }, { choreography: [first] }]) {
+    assert.throws(() => patchLayer(p, 'music', patch), /Unknown layer property/);
+    const raw = structuredClone(p); Object.assign(getLayer(raw, 'music'), patch);
+    assert.throws(() => validateProject(raw), /Only visual layers|cannot have choreography/);
   }
+  // Backgrounds have no pose: a pose state is invalid, and an empty state holds nothing.
+  assert.throws(() => patchLayer(p, 'background', { choreography: [first] }), /Invalid choreography values/);
+  assert.throws(() => patchLayer(p, 'background', { choreography: [{ ...first, values: {} }] }), /at least one value/);
   const textState = state(getLayer(p, 'headline'), 'first', 0); textState.values.yaw = 181;
   assert.throws(() => patchLayer(p, 'headline', { choreography: [textState] }), /State yaw/);
 });
@@ -216,4 +217,21 @@ test('WebMCP choreography edits pass shared validation and rejected edits never 
   await update({ locked: true });
   await assert.rejects(update({ opacity: 0 }), /Unlock/);
   assert.equal(saves, 2);
+});
+
+test('background states animate colors and pattern values, capturing pattern values only for procedural backgrounds', () => {
+  const solid = getLayer(patchLayer(demoProject(), 'background', { color: '#000000' }), 'background');
+  assert.deepEqual(Object.keys(captureState(solid, 0, 24, {}, 'a', { all: true })[0].values), ['color']);
+  let p = patchLayer(demoProject(), 'background', { mode: 'procedural', color: '#000000', patternIntensity: 0.2 });
+  const background = getLayer(p, 'background');
+  const first = captureState(background, 0, 24, {}, 'a', { all: true });
+  assert.ok(['color', 'patternColor', 'patternIntensity', 'patternScale', 'patternSpeed', 'patternDirection', 'patternFocusX', 'patternFocusY', 'patternVignette', 'patternGrain'].every(field => Object.hasOwn(first[0].values, field)));
+  const states = captureState({ ...background, choreography: first }, 4, 24, { patternIntensity: 1, color: '#ffffff' }, 'b').map(entry => ({ ...entry, easing: 'linear' }));
+  p = patchLayer(p, 'background', { choreography: states });
+  const midway = evaluateChoreography(getLayer(p, 'background'), 2);
+  assert.ok(Math.abs(midway.patternIntensity - 0.6) < 1e-12);
+  assert.notEqual(midway.color, '#000000');
+  assert.notEqual(midway.color, '#ffffff');
+  assert.equal(Object.hasOwn(getLayer(p, 'background'), 'fadeIn'), false, 'backgrounds gain states without fades');
+  assert.throws(() => patchLayer(p, 'background', { choreography: [{ ...states[0], values: { patternScale: 0.05 } }] }), /State patternScale/);
 });

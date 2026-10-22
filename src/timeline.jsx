@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { EyeSlash, LockSimple, DiamondsFour, FilmStrip } from '@phosphor-icons/react';
 import { editClip, editFade, timeAtPointer } from './editor-controls.js';
 import { fitFades } from './project.js';
-import { moveState, choreographyFields } from './choreography.js';
+import { moveState, supportsChoreography } from './choreography.js';
 import { LAYER_COLORS } from './editor/layer-colors.js';
 import { LAYER_KINDS } from './editor/layer-kinds.js';
 import { TimelineTimingControls } from './editor/components/TimelineTimingControls.jsx';
@@ -183,7 +183,7 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
               {(l.locked || !l.visible) && <span className="track-state">{l.locked && <LockSimple size={12} aria-hidden="true"/>}{!l.visible && <EyeSlash size={12} aria-hidden="true"/>}</span>}
             </button>
             <div className={`track-actions ${controlsLayerId === l.id ? 'open' : ''}`}>
-              {Object.keys(choreographyFields(l)).length > 0 && <button type="button" className={`track-controls-button ${editingStates ? 'selected' : ''} ${l.choreography?.length ? 'has-states' : ''}`} aria-label={`Choreography for ${l.name}`} title={`Choreography · ${l.choreography?.length || 0} states`} aria-haspopup="dialog" aria-expanded={controlsLayerId === l.id && mode === 'choreography'} aria-controls={controlsLayerId === l.id ? 'timeline-layer-controls' : undefined} onClick={event => onOpenControls?.(l.id, event.currentTarget)}><DiamondsFour size={15} aria-hidden="true"/></button>}
+              {supportsChoreography(l) && <button type="button" className={`track-controls-button ${editingStates ? 'selected' : ''} ${l.choreography?.length ? 'has-states' : ''}`} aria-label={`Choreography for ${l.name}`} title={`Choreography · ${l.choreography?.length || 0} states`} aria-haspopup="dialog" aria-expanded={controlsLayerId === l.id && mode === 'choreography'} aria-controls={controlsLayerId === l.id ? 'timeline-layer-controls' : undefined} onClick={event => onOpenControls?.(l.id, event.currentTarget)}><DiamondsFour size={15} aria-hidden="true"/></button>}
             </div>
           </div>
           <TimelineTimingControls project={project} layer={{ ...l, ...range }} sourceDuration={waveforms[l.src]?.data?.duration} onPatch={onCommit} onFocus={() => onSelect(l.id)}/>

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { capturedProperties, captureState, evaluateChoreography, moveState, stateAtTime } from '../src/choreography.js';
+import { capturedProperties, captureState, choreographyFields, evaluateChoreography, moveState, stateAtTime, supportsChoreography } from '../src/choreography.js';
 import { EASINGS, EASING_GROUPS, easeProgress, isCubicBezier } from '../src/easing.js';
 import { choreographyPatch } from '../src/editor/choreography-edit.js';
 import { demoProject, validateProject, patchLayer } from '../src/project.js';
@@ -33,7 +33,7 @@ function controls({ type = 'text', locked = false, states = false, time = 1, sou
     if (typeof type === 'function') return type({ ...props, children });
     return { type, props: props || {}, children };
   } };
-  const context = { React, clipEndLimit, EASINGS, EASING_GROUPS, easeProgress, isCubicBezier, capturedProperties, captureState, moveState, stateAtTime, evaluateChoreography, usePlaybackTime: clock => clock.get().time,
+  const context = { React, clipEndLimit, EASINGS, EASING_GROUPS, easeProgress, isCubicBezier, capturedProperties, captureState, choreographyFields, moveState, stateAtTime, supportsChoreography, evaluateChoreography, usePlaybackTime: clock => clock.get().time,
     useState(value) { const index = cursor++; slots[index] ??= { value }; return [slots[index].value, next => { const value = typeof next === 'function' ? next(slots[index].value) : next; if (!Object.is(value, slots[index].value)) { slots[index].value = value; dirty = true; } }]; },
     useRef(value) { const index = cursor++; return slots[index] ??= { current: value }; },
     useLayoutEffect() {},

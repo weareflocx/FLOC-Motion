@@ -387,7 +387,7 @@ test('unknown keys are stripped for every version while misplaced known fields s
   assert.deepEqual(p, clean);
   for (const [id, patch, message] of [
     ['music', { opacity: 0.5 }, /Only visual layers accept opacity/],
-    ['background', { choreography: [] }, /cannot have choreography/],
+    ['music', { choreography: [] }, /cannot have choreography/],
     ['headline', { effectScope: 'overlay' }, /Only effect layers declare effect scope/],
     ['background', { contentField: 'Backdrop' }, /cannot declare a content field/],
     ['music', { effects: [] }, /Only visual layers accept effects/]

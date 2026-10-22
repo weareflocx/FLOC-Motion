@@ -6,3 +6,5 @@ export const PROJECT_LIMITS = Object.freeze({
   maxImages: 48,
   maxCardCount: 48
 });
+// Procedural background pattern scale: 10–400%.
+export const PATTERN_SCALE = Object.freeze({ min: 0.1, max: 4 });
