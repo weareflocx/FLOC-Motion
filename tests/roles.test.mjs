@@ -61,10 +61,10 @@ test('existing workspaces make the earliest account admin and every other accoun
   database(data); closeDatabase(data);
   // Return the database to its schema before roles, then add accounts in creation order.
   const raw = new DatabaseSync(path.join(data, DATABASE_FILE));
-  // Migration 4 added roles; later migrations (workspace fonts, media names) are rolled back too so all re-run in order.
+  // Migration 4 added roles; later migrations (workspace fonts, media names, media hashes) are rolled back too so all re-run in order.
   const roleMigration = 4;
   const fontTriggers = ['drafts', 'templates', 'composition_versions'].flatMap(table => ['insert', 'update', 'delete'].map(event => `DROP TRIGGER ${table}_fonts_${event};`)).join(' ');
-  raw.exec(`${fontTriggers} DROP TABLE font_references; DROP TABLE fonts; DROP TABLE asset_names;
+  raw.exec(`${fontTriggers} DROP TABLE font_references; DROP TABLE fonts; DROP TABLE asset_names; DROP TABLE asset_hashes; DROP TABLE asset_aliases;
     ALTER TABLE users DROP COLUMN role; ALTER TABLE users DROP COLUMN created_at; ALTER TABLE users DROP COLUMN last_seen;
     ALTER TABLE invitations DROP COLUMN role; DROP TABLE audit_log; DELETE FROM schema_migrations WHERE version >= ${roleMigration};`);
   const insert = raw.prepare('INSERT INTO users (id, email, salt, password_hash) VALUES (?, ?, ?, ?)');

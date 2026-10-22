@@ -104,7 +104,13 @@ const MIGRATIONS = [
   DROP TRIGGER composition_versions_assets_delete;
   ${assetTriggers('drafts', row => `'draft:' || ${row}.id`)}
   ${assetTriggers('templates', row => `'template:' || ${row}.id`)}
-  ${assetTriggers('composition_versions', row => `'version:' || ${row}.composition_id || ':' || ${row}.version`)}`
+  ${assetTriggers('composition_versions', row => `'version:' || ${row}.composition_id || ':' || ${row}.version`)}`,
+  // Media deduplication: the content hash of each stored upload (GIF video derivatives excluded)
+  // and every copy merged into another, which open editors and old links may still name.
+  `CREATE TABLE asset_hashes (asset TEXT PRIMARY KEY, sha256 TEXT NOT NULL) WITHOUT ROWID;
+  CREATE INDEX asset_hashes_sha256 ON asset_hashes (sha256);
+  CREATE TABLE asset_aliases (asset TEXT PRIMARY KEY, target TEXT NOT NULL) WITHOUT ROWID;
+  CREATE INDEX asset_aliases_target ON asset_aliases (target);`
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 

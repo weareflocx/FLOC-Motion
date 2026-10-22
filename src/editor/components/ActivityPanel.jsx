@@ -22,6 +22,7 @@ function describe({ action, actor, details: d }) {
     case 'composition.deleted': return `${who} deleted “${d.name}”`;
     case 'composition.restored': return `${who} restored version ${d.version} of “${d.name}”`;
     case 'storage.cleanup': return `${who} cleaned up storage and removed ${d.removedFiles} unused ${d.removedFiles === 1 ? 'file' : 'files'} (${megabytes(d.removedBytes)})`;
+    case 'storage.deduplicated': return `Duplicate media merged: ${d.mergedFiles} ${d.mergedFiles === 1 ? 'copy' : 'copies'} relinked, ${d.removedFiles} ${d.removedFiles === 1 ? 'file' : 'files'} removed (${megabytes(d.removedBytes)})`;
     case 'export.queued': return `${who} queued an export of “${d.name}”${output}`;
     case 'export.cancelled': return `${who} cancelled the export of “${d.name}”${output}`;
     case 'export.finished': return `Export of “${d.name}”${output} finished${actor ? ` for ${who}` : ''}`;

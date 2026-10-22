@@ -1,6 +1,7 @@
 import { open, readFile, rename, rm, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { validateGlb, validateSvg } from './asset-validation.mjs';
 
 export const MAX_ASSET_BYTES = 75e6;
@@ -84,17 +85,29 @@ export async function validateUploadedAsset(filename, ext, run) {
   }
 }
 
-export async function acceptAssetUpload(req, { directory, ext, run, convertGif, beforePublish = () => {}, afterPublish = () => {} }) {
+export const hashFile = filename => new Promise((resolve, reject) => {
+  const hash = createHash('sha256');
+  createReadStream(filename).on('error', reject).on('data', chunk => hash.update(chunk)).on('end', () => resolve(hash.digest('hex')));
+});
+
+// `existing` may name a stored upload with the same content; the upload then publishes nothing
+// and returns that asset with `existing: true`.
+export async function acceptAssetUpload(req, { directory, ext, run, convertGif, existing = () => null, beforePublish = () => {}, afterPublish = () => {} }) {
   const id = randomUUID(), temporary = path.join(directory, `${id}.upload`), target = path.join(directory, `${id}.${ext}`);
   try {
     await streamUpload(req, temporary);
     await validateUploadedAsset(temporary, ext, run);
-    const size = (await stat(temporary)).size;
+    const size = (await stat(temporary)).size, sha256 = await hashFile(temporary);
+    const copy = await existing({ sha256 });
+    if (copy) {
+      await rm(temporary, { force: true });
+      return { id: copy.id, ext: copy.ext, filename: path.join(directory, `${copy.id}.${copy.ext}`), size, sha256, existing: true };
+    }
     await beforePublish({ id, size, temporary, target });
     await rename(temporary, target);
     if (ext === 'gif') await convertGif(target, path.join(directory, `${id}.webm`), run);
     await afterPublish({ id, size, target });
-    return { id, filename: target, size };
+    return { id, ext, filename: target, size, sha256 };
   } catch (error) {
     await rm(temporary, { force: true });
     await rm(target, { force: true });
