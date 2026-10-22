@@ -87,6 +87,14 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
     window.probe = {
       digest: (layer, time) => digest(pixels(layer, time)),
       coverage: (layer, time) => coverage(pixels(layer, time, 960, 540)),
+      // Share of pixels whose blue clearly dominates red: accent ink on black.
+      accented: (layer, time) => { const data = pixels(layer, time); let count = 0; for (let i = 0; i < data.length; i += 4) if (data[i + 2] > data[i] + 60) count++; return count / (data.length / 4); },
+      // Share of pixels that are mostly base (dark) in \`plain\` and accent blue in \`accented\`.
+      claimed: (plain, accented, time) => { const a = pixels(plain, time), b = pixels(accented, time); let count = 0; for (let i = 0; i < a.length; i += 4) if (a[i] < 60 && a[i + 2] < 60 && b[i + 2] > b[i] + 60) count++; return count / (a.length / 4); },
+      // Share of pixels still showing bright, untinted white ink.
+      white: (layer, time) => { const data = pixels(layer, time); let count = 0; for (let i = 0; i < data.length; i += 4) if (data[i] > 90 && data[i + 2] < data[i] + 20) count++; return count / (data.length / 4); },
+      // Shares of lit pixels clearly warm (pattern ink) and clearly cool (accent), for a warm ink and a cool accent.
+      split: (layer, time) => { const data = pixels(layer, time); let warm = 0, cool = 0; for (let i = 0; i < data.length; i += 4) { if (Math.max(data[i], data[i + 2]) < 45) continue; if (data[i] > data[i + 2] + 40) warm++; else if (data[i + 2] > data[i] + 40) cool++; } return { warm: warm / (data.length / 4), cool: cool / (data.length / 4) }; },
       // Brightest pixel of one row segment that a grid line crosses.
       linePeak: (layer, time) => { const data = pixels(layer, time, 1920, 1080); let max = 0; for (let x = 200; x < 400; x++) max = Math.max(max, data[(540 * 1920 + x) * 4]); return max; },
       tile: layer => { const canvas = document.createElement('canvas'); canvas.width = 144; canvas.height = 81; drawBackgroundPreview(canvas, layer); const data = canvas.getContext('2d').getImageData(0, 0, 144, 81).data; let max = 0; for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i]); return { max, mean: coverage(data) * 255 }; },
@@ -151,7 +159,7 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
   // Seamless loops: approaching the layer's end converges on its first frame,
   // while every pattern still moves mid-loop. Grain frames are independent,
   // so grain needs no loop.
-  const looping = { ...base, start: 0, end: 6, patternLoop: true, patternSpeed: 0.7, patternIntensity: 1 };
+  const looping = { ...base, start: 0, end: 6, patternLoop: true, patternSpeed: 0.7, patternIntensity: 1, patternAccent: '#0000ff', patternAccentAmount: 0.8 };
   for (const pattern of IDS.filter(id => id !== 'grain')) {
     const layer = { ...looping, pattern };
     const seam = await run('difference', layer, 0, layer, 6 - 1e-3);
@@ -174,6 +182,35 @@ test('rendered patterns are distinct, seek-safe, balanced, stable in motion and 
     const rays = { ...base, pattern: 'rays', patternIntensity: 1, patternFocusX: x, patternFocusY: y };
     assert(await run('region', rays, 1, x / 100, y / 100, 4) < 2, `rays centered on ${x}, ${y}`);
     assert(await run('coverage', rays, 1) > 0.02);
+  }
+
+  // At zero the accent is absent. Gradient, Aurora and Noise draw it as a
+  // second layer that takes over bare base; every other pattern tints part
+  // of its ink, never all of it, and never the base.
+  for (const pattern of ['grid', 'dots', 'gradient', 'aurora', 'noise']) {
+    const layer = { ...base, pattern, patternIntensity: 1, patternAccent: '#0000ff' }, full = { ...layer, patternAccentAmount: 1 };
+    assert.equal(await run('accented', { ...layer, patternAccentAmount: 0 }, 1), 0, `${pattern} without accent`);
+    const share = await run('accented', full, 1);
+    assert(share > 0.005, `${pattern} shows its accent (${share})`);
+    assert.notEqual(await run('digest', { ...full, patternAccent: '#ff0000' }, 1), await run('digest', full, 1));
+    const claimed = await run('claimed', { ...layer, patternAccentAmount: 0 }, full, 1);
+    if (PROCEDURAL_BACKGROUNDS.find(({ id }) => id === pattern).accent === 'layer') assert(claimed > 0.1, `${pattern} accent holds its own regions (${claimed})`);
+    else assert.equal(claimed, 0, `${pattern} accent stays within the ink`);
+  }
+  const tinted = await run('coverage', { ...base, pattern: 'grid', patternIntensity: 1, patternAccentAmount: 1 }, 1), plainGrid = await run('coverage', { ...base, pattern: 'grid', patternIntensity: 1 }, 1);
+  assert(tinted < plainGrid, 'part of the white ink turns blue rather than all of it staying white');
+  // Where the two layers overlap the stronger one wins, so the accent never
+  // washes over the pattern color everywhere it reaches.
+  for (const pattern of ['gradient', 'aurora', 'noise']) {
+    const layer = { ...base, pattern, patternIntensity: 1, patternAccent: '#0000ff' };
+    const kept = await run('white', { ...layer, patternAccentAmount: 1 }, 1) / await run('white', { ...layer, patternAccentAmount: 0 }, 1);
+    assert(kept > 0.25, `${pattern} keeps its pattern color (${kept})`);
+  }
+  // With colored ink and accent, each layer keeps regions of its own pure
+  // color instead of the two blending into one muddy tone across the frame.
+  for (const pattern of ['gradient', 'aurora', 'noise']) for (const patternSeed of [1, 3]) {
+    const { warm, cool } = await run('split', { ...base, pattern, patternSeed, patternIntensity: 0.9, color: '#0b1020', patternColor: '#ff5a36', patternAccent: '#3ad1ff', patternAccentAmount: 0.8 }, 1.7);
+    assert(warm > 0.08 && cool > 0.08, `${pattern} seed ${patternSeed} keeps pattern color and accent apart (${warm}, ${cool})`);
   }
   assert.deepEqual(errors, []);
 });

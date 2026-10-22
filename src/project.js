@@ -242,6 +242,7 @@ export function validateProject(input) {
       finite(l.patternSeed, 0, 65535, 'Pattern seed');
       if (typeof l.patternLoop !== 'boolean') fail('Pattern loop must be true or false.');
       finite(l.patternDirection, 0, 360, 'Pattern direction'); finite(l.patternFocusX, 0, 100, 'Pattern focus X'); finite(l.patternFocusY, 0, 100, 'Pattern focus Y');
+      color(l.patternAccent); finite(l.patternAccentAmount, 0, 1, 'Accent amount');
       color(l.color); asset(l.src); if (l.src && !(l.mode === 'video' ? /\.(mp4|webm)$/i : l.mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid background asset type.'); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
     } else if (l.type === 'logo') { asset(l.src); if (l.src && !/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(l.src)) fail('Logo requires an image.'); finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Logo size');
     } else if (l.type === 'media' || l.type === 'model') {

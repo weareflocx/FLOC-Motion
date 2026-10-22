@@ -32,7 +32,7 @@ test('all installed procedural backgrounds validate while retaining inactive med
 
 test('style validation rejects unsafe, invalid and out-of-range edits through canonical patches', () => {
   const backgrounds = [{ pattern: 'eval' }, { patternColor: 'red' }, { patternScale: 0.09 }, { patternScale: 4.01 }, { patternIntensity: 1.1 }, { patternSpeed: Infinity }, { patternSeed: 1.5 }, { patternSeed: 65536 },
-    { patternLoop: 'yes' }, { patternDirection: 361 }, { patternDirection: -1 }, { patternFocusX: -1 }, { patternFocusY: 101 }];
+    { patternLoop: 'yes' }, { patternDirection: 361 }, { patternDirection: -1 }, { patternFocusX: -1 }, { patternFocusY: 101 }, { patternAccent: 'blue' }, { patternAccentAmount: 1.1 }];
   for (const patch of backgrounds) assert.throws(() => patchLayer(demoProject(), 'background', patch));
   assert.equal(layer(patchLayer(demoProject(), 'background', { patternScale: 0.1 }), 'background').patternScale, 0.1);
   for (const patch of [{ lineHeight: 0.49 }, { letterSpacing: NaN }, { letterSpacing: 0.51 }, { textAlign: 'justify' }, { reveal: 'runtime-code' }, { revealDuration: 5.1 }]) assert.throws(() => patchLayer(demoProject(), 'headline', patch));

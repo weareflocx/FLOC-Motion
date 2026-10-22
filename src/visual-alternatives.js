@@ -8,7 +8,7 @@ const record = value => value && typeof value === 'object' && !Array.isArray(val
 
 const COMMON_VISUAL_FIELDS = ['opacity', 'fadeIn', 'fadeOut'];
 const VISUAL_FIELDS = Object.freeze({
-  background: new Set(['color', 'mode', 'fit', 'pattern', 'patternColor', 'patternScale', 'patternIntensity', 'patternSpeed', 'patternSeed', 'patternVignette', 'patternGrain', 'patternLoop', 'patternDirection', 'patternFocusX', 'patternFocusY']),
+  background: new Set(['color', 'mode', 'fit', 'pattern', 'patternColor', 'patternScale', 'patternIntensity', 'patternSpeed', 'patternSeed', 'patternVignette', 'patternGrain', 'patternLoop', 'patternDirection', 'patternFocusX', 'patternFocusY', 'patternAccent', 'patternAccentAmount']),
   text: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size', 'color', 'font', 'weight', 'width', 'rise', 'lineHeight', 'letterSpacing', 'textAlign', 'reveal', 'revealDuration']),
   logo: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   media: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),

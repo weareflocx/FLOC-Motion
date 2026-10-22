@@ -36,12 +36,12 @@ const OPTIONAL_FIELDS = {
   text: { color: 'color', letterSpacing: [-0.15, 0.5], lineHeight: [0.5, 3], ...EFFECT_BOUNDS },
   carousel: { stretch: [0, 1], ...EFFECT_BOUNDS },
   logo: EFFECT_BOUNDS, media: EFFECT_BOUNDS, model: EFFECT_BOUNDS, effect: EFFECT_BOUNDS,
-  background: { color: 'color', patternColor: 'color', patternIntensity: [0, 1], patternScale: [PATTERN_SCALE.min, PATTERN_SCALE.max], patternSpeed: [-2, 2],
+  background: { color: 'color', patternColor: 'color', patternAccent: 'color', patternAccentAmount: [0, 1], patternIntensity: [0, 1], patternScale: [PATTERN_SCALE.min, PATTERN_SCALE.max], patternSpeed: [-2, 2],
     patternDirection: [0, 360], patternFocusX: [0, 100], patternFocusY: [0, 100], patternVignette: [0, 1], patternGrain: [0, 1], ...EFFECT_BOUNDS }
 };
 const LABELS = { x: 'Position', y: 'Position', z: 'Depth', size: 'Size', opacity: 'Opacity', roll: 'Rotation', tilt: 'Tilt', yaw: 'Yaw',
   stretch: 'Edge stretch', color: 'Color', letterSpacing: 'Letter spacing', lineHeight: 'Line height',
-  patternColor: 'Pattern color', patternIntensity: 'Pattern intensity', patternScale: 'Pattern scale', patternSpeed: 'Pattern speed',
+  patternColor: 'Pattern color', patternAccent: 'Accent color', patternAccentAmount: 'Accent', patternIntensity: 'Pattern intensity', patternScale: 'Pattern scale', patternSpeed: 'Pattern speed',
   patternDirection: 'Direction', patternFocusX: 'Focus', patternFocusY: 'Focus', patternVignette: 'Vignette', patternGrain: 'Grain overlay',
   blurAmount: 'Blur', noiseOpacity: 'Noise', monochromeAmount: 'Monochrome', warpAmount: 'Optical warp',
   duotoneAmount: 'Duotone', chromaticAmount: 'Chromatic split', waveAmount: 'Liquid wave', halftoneAmount: 'Halftone', ditheringAmount: 'Dithering', glassAmount: 'Fluted glass' };

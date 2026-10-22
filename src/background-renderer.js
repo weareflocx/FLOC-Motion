@@ -2,7 +2,7 @@ import { Vector4 } from 'three';
 import { BACKGROUND_VERTEX, backgroundFragment } from './background-shader.js';
 import { watchContextLoss } from './scene-resources.js';
 
-const UNIFORMS = ['uResolution', 'uUnit', 'uLine', 'uTime', 'uLoop', 'uFrame', 'uPattern', 'uScale', 'uWeight', 'uSeed', 'uDrift', 'uDirection', 'uFocus', 'uBase', 'uInk', 'uVignette', 'uGrain'];
+const UNIFORMS = ['uResolution', 'uUnit', 'uLine', 'uTime', 'uLoop', 'uFrame', 'uPattern', 'uScale', 'uWeight', 'uSeed', 'uDrift', 'uDirection', 'uFocus', 'uBase', 'uInk', 'uAccent', 'uAccentAmount', 'uAccentLayer', 'uVignette', 'uGrain'];
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source); gl.compileShader(shader);
@@ -37,6 +37,7 @@ function draw(gl, resource, width, height, uniforms) {
   gl.uniform1f(u.uWeight, uniforms.weight); gl.uniform1ui(u.uSeed, uniforms.seed);
   gl.uniform2fv(u.uDrift, uniforms.drift); gl.uniform2fv(u.uDirection, uniforms.direction); gl.uniform2fv(u.uFocus, uniforms.focus);
   gl.uniform3fv(u.uBase, uniforms.base); gl.uniform3fv(u.uInk, uniforms.ink);
+  gl.uniform3fv(u.uAccent, uniforms.accent); gl.uniform1f(u.uAccentAmount, uniforms.accentAmount); gl.uniform1i(u.uAccentLayer, uniforms.accentLayer ? 1 : 0);
   gl.uniform1f(u.uVignette, uniforms.vignette); gl.uniform1f(u.uGrain, uniforms.grain);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
