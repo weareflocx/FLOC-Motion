@@ -27,12 +27,17 @@ uniform vec3 uBase;
 uniform vec3 uInk;
 uniform vec3 uAccent;
 uniform float uAccentAmount;
+uniform bool uAccentLayer;  // the accent is a second instance of the field, not an ink tint
 uniform float uVignette;
 uniform float uGrain;
 out vec4 outColor;
 
 const float TAU = 6.28318530718;
 const float STROKE = 2.0;
+
+// Seed offset of the accent layer; 0 for the pattern itself.
+const uint ACCENT_LAYER_SEED = 0x9e3779b9u;
+uint layerSeed = 0u;
 
 uint mixBits(uint x) {
   x ^= x >> 16; x *= 0x7feb352du;
@@ -42,7 +47,7 @@ uint mixBits(uint x) {
 // Cells are offset into the positive range before the integer conversion.
 float random(ivec2 cell, uint salt) {
   uvec2 c = uvec2(cell + 1048576);
-  return float(mixBits(c.x ^ mixBits(c.y ^ mixBits(salt ^ mixBits(uSeed)))) >> 8) * (1.0 / 16777216.0);
+  return float(mixBits(c.x ^ mixBits(c.y ^ mixBits(salt ^ mixBits(uSeed ^ layerSeed)))) >> 8) * (1.0 / 16777216.0);
 }
 float random(uint salt) { return random(ivec2(0), salt); }
 float valueNoise(vec2 p, uint salt) {
@@ -222,7 +227,13 @@ vec2 pattern(vec2 p, vec2 size) {
     t = looped(TAU);
     // Loops orbit at whole-number rates so the glow returns to its start.
     vec2 rate = uLoop == 0.0 ? vec2(1.3, 0.9) : vec2(1.0);
-    float angle = random(1u) * TAU + t;
+    // The accent layer shares the pattern's direction, reversed, so the two
+    // ramps meet across the frame instead of covering the same side; its glow
+    // keeps its own orbit.
+    uint layer = layerSeed;
+    layerSeed = 0u;
+    float angle = random(1u) * TAU + t + (layer == 0u ? 0.0 : TAU * 0.5);
+    layerSeed = layer;
     vec2 centered = (p - size * 0.5) / length(size);
     float spread = clamp(0.45 * s, 0.12, 1.6);
     float linear = smoothstep(-spread, spread, dot(centered, vec2(cos(angle), sin(angle))));
@@ -239,12 +250,10 @@ vec2 pattern(vec2 p, vec2 size) {
   return mix(now, earlier, clamp(t / uLoop, 0.0, 1.0));
 }
 
-// Where the accent color takes over the ink, 0–1. Gradient and Aurora place
-// it in their highlights (glow and hem); the others, Noise included, get
-// two-tone regions across the frame that drift with pattern time and close
-// in loops.
-float accentField(vec2 p, vec2 size, float highlight) {
-  if (uPattern == P_GRADIENT || uPattern == P_AURORA) return clamp(highlight * 2.0, 0.0, 1.0);
+// Where the accent color takes over the ink of patterns without an accent
+// layer, 0–1: two-tone regions across the frame that drift with pattern time
+// and close in loops.
+float accentField(vec2 p, vec2 size) {
   vec2 q = (p - size * 0.5) / length(size);
   float phase = random(5u) * TAU + looped(TAU);
   return smoothstep(-0.6, 0.6, sin(q.x * 4.2 + phase) + cos(q.y * 3.4 - phase));
@@ -255,8 +264,21 @@ void main() {
   vec2 size = uResolution / uUnit;
   vec2 coverage = pattern(pixel / uUnit, size);
   vec3 ink = mix(uInk, vec3(1.0), coverage.y * 0.45);
-  if (uAccentAmount > 0.0) ink = mix(ink, uAccent, uAccentAmount * accentField(pixel / uUnit, size, coverage.y));
+  if (uAccentAmount > 0.0 && !uAccentLayer) ink = mix(ink, uAccent, uAccentAmount * accentField(pixel / uUnit, size));
   vec3 color = mix(uBase, ink, clamp(coverage.x * uWeight, 0.0, 1.0));
+  // Continuous fields draw a second, independently seeded instance of
+  // themselves in the accent color, scaled by the accent amount, so the
+  // accent holds its own regions of the frame. Where the two overlap the
+  // stronger one wins (a steep power ratio), so they never average into grey.
+  if (uAccentAmount > 0.0 && uAccentLayer) {
+    layerSeed = ACCENT_LAYER_SEED;
+    vec2 accent = pattern(pixel / uUnit, size);
+    layerSeed = 0u;
+    float a = accent.x * uAccentAmount, a2 = a * a, c2 = coverage.x * coverage.x;
+    float share = a2 * a2 / max(a2 * a2 + c2 * c2, 1e-8);
+    vec3 hue = mix(ink, mix(uAccent, vec3(1.0), accent.y * 0.45), share);
+    color = mix(uBase, hue, clamp(max(coverage.x, a) * uWeight, 0.0, 1.0));
+  }
   vec2 centered = (pixel / uResolution - 0.5) * 2.0;
   color *= 1.0 - uVignette * 0.8 * smoothstep(0.35, 1.0, length(centered) * 0.70710678);
   ivec2 device = ivec2(pixel);

@@ -5,6 +5,9 @@ import { PATTERN_SCALE } from './project-limits.js';
 
 // `controls` lists the pattern-specific settings the editor shows: direction
 // for patterns that drift across the frame, focus for those with a center.
+// `accent: 'layer'` marks continuous fields whose accent is a second,
+// independently seeded instance of the field in the accent color; the
+// accent of every other pattern tints part of its ink.
 export const PROCEDURAL_BACKGROUNDS = [
   { id: 'grid', name: 'Grid', controls: ['direction'] },
   { id: 'grain', name: 'Grain', controls: [] },
@@ -18,14 +21,14 @@ export const PROCEDURAL_BACKGROUNDS = [
   { id: 'mesh', name: 'Mesh', controls: [] },
   { id: 'flow', name: 'Flow', controls: [] },
   { id: 'halftone', name: 'Halftone', controls: ['direction'] },
-  { id: 'gradient', name: 'Gradient', controls: [] },
-  { id: 'aurora', name: 'Aurora', controls: [] },
-  { id: 'noise', name: 'Noise', controls: [] }
+  { id: 'gradient', name: 'Gradient', controls: [], accent: 'layer' },
+  { id: 'aurora', name: 'Aurora', controls: [], accent: 'layer' },
+  { id: 'noise', name: 'Noise', controls: [], accent: 'layer' }
 ];
 // Direction is in degrees (0 moves right, 90 up); focus is a percentage of the
 // frame. Their defaults depend on pattern and seed: see `proceduralDefaults`.
-// The accent color takes over the ink by `patternAccentAmount`: in the
-// highlights of soft patterns, in drifting regions of the others.
+// The accent color appears by `patternAccentAmount`: as its own layer in
+// Gradient, Aurora and Noise, in drifting regions of the ink elsewhere.
 export const DEFAULT_PROCEDURAL_BACKGROUND = { pattern: 'grid', patternColor: '#ffffff', patternScale: 1, patternIntensity: 0.35, patternSpeed: 0.2, patternSeed: 1, patternVignette: 0, patternGrain: 0,
   patternLoop: false, patternDirection: 315, patternFocusX: 50, patternFocusY: 50, patternAccent: BRAND.colors.blue, patternAccentAmount: 0 };
 
@@ -51,6 +54,7 @@ const TUNING = {
   noise: { gain: 0.7, pace: 0.25 }
 };
 const IDS = PROCEDURAL_BACKGROUNDS.map(({ id }) => id);
+const ACCENT_LAYERS = new Set(PROCEDURAL_BACKGROUNDS.filter(({ accent }) => accent === 'layer').map(({ id }) => id));
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
 
@@ -165,6 +169,7 @@ export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { ti
     ink: rgb(live.patternColor),
     accent: rgb(live.patternAccent),
     accentAmount: clamp(live.patternAccentAmount, 0, 1),
+    accentLayer: ACCENT_LAYERS.has(id),
     vignette: clamp(live.patternVignette, 0, 1),
     grain: clamp(live.patternGrain, 0, 1)
   };

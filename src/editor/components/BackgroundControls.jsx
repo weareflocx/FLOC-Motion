@@ -19,7 +19,7 @@ function BackgroundPreview({ layer, pattern }) {
 
 export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
   const settings = { ...proceduralDefaults(layer), ...layer };
-  const controls = PROCEDURAL_BACKGROUNDS.find(pattern => pattern.id === settings.pattern)?.controls ?? [];
+  const { controls = [], accent } = PROCEDURAL_BACKGROUNDS.find(pattern => pattern.id === settings.pattern) ?? {};
   function selectSource(mode) {
     const mediaType = mode === 'video' ? /\.(mp4|webm)$/i : mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : null;
     onPatch(layer.id, { mode, ...(mediaType && layer.src && !mediaType.test(layer.src) ? { src: '' } : {}) });
@@ -32,7 +32,7 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick }) {
     {layer.mode === 'procedural' && <>
       <Color label="Pattern color" value={settings.patternColor} onChange={patternColor => onPatch(layer.id, { patternColor })}/>
       <Color label="Accent color" value={settings.patternAccent} onChange={patternAccent => onPatch(layer.id, { patternAccent })}/>
-      <Range label="Accent" value={settings.patternAccentAmount} min={0} max={1} step={0.05} onChange={patternAccentAmount => onPatch(layer.id, { patternAccentAmount })}/>
+      <Range label={accent === 'layer' ? 'Accent layer' : 'Accent'} value={settings.patternAccentAmount} min={0} max={1} step={0.05} onChange={patternAccentAmount => onPatch(layer.id, { patternAccentAmount })}/>
       <div className="procedural-background-list" role="group" aria-label="Background pattern">
         {PROCEDURAL_BACKGROUNDS.map(pattern => <button type="button" key={pattern.id} className={`procedural-background-option${settings.pattern === pattern.id ? ' selected' : ''}`} aria-label={`${pattern.name} background`} title={pattern.name} aria-pressed={settings.pattern === pattern.id} onClick={() => onPatch(layer.id, { pattern: pattern.id })}>
           <BackgroundPreview layer={settings} pattern={pattern}/><span>{pattern.name}</span>
