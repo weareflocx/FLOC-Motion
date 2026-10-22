@@ -42,6 +42,12 @@ await mkdir(assets, { recursive: true });
 await mkdir(path.join(data, 'renders'), { recursive: true });
 await removeStaleJsonTemps(path.join(data, 'renders'), { recursive: true });
 await recoverInterruptedJobs(data);
+// Identical uploads from before deduplication, or restored from a backup, become one copy. Like
+// cleanup, the merge stops without deleting anything when a render job file is unreadable.
+try {
+  const deduplicated = await storage.deduplicate();
+  if (deduplicated.mergedFiles || deduplicated.removedFiles) audit.record({ actorId: null, action: 'storage.deduplicated', details: deduplicated });
+} catch (error) { console.error(`Duplicate media merge skipped: ${error.message}`, error.files ?? ''); }
 const vite = process.env.NODE_ENV === 'production' ? null : await (await import('vite')).createServer({ root, server: { middlewareMode: true, watch: { ignored: ['**/.data/**'] }, fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.data/**', `${data}/**`] } }, appType: 'spa' });
 const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', svg: 'image/svg+xml', glb: 'model/gltf-binary', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', html: 'text/html', js: 'text/javascript', css: 'text/css', woff2: 'font/woff2' };
 const body = requestBody;
@@ -126,14 +132,16 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     if (route === '/api/renderers/update' && req.method === 'POST') return json(res, { required: Boolean(config.publicOrigin), ...await personalRenderers.requestUpdate(await personalRenderers.browser(req.headers.cookie)) });
     const draftMatch = route.match(/^\/api\/drafts\/([a-f0-9-]{36})$/);
     if (draftMatch && req.method === 'GET') return json(res, await drafts.read(draftMatch[1]));
-    if (draftMatch && req.method === 'PUT') return json(res, await drafts.update(draftMatch[1], JSON.parse(await body(req))));
+    // Saved and rendered projects never name a merged media copy, even from an editor opened before the merge.
+    const relinked = input => input?.project ? { ...input, project: storage.canonical(input.project) } : input;
+    if (draftMatch && req.method === 'PUT') return json(res, await drafts.update(draftMatch[1], relinked(JSON.parse(await body(req)))));
     const draftArchiveMatch = route.match(/^\/api\/drafts\/([a-f0-9-]{36})\/archive$/);
     if (draftArchiveMatch && req.method === 'POST') return json(res, { composition: await templates.archiveDraft(draftArchiveMatch[1], { userId: user?.id }) });
     if (route === '/api/templates' && req.method === 'GET') return json(res, { templates: await templates.list() });
-    if (route === '/api/templates' && req.method === 'POST') return json(res, await templates.create(JSON.parse(await body(req)), { userId: user?.id }), 201);
+    if (route === '/api/templates' && req.method === 'POST') return json(res, await templates.create(relinked(JSON.parse(await body(req))), { userId: user?.id }), 201);
     const templateMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})$/);
     if (templateMatch && req.method === 'GET') return json(res, await templates.read(templateMatch[1]));
-    if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], JSON.parse(await body(req)), { userId: user?.id }));
+    if (templateMatch && req.method === 'PUT') return json(res, await templates.update(templateMatch[1], relinked(JSON.parse(await body(req))), { userId: user?.id }));
     if (templateMatch && req.method === 'DELETE') { await templates.remove(templateMatch[1], { userId: user?.id }); return json(res, { deleted: true }); }
     const versionMatch = route.match(/^\/api\/templates\/([a-f0-9-]{36})\/versions(?:\/(\d{1,9})(\/restore)?)?$/);
     if (versionMatch && !versionMatch[2] && req.method === 'GET') return json(res, { versions: await templates.versions(versionMatch[1]) });
@@ -148,13 +156,13 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     if (route === '/api/catalog') return json(res, { templates: TEMPLATES, effects: EFFECTS, catalog: catalogSummary(), rawCatalog: '/catalog/presets.json' });
     if (route === '/api/assets' && req.method === 'GET') return json(res, { assets: await storage.library() });
     const waveformMatch = route.match(/^\/api\/assets\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(?:mp3|wav|m4a|ogg))\/waveform$/);
-    if (waveformMatch && req.method === 'GET') return json(res, await waveforms.get(waveformMatch[1]));
+    if (waveformMatch && req.method === 'GET') return json(res, await waveforms.get(storage.resolve(waveformMatch[1])));
     if (route === '/api/assets' && req.method === 'POST') {
       const name = url.searchParams.get('name') || ''; const ext = path.extname(name).toLowerCase().slice(1);
       if (!Object.hasOwn(types, ext) || ['html', 'css', 'js', 'woff2'].includes(ext)) return json(res, { error: 'Unsupported upload type.' }, 400);
       const fileName = path.basename(name).slice(0, 200);
       const asset = await storage.upload(req, { ext, name: fileName, run, convertGif: ensureGifVideo });
-      return json(res, { id: asset.id, src: `/assets/${asset.id}.${ext}`, name: fileName, type: types[ext] });
+      return json(res, { id: asset.id, src: `/assets/${asset.id}.${asset.ext}`, name: fileName, type: types[asset.ext] });
     }
     if (route === '/api/fonts' && req.method === 'GET') return json(res, { fonts: fonts.list() });
     if (route === '/api/fonts' && req.method === 'POST') {
@@ -176,7 +184,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     }
     if (route === '/api/exports' && req.method === 'GET') return json(res, { jobs: await listJobs(data, jobs, (await personalRenderers.browser(req.headers.cookie))?.id) });
     if (route === '/api/exports' && req.method === 'POST') {
-      const input = JSON.parse(await body(req));
+      const input = relinked(JSON.parse(await body(req)));
       const device = await personalRenderers.browser(req.headers.cookie);
       const queued = job => { audit.exportQueued(user.id, job); return json(res, job, 202); };
       // Workspace font faces travel with the job so renderers can fetch them without the library.
@@ -204,7 +212,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     }
     const assetMatch = route.match(/^\/assets\/([a-f0-9-]{36}\.(?:png|jpe?g|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb))$/);
     if (assetMatch) {
-      const filename = path.join(data, 'assets', assetMatch[1]);
+      const filename = path.join(data, 'assets', storage.resolve(assetMatch[1]));
       if (filename.endsWith('.webm')) {
         try { await stat(filename); } catch {
           const gif = filename.replace(/\.webm$/, '.gif');
