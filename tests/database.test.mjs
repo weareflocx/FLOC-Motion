@@ -116,7 +116,7 @@ test('upgrading the schema-six reference index preserves drafts and allows repea
   for (const trigger of db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_assets_%'").all()) {
     db.exec(`DROP TRIGGER ${trigger.name}; ${trigger.sql.replaceAll('SELECT DISTINCT ', 'SELECT ')};`);
   }
-  db.exec('DROP TABLE asset_hashes; DROP TABLE asset_aliases; DELETE FROM schema_migrations WHERE version > 6');
+  db.exec('DROP TABLE asset_hashes; DROP TABLE asset_aliases; DROP TABLE password_resets; DELETE FROM schema_migrations WHERE version > 6');
   closeDatabase(data);
   const reopened = createDraftStore(data);
   assert.deepEqual(await reopened.read(ids.draft), { revision: 1, project: original });

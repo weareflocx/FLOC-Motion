@@ -56,15 +56,51 @@ test('removing an account revokes every session and keeps its activity attributa
   assert.deepEqual(entries.find(entry => entry.action === 'user.removed').details, { email: 'leaving@example.com', role: 'editor' });
 });
 
+test('password reset links are single-use, expire, and sign the account out everywhere', async t => {
+  const data = await folder(t);
+  let time = Date.now();
+  const auth = createAuthStore(data, { now: () => time });
+  const admin = await auth.accept({ ...await auth.bootstrap('admin@example.com'), password }, 'setup');
+  const editor = await auth.accept({ ...await auth.invite({ email: 'editor@example.com' }, admin.user.id), password }, 'setup');
+  const otherDevice = await auth.login({ email: 'editor@example.com', password }, 'second-device');
+  const first = await auth.createPasswordReset(editor.user.id, admin.user.id);
+  const reset = await auth.createPasswordReset(auth.userIdByEmail('Editor@Example.com'), null);
+  const next = 'A brand new test password';
+  await assert.rejects(auth.resetPassword({ email: 'editor@example.com', password: next, token: first.token }, 'client'), error => error.status === 400, 'a newer link replaces the previous one');
+  await assert.rejects(auth.resetPassword({ email: 'admin@example.com', password: next, token: reset.token }, 'client'), error => error.status === 400, 'links belong to one account');
+  await assert.rejects(auth.resetPassword({ email: 'editor@example.com', password: 'short', token: reset.token }, 'client'), error => error.status === 400);
+  assert.equal((await auth.user(sessionCookie(otherDevice.token, false))).email, 'editor@example.com', 'issuing a link keeps existing sessions');
+  await auth.login({ email: 'editor@example.com', password }, 'client');
+  const used = await auth.resetPassword({ email: 'editor@example.com', password: next, token: reset.token }, 'client');
+  assert.equal(used.user.id, editor.user.id);
+  assert.equal(await auth.user(sessionCookie(editor.token, false)), null);
+  assert.equal(await auth.user(sessionCookie(otherDevice.token, false)), null);
+  assert.equal((await auth.user(sessionCookie(used.token, false))).email, 'editor@example.com');
+  await assert.rejects(auth.login({ email: 'editor@example.com', password }, 'client'), error => error.status === 401);
+  await auth.login({ email: 'editor@example.com', password: next }, 'client');
+  await assert.rejects(auth.resetPassword({ email: 'editor@example.com', password: 'Yet another test password', token: reset.token }, 'client'), error => error.status === 400, 'links are single-use');
+  const late = await auth.createPasswordReset(editor.user.id, admin.user.id);
+  time += 24 * 60 * 60 * 1000;
+  await assert.rejects(auth.resetPassword({ email: 'editor@example.com', password: 'Yet another test password', token: late.token }, 'client'), error => error.status === 400, 'links expire after 24 hours');
+  await assert.rejects(auth.createPasswordReset('00000000-0000-4000-8000-000000000000', admin.user.id), error => error.status === 404);
+  const actions = createAuditLog(data).page().entries.filter(entry => entry.action.startsWith('user.password_reset')).map(entry => [entry.action, entry.actor?.email ?? null, entry.details.email]);
+  assert.deepEqual(actions, [
+    ['user.password_reset_created', 'admin@example.com', 'editor@example.com'],
+    ['user.password_reset', 'editor@example.com', 'editor@example.com'],
+    ['user.password_reset_created', null, 'editor@example.com'],
+    ['user.password_reset_created', 'admin@example.com', 'editor@example.com']
+  ]);
+});
+
 test('existing workspaces make the earliest account admin and every other account editor', async t => {
   const data = await folder(t);
   database(data); closeDatabase(data);
   // Return the database to its schema before roles, then add accounts in creation order.
   const raw = new DatabaseSync(path.join(data, DATABASE_FILE));
-  // Migration 4 added roles; later migrations (workspace fonts, media names, media hashes) are rolled back too so all re-run in order.
+  // Migration 4 added roles; later migrations (workspace fonts, media names, media hashes, password resets) are rolled back too so all re-run in order.
   const roleMigration = 4;
   const fontTriggers = ['drafts', 'templates', 'composition_versions'].flatMap(table => ['insert', 'update', 'delete'].map(event => `DROP TRIGGER ${table}_fonts_${event};`)).join(' ');
-  raw.exec(`${fontTriggers} DROP TABLE font_references; DROP TABLE fonts; DROP TABLE asset_names; DROP TABLE asset_hashes; DROP TABLE asset_aliases;
+  raw.exec(`${fontTriggers} DROP TABLE font_references; DROP TABLE fonts; DROP TABLE asset_names; DROP TABLE asset_hashes; DROP TABLE asset_aliases; DROP TABLE password_resets;
     ALTER TABLE users DROP COLUMN role; ALTER TABLE users DROP COLUMN created_at; ALTER TABLE users DROP COLUMN last_seen;
     ALTER TABLE invitations DROP COLUMN role; DROP TABLE audit_log; DELETE FROM schema_migrations WHERE version >= ${roleMigration};`);
   const insert = raw.prepare('INSERT INTO users (id, email, salt, password_hash) VALUES (?, ?, ?, ?)');

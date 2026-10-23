@@ -10,6 +10,7 @@ export function TeamPanel({ user, onRoleChange }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('editor');
   const [invitation, setInvitation] = useState(null);
+  const [reset, setReset] = useState(null);
   const [removing, setRemoving] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +23,8 @@ export function TeamPanel({ user, onRoleChange }) {
     setBusy(true); setError('');
     try { await action(); } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
-  const invite = event => { event.preventDefault(); setInvitation(null); act(async () => { setInvitation(await request('/api/auth/invitations', json('POST', { email, role }))); setEmail(''); }); };
+  const invite = event => { event.preventDefault(); setInvitation(null); setReset(null); act(async () => { setInvitation(await request('/api/auth/invitations', json('POST', { email, role }))); setEmail(''); }); };
+  const createReset = member => { setInvitation(null); setReset(null); act(async () => setReset(await request(`/api/users/${member.id}/password-reset`, { method: 'POST' }))); };
   const changeRole = (member, next) => act(async () => {
     const { user: updated } = await request(`/api/users/${member.id}`, json('PATCH', { role: next }));
     setUsers(current => current.map(item => item.id === updated.id ? { ...item, role: updated.role } : item));
@@ -47,12 +49,16 @@ export function TeamPanel({ user, onRoleChange }) {
       <button type="submit" className="outline-button" disabled={busy}>{busy ? 'Please wait…' : 'Create invitation'}</button>
     </form>
     {invitation && <div className="access-form"><label>Invitation link<textarea readOnly rows={3} value={invitation.url} onFocus={event => event.target.select()}/></label><p className="helper">Share this link with {invitation.email}. They join as {invitation.role === 'admin' ? 'an Admin' : 'an Editor'}. It expires in 48 hours and can be used once.</p></div>}
+    {reset && <div className="access-form"><label>Password reset link<textarea readOnly rows={3} value={reset.url} onFocus={event => event.target.select()}/></label><p className="helper">Share this link privately with {reset.email}. It expires in 24 hours and can be used once; their current password keeps working until then. Setting a new password signs them out everywhere.</p></div>}
     <p className="helper">Admins manage the team, storage cleanup and activity. Editors can edit, save, upload and export. A workspace always keeps at least one admin.</p>
     {error && <p role="alert">{error}</p>}
-    {!users ? <p className="helper" role="status">Loading…</p> : <ul className="team-list">{users.map(member => <li key={member.id}>
+    {!users ? <p className="helper" role="status">Loading…</p> : <ul className="team-list team-members">{users.map(member => <li key={member.id}>
       <div><strong>{member.email}{member.id === user.id ? ' · You' : ''}</strong><small>Joined {when(member.createdAt)} · Last seen {when(member.lastSeen)}</small></div>
       <select aria-label={`Role for ${member.email}`} value={member.role} disabled={busy} onChange={event => changeRole(member, event.target.value)}>{ROLE_OPTIONS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
-      {member.id === user.id ? <span/> : <button type="button" className="text-button" disabled={busy} onClick={() => { setRemoving(member); setError(''); }}>Remove</button>}
+      <div className="team-actions">
+        <button type="button" className="text-button" disabled={busy} aria-label={`Reset password for ${member.email}`} onClick={() => createReset(member)}>Reset password</button>
+        {member.id !== user.id && <button type="button" className="text-button" disabled={busy} onClick={() => { setRemoving(member); setError(''); }}>Remove</button>}
+      </div>
     </li>)}</ul>}
   </div>;
 }

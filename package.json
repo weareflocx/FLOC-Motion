@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "invite": "node scripts/invite-first-user.mjs",
+    "password-reset": "node scripts/reset-password.mjs",
     "workspace:backup": "node scripts/workspace-backup.mjs backup",
     "workspace:verify": "node scripts/workspace-backup.mjs verify",
     "workspace:restore": "node scripts/workspace-backup.mjs restore",

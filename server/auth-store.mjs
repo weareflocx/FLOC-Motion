@@ -9,6 +9,7 @@ const failure = (message, status = 400) => Object.assign(new Error(message), { s
 const publicUser = ({ id, email, role }) => ({ id, email, role });
 const isoTime = value => value === null || value === undefined ? null : new Date(value).toISOString();
 const sessionLifetime = 7 * 24 * 60 * 60 * 1000;
+const resetLifetime = 24 * 60 * 60 * 1000;
 // lastSeen is refreshed at most once a minute per account so authenticated reads stay read-only.
 const seenInterval = 60 * 1000;
 export const ROLES = ['admin', 'editor'];
@@ -43,6 +44,7 @@ export function createAuthStore(data, { now = Date.now } = {}) {
   function purge() {
     db.prepare('DELETE FROM invitations WHERE expires_at <= ?').run(now());
     db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now());
+    db.prepare('DELETE FROM password_resets WHERE expires_at <= ?').run(now());
   }
   function throttle(key, limit) {
     for (const [id, attempt] of attempts) if (attempt.until <= now()) attempts.delete(id);
@@ -85,6 +87,7 @@ export function createAuthStore(data, { now = Date.now } = {}) {
   }
   const lastAdmin = user => user.role === 'admin' && admins() <= 1;
   const pendingInvitation = (token, email) => typeof token === 'string' && /^[a-f0-9]{64}$/.test(token) && db.prepare('SELECT email, role FROM invitations WHERE hash = ? AND email = ? AND expires_at > ?').get(digest(token), email, now());
+  const pendingReset = (token, email) => typeof token === 'string' && /^[a-f0-9]{64}$/.test(token) && db.prepare('SELECT users.id, users.email, users.role FROM password_resets JOIN users ON users.id = password_resets.user_id WHERE password_resets.hash = ? AND users.email = ? AND password_resets.expires_at > ?').get(digest(token), email, now());
   const tokenFromCookie = (cookie = '') => cookie.split(';').map(part => part.trim()).find(part => part.startsWith('floc_session='))?.slice('floc_session='.length);
   return {
     // The first account administers the workspace.
@@ -120,6 +123,36 @@ export function createAuthStore(data, { now = Date.now } = {}) {
       seen.delete(id);
       audit.record({ actorId, action: 'user.removed', target: { type: 'user', id }, details: { email: user.email, role: user.role } });
     })),
+    // A new link replaces the account's previous one; the password stays valid until the link is used.
+    // actorId is null when the operator CLI issues the link.
+    createPasswordReset: (id, actorId) => serial(async () => transaction(db, () => {
+      const user = existingUser(id);
+      const token = randomBytes(32).toString('hex'), expiresAt = now() + resetLifetime;
+      db.prepare('INSERT INTO password_resets (user_id, hash, expires_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET hash = excluded.hash, expires_at = excluded.expires_at').run(user.id, digest(token), expiresAt);
+      audit.record({ actorId, action: 'user.password_reset_created', target: { type: 'user', id: user.id }, details: { email: user.email } });
+      purge();
+      return { email: user.email, token, expiresAt };
+    })),
+    userIdByEmail: email => userByEmail(emailAddress(email))?.id ?? null,
+    // Using a reset link signs the account out everywhere, then signs this browser in.
+    resetPassword: (input, address) => serial(async () => {
+      const email = emailAddress(input.email), password = passwordValue(input.password);
+      throttle(`reset-client:${address}`, 25); throttle(`reset-account:${email}`, 10);
+      const user = pendingReset(input.token, email);
+      if (!user) throw failure('This reset link is invalid or expired.', 400);
+      const salt = randomBytes(32).toString('hex'), hash = await passwordHash(password, salt);
+      const result = transaction(db, () => {
+        // The link may have been used, replaced or its account removed while the password was hashing.
+        if (pendingReset(input.token, email)?.id !== user.id) throw failure('This reset link is invalid or expired.', 400);
+        db.prepare('UPDATE users SET salt = ?, password_hash = ? WHERE id = ?').run(salt, hash, user.id);
+        db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(user.id);
+        db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+        audit.record({ actorId: user.id, action: 'user.password_reset', target: { type: 'user', id: user.id }, details: { email } });
+        return addSession(user);
+      });
+      attempts.delete(`reset-client:${address}`); attempts.delete(`reset-account:${email}`);
+      return result;
+    }),
     accept: (input, address) => serial(async () => {
       const email = emailAddress(input.email), password = passwordValue(input.password);
       throttle(`accept-client:${address}`, 25); throttle(`accept-account:${email}`, 10);

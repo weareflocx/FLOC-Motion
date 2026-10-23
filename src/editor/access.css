@@ -148,6 +148,17 @@
   text-align: right;
 }
 
+.team-members li {
+  grid-template-columns: minmax(0,1fr) 104px auto;
+}
+
+.team-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
 .team-list small,
 .activity-list small {
   display: block;

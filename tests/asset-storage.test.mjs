@@ -153,7 +153,7 @@ test('the media-name migration names earlier uploads from saved projects, prefer
   project.images.push({ id: 'mark-card', src: `/assets/${mark}`, name: 'mark.svg' });
   await createTemplateStore(data).create({ name: 'Saved', tags: [], project });
   const raw = new DatabaseSync(path.join(data, DATABASE_FILE));
-  raw.exec('DROP TABLE asset_names; DROP TABLE asset_hashes; DROP TABLE asset_aliases; DELETE FROM schema_migrations WHERE version >= 6;');
+  raw.exec('DROP TABLE asset_names; DROP TABLE asset_hashes; DROP TABLE asset_aliases; DROP TABLE password_resets; DELETE FROM schema_migrations WHERE version >= 6;');
   raw.close(); closeDatabase(data);
   const names = Object.fromEntries(database(data).prepare('SELECT asset, name FROM asset_names').all().map(row => [row.asset, row.name]));
   assert.equal(names[card], 'poster-final.png');
