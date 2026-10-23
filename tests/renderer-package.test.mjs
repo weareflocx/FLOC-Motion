@@ -51,7 +51,7 @@ test('the engine package is the editor engine, verifiable through its manifest',
     assert.deepEqual([...new Set(names.map(name => name.split('/')[0]))].sort(), ['package-lock.json', 'package.json', 'public', 'scripts', 'server', 'src']);
     assert.deepEqual(names.filter(name => name.startsWith('scripts/') && !name.endsWith('/')).sort(), ['render-worker.mjs', 'renderer-autostart.mjs', 'renderer-runtime.mjs', 'renderer-setup.mjs', 'renderer-update.mjs'].map(name => `scripts/${name}`));
     assert.deepEqual(names.filter(name => name.startsWith('server/') && !name.endsWith('/')).sort(), ['build-scene.mjs', 'card-frames.mjs', 'card-media.mjs', 'export.mjs', 'json-store.mjs', 'process.mjs', 'renderer-version.mjs', 'runtime-config.mjs'].map(name => `server/${name}`));
-    assert.deepEqual([...new Set(names.filter(name => name.startsWith('public/')).map(name => name.split('/')[1]))].filter(Boolean).sort(), ['brand', 'demo', 'fonts']);
+    assert.deepEqual([...new Set(names.filter(name => name.startsWith('public/')).map(name => name.split('/')[1]))].filter(Boolean).sort(), ['brand', 'demo', 'fonts', 'shapes']);
     assert.ok(!names.some(name => name.startsWith('src/editor/') || name.endsWith('.jsx') || /(?:^|\/)(?:node_modules|\.data|\.git)\//.test(name)));
     assert.ok(names.every(name => !name.startsWith('/') && !name.split('/').includes('..')));
     zip.extractAllTo(folder);
