@@ -70,7 +70,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     const url = new URL(req.url, origin); const route = url.pathname;
     if (route === '/api/health') return json(res, { ok: true, localOnly: !config.publicOrigin, version: '0.1.0', projectVersion: CURRENT_PROJECT_VERSION });
     if (route === '/api/auth/session' && req.method === 'GET') return json(res, { user: await auth.user(req.headers.cookie), projectVersion: CURRENT_PROJECT_VERSION });
-    if (['/api/auth/login', '/api/auth/accept', '/api/auth/logout'].includes(route) && req.method === 'POST') {
+    if (['/api/auth/login', '/api/auth/accept', '/api/auth/reset', '/api/auth/logout'].includes(route) && req.method === 'POST') {
       if (req.headers.origin !== origin) return json(res, { error: 'A same-origin request is required.' }, 403);
       if (route === '/api/auth/logout') {
         await auth.logout(req.headers.cookie);
@@ -78,7 +78,7 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
         return json(res, { user: null });
       }
       const input = JSON.parse(await body(req, 4096));
-      const result = await auth[route.endsWith('login') ? 'login' : 'accept'](input, clientAddress(req, config));
+      const result = await auth[{ '/api/auth/login': 'login', '/api/auth/accept': 'accept', '/api/auth/reset': 'resetPassword' }[route]](input, clientAddress(req, config));
       res.setHeader('Set-Cookie', sessionCookie(result.token, origin.startsWith('https:')));
       return json(res, { user: result.user, projectVersion: CURRENT_PROJECT_VERSION });
     }
@@ -122,6 +122,11 @@ const server = configureHttpServer(http.createServer(async (req, res) => {
     const userMatch = route.match(/^\/api\/users\/([a-f0-9-]{36})$/);
     if (userMatch && req.method === 'PATCH') return json(res, { user: await auth.setRole(userMatch[1], JSON.parse(await body(req, 4096)).role, user.id) });
     if (userMatch && req.method === 'DELETE') { await auth.remove(userMatch[1], user.id); return json(res, { deleted: true }); }
+    const resetMatch = route.match(/^\/api\/users\/([a-f0-9-]{36})\/password-reset$/);
+    if (resetMatch && req.method === 'POST') {
+      const reset = await auth.createPasswordReset(resetMatch[1], user.id);
+      return json(res, { email: reset.email, expiresAt: reset.expiresAt, url: `${origin}/#reset=${reset.token}` }, 201);
+    }
     if (route === '/api/audit' && req.method === 'GET') return json(res, audit.page({ before: url.searchParams.get('before') ?? undefined, limit: url.searchParams.get('limit') ?? undefined }));
     if (route === '/api/renderers/status' && req.method === 'GET') return json(res, { required: Boolean(config.publicOrigin), ...await personalRenderers.status(await personalRenderers.browser(req.headers.cookie)) });
     if (route === '/api/renderers/pair' && req.method === 'POST') {

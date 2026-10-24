@@ -13,6 +13,7 @@ import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, ap
 import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
 import { PATTERN_SCALE, PROJECT_LIMITS } from './project-limits.js';
 import { normalizeModelStyle } from './model-style.js';
+import { isModelShape } from './model-shapes.js';
 import { SPATIAL_LAYER_TYPES, LAYER_SPACES, SCENE_DEPTH_RANGE, normalizeScene, assertPlainSceneRecord } from './scene-settings.js';
 export { PROJECT_LIMITS } from './project-limits.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
@@ -79,7 +80,7 @@ function validateChoreography(layer) {
 // The epsilon keeps re-validation idempotent once fades have been scaled to fit.
 export const fitFades = (fadeIn, fadeOut, span) => fadeIn + fadeOut > span + 1e-9 ? { fadeIn: fadeIn * span / (fadeIn + fadeOut), fadeOut: fadeOut * span / (fadeIn + fadeOut) } : { fadeIn, fadeOut };
 export function validAsset(src, allowEmpty = true) {
-  return typeof src === 'string' && ((allowEmpty && src === '') || Object.values(BRAND.assets).includes(src) || /^\/demo\/poster-[1-6]\.svg$/.test(src) || /^\/assets\/[a-f0-9-]{36}\.(?:png|jpg|jpeg|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb)$/.test(src));
+  return typeof src === 'string' && ((allowEmpty && src === '') || Object.values(BRAND.assets).includes(src) || /^\/demo\/poster-[1-6]\.svg$/.test(src) || isModelShape(src) || /^\/assets\/[a-f0-9-]{36}\.(?:png|jpg|jpeg|webp|gif|avif|mp4|webm|mp3|wav|m4a|ogg|svg|glb)$/.test(src));
 }
 // The closed current shape: unknown keys are dropped after migration. Misplaced
 // effects, scope, opacity, choreography and content fields stay so they still fail.

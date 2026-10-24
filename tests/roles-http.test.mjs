@@ -50,7 +50,8 @@ test('admin-only routes reject editors with 403 and removed accounts lose their 
     [`/api/users/${admin.user.id}`, 'PATCH', { role: 'editor' }],
     [`/api/users/${admin.user.id}`, 'DELETE'],
     ['/api/storage/cleanup', 'POST', { confirm: true }],
-    ['/api/audit', 'GET']
+    ['/api/audit', 'GET'],
+    [`/api/users/${admin.user.id}/password-reset`, 'POST']
   ];
   for (const [route, method, body] of adminRoutes) assert.equal((await call(route, { cookie: editor.cookie, method, body })).status, 403, `${method} ${route}`);
   // Editors keep full editing rights in the shared library.
@@ -67,12 +68,24 @@ test('admin-only routes reject editors with 403 and removed accounts lose their 
   assert.equal((await call(`/api/users/${editor.user.id}`, { cookie: admin.cookie, method: 'PATCH', body: { role: 'owner' } })).status, 400);
   assert.equal((await call('/api/audit?limit=201', { cookie: admin.cookie })).status, 400);
   assert.equal((await call('/api/storage/cleanup', { cookie: admin.cookie, method: 'POST', body: { confirm: true } })).status, 200);
+  const issued = await call(`/api/users/${editor.user.id}/password-reset`, { cookie: admin.cookie, method: 'POST' });
+  assert.equal(issued.status, 201);
+  const reset = await issued.json(), resetToken = new URLSearchParams(new URL(reset.url).hash.slice(1)).get('reset');
+  assert.equal(reset.email, 'editor@example.com');
+  const resetBody = { email: 'editor@example.com', password: 'Editor reset password', token: resetToken };
+  assert.equal((await fetch(origin + '/api/auth/reset', { method: 'POST', headers: { Origin: 'https://outside.example', 'Content-Type': 'application/json' }, body: JSON.stringify(resetBody) })).status, 403);
+  const resetDone = await call('/api/auth/reset', { method: 'POST', body: resetBody });
+  assert.equal(resetDone.status, 200);
+  assert.equal((await call('/api/templates', { cookie: editor.cookie })).status, 401, 'a reset revokes existing sessions');
+  editor.cookie = resetDone.headers.get('set-cookie').split(';')[0];
+  assert.equal((await call('/api/templates', { cookie: editor.cookie })).status, 200);
+  assert.equal((await call('/api/auth/reset', { method: 'POST', body: resetBody })).status, 400, 'reset links are single-use');
   assert.equal((await call(`/api/users/${editor.user.id}`, { cookie: admin.cookie, method: 'DELETE' })).status, 200);
   assert.equal((await call('/api/templates', { cookie: editor.cookie })).status, 401, 'removal revokes existing sessions');
   assert.equal((await call('/api/auth/login', { method: 'POST', body: { email: 'editor@example.com', password: 'Editor test password' } })).status, 401);
 
   const page = await (await call('/api/audit?limit=200', { cookie: admin.cookie })).json();
-  assert.deepEqual(page.entries.map(entry => entry.action), ['user.removed', 'storage.cleanup', 'composition.deleted', 'composition.created', 'invitation.accepted', 'invitation.created', 'invitation.accepted', 'invitation.created']);
-  assert.deepEqual(page.entries[1].details, { removedFiles: 0, removedBytes: 0 });
-  assert.equal(page.entries[2].actor.email, 'editor@example.com', 'removed accounts stay attributable');
+  assert.deepEqual(page.entries.map(entry => entry.action), ['user.removed', 'user.password_reset', 'user.password_reset_created', 'storage.cleanup', 'composition.deleted', 'composition.created', 'invitation.accepted', 'invitation.created', 'invitation.accepted', 'invitation.created']);
+  assert.deepEqual(page.entries[3].details, { removedFiles: 0, removedBytes: 0 });
+  assert.equal(page.entries[4].actor.email, 'editor@example.com', 'removed accounts stay attributable');
 });

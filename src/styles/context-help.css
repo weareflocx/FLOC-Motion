@@ -182,3 +182,39 @@
 .add-layer-options.add-layer-replace {
   margin-top: 18px;
 }
+
+.shape-choices {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 8px;
+}
+
+.shape-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #161616;
+  color: #ccc;
+  font-size: 11px;
+  text-align: center;
+}
+
+.shape-choice img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 6px;
+}
+
+.shape-choice:hover {
+  border-color: #888;
+  color: #fff;
+}
+
+.shape-choice:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}

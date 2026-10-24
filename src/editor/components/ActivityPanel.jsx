@@ -17,6 +17,8 @@ function describe({ action, actor, details: d }) {
     case 'user.signed_in': return `${who} signed in`;
     case 'user.role_changed': return `${who} changed ${d.email} from ${roleName(d.from)} to ${roleName(d.to)}`;
     case 'user.removed': return `${who} removed ${d.email} (${roleName(d.role)})`;
+    case 'user.password_reset_created': return actor ? `${who} created a password reset link for ${d.email}` : `Password reset link created for ${d.email} from the server`;
+    case 'user.password_reset': return `${d.email} set a new password`;
     case 'composition.created': return `${who} created “${d.name}”`;
     case 'composition.renamed': return `${who} renamed “${d.from}” to “${d.to}”`;
     case 'composition.deleted': return `${who} deleted “${d.name}”`;

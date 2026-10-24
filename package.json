@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "invite": "node scripts/invite-first-user.mjs",
+    "password-reset": "node scripts/reset-password.mjs",
     "workspace:backup": "node scripts/workspace-backup.mjs backup",
     "workspace:verify": "node scripts/workspace-backup.mjs verify",
     "workspace:restore": "node scripts/workspace-backup.mjs restore",
@@ -15,7 +16,9 @@
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "previews:templates": "node scripts/generate-motion-previews.mjs",
     "previews:presets": "node scripts/generate-motion-previews.mjs --presets",
-    "golden:update": "node scripts/golden-frames.mjs --update"
+    "golden:update": "node scripts/golden-frames.mjs --update",
+    "shapes:generate": "node scripts/generate-model-shapes.mjs",
+    "shapes:previews": "node scripts/generate-model-shapes.mjs --previews"
   },
   "dependencies": {
     "@fontsource/geist": "latest",

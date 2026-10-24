@@ -110,7 +110,9 @@ const MIGRATIONS = [
   `CREATE TABLE asset_hashes (asset TEXT PRIMARY KEY, sha256 TEXT NOT NULL) WITHOUT ROWID;
   CREATE INDEX asset_hashes_sha256 ON asset_hashes (sha256);
   CREATE TABLE asset_aliases (asset TEXT PRIMARY KEY, target TEXT NOT NULL) WITHOUT ROWID;
-  CREATE INDEX asset_aliases_target ON asset_aliases (target);`
+  CREATE INDEX asset_aliases_target ON asset_aliases (target);`,
+  // Password resets: at most one pending single-use link per account, issued by an admin or the operator CLI.
+  `CREATE TABLE password_resets (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL);`
 ];
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
