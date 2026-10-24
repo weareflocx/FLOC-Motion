@@ -19,6 +19,8 @@ async function copyEngine(target) {
   await mkdir(path.join(target, 'scripts'), { recursive: true });
   for (const name of SCRIPT_FILES) await cp(path.join(root, 'scripts', name), path.join(target, 'scripts', name));
   for (const name of ['fonts', 'brand', 'demo']) await cp(path.join(root, 'public', name), path.join(target, 'public', name), { recursive: true });
+  // Exports read built-in shapes from public/shapes; picker thumbnails stay with the editor.
+  await cp(path.join(root, 'public/shapes'), path.join(target, 'public/shapes'), { recursive: true, filter: name => !name.endsWith('.jpg') });
 }
 
 // Engine updates run on the private Node the installers download, so both installers must pin the same one.
