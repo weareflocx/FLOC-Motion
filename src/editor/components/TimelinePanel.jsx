@@ -9,7 +9,7 @@ import { ASSET_DRAG_TYPE, assetKind } from '../media-library.js';
 import { timeAtPointer } from '../../editor-controls.js';
 import '../timeline-controls.css';
 
-const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle, effect: DotsNine };
+const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle, dataflow: DotsNine, effect: DotsNine };
 // An open choreography popover follows every frame so Save state captures the pose on screen.
 function PlayheadChoreographyControls({ clock, layer, ...props }) {
   const time = usePlaybackTime(clock);

@@ -13,7 +13,7 @@ export function useLayerEditing({ project, projectRef, clock, time, patch, setTi
     const target = current.layers.find(item => item.id === id);
     if (!target) return;
     try {
-      if (Object.keys(fields).length === 1 && Object.hasOwn(fields, 'size') && ['logo', 'media', 'model'].includes(target.type)) {
+      if (Object.keys(fields).length === 1 && Object.hasOwn(fields, 'size') && ['logo', 'media', 'model', 'dataflow'].includes(target.type)) {
         const displayed = evaluateChoreography(target, at);
         const bounds = layerResizeBounds(displayed, document.querySelector('.workspace .stage[aria-busy="false"]'));
         if (bounds) fields = centeredResize(displayed, fields.size, bounds);

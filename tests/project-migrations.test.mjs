@@ -126,7 +126,7 @@ test('v12 models keep the classic light while new models start in the Studio pre
   assert.deepEqual(migrated.layers[0].modelStyle, { ...before.layers[0].modelStyle, toneMapping: 'none', exposure: 1, keyColor: '#ffffff', fillColor: '#ffffff', rimColor: '#ffffff' });
   assert.deepEqual(input, before);
   assert.deepEqual(migrateProject(migrated), migrated);
-  for (const modelStyle of [{ toneMapping: 'aces' }, { exposure: 0 }, { exposure: 4.5 }, { keyColor: 'white' }, { environment: 'https://example.com/a.hdr' }, { environment: 'room' }]) {
+  for (const modelStyle of [{ exposure: 0 }, { exposure: 4.5 }, { keyColor: 'white' }, { environment: 'https://example.com/a.hdr' }, { environment: 'room' }]) {
     assert.throws(() => validateProject({ ...migrated, layers: [{ ...model, modelStyle: { ...migrated.layers[0].modelStyle, ...modelStyle } }] }), /3D/);
   }
 });

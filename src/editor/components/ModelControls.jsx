@@ -1,15 +1,19 @@
 import React, { useCallback, useSyncExternalStore } from 'react';
 import { MODEL_BASES, MODEL_ENVIRONMENTS, MODEL_GLASS, MODEL_LIGHTING_PRESETS, MODEL_LOOKS, MODEL_MATERIAL_FAMILIES, MODEL_MATERIAL_PRESETS, MODEL_REFRACTION_SAMPLES, MODEL_REFRACTION_RESOLUTIONS, MODEL_STYLE_RANGES, MODEL_TONE_MAPPINGS, normalizeModelStyle, applyLightingPreset, applyModelPreset, selectedLightingPreset, selectedModelPreset } from '../../model-style.js';
 import { getModelMetadata, subscribeModelMetadata } from '../../model-metadata.js';
+import { MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from '../../model-shapes.js';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section } from '../controls.jsx';
 import { ModelMotionControls } from './ModelMotionControls.jsx';
 import { SpatialControls } from './SpatialControls.jsx';
 
-const names = { imported: 'Imported', tinted: 'Tinted', custom: 'Custom', physical: 'Physical', toon: 'Toon', wireframe: 'Wireframe', none: 'None', 'see-through': 'See-through', refractive: 'Refractive', environment: 'Environment' };
-const glassHelp = { 'see-through': 'Shows the layers below without bending them.', refractive: 'Bends and blurs the actual layers below; higher sample counts and resolutions cost more.', environment: 'Refracts its own reflection environment and is opaque.' };
-const environmentNames = { none: 'None', studio: 'Classic room', softbox: 'Studio softboxes', stage: 'Dark stage', sunset: 'Sunset sky', neon: 'Neon tubes' };
-const toneNames = { none: 'None (classic)', neutral: 'Neutral', agx: 'AgX (soft)' };
+const names = { imported: 'Imported', tinted: 'Tinted', custom: 'Custom', physical: 'Physical', toon: 'Toon', wireframe: 'Wireframe', none: 'None', 'see-through': 'See-through', refractive: 'Refractive', environment: 'Environment', holographic: 'Holographic', quantum: 'Quantum' };
+const glassHelp = { 'see-through': 'Shows the layers below without bending them.', refractive: 'Bends and blurs the actual layers below; higher sample counts and resolutions cost more.', environment: 'Refracts its own reflection environment and is opaque.', holographic: 'Refracts its own reflection environment, not the layers below, and is opaque. No UV coordinates required. Speed is in cycles/s: zero freezes the bands and light sweep. Light sweep zero turns the sweep off; it uses the same speed as the bands.', quantum: 'Opaque crystal shell with a self-lit sampled interior, not transmission of the layers below. The bounded volume is an approximation, not exact internal mesh intersections. No UV coordinates required. Depth is relative to the normalized model extent; zero removes the interior. Speed zero freezes all procedural motion, including morphing. Crystal colors set the interior palette; Material color tints the result. The lighting environment affects shell reflections only.' };
+const environmentNames = { none: 'None', studio: 'Classic room', softbox: 'Studio softboxes', holographic: 'Holographic studio', stage: 'Dark stage', sunset: 'Sunset sky', neon: 'Neon tubes' };
+names.liquid = 'Liquid chrome';
+glassHelp.liquid = 'Opaque reflection and transmission of its own environment only, not the layers below. Dispersion splits reflected colors; Transmission spread splits environment transmission. Reflectance above 1 is an artistic boost, not physical energy conservation.';
+environmentNames.liquid = 'Liquid studio';
+const toneNames = { none: 'None (classic)', neutral: 'Neutral', agx: 'AgX (soft)', aces: 'ACES filmic' };
 const serverMetadata = () => null;
 
 // Model Design (rightTab 'composition') and Motion ('animation') sections. Controls that do
@@ -27,15 +31,42 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
   const missingClip = metadata !== null && style.animationClip >= 0 && !clips.some(clip => clip.index === style.animationClip) && (clips.length > 0 || style.animationClip > 0);
   const clipActive = metadata !== null && clips.some(clip => clip.index === style.animationClip);
   const custom = style.base === 'custom';
+  const morphing = layer.src === MORPHING_SPHERE_SRC;
+  const liquidShape = layer.src === LIQUID_RIBBONS_SRC;
+  const octahedron = layer.src === MAGICAL_OCTAHEDRON_SRC;
   const physical = style.look === 'physical';
   const glass = style.glass !== 'none';
+  const octaVolume = octahedron && !custom && physical && !glass;
   const refractive = style.glass === 'refractive';
-  const pbr = custom && physical && !refractive;
+  const holographic = style.glass === 'holographic';
+  const quantum = style.glass === 'quantum';
+  const liquid = style.glass === 'liquid';
+  const dedicatedSurface = refractive || holographic || quantum || liquid;
+  const pbr = custom && physical && !dedicatedSurface;
   const lighting = selectedLightingPreset(style);
   const details = [style.clearcoat > 0 && style.clearcoatRoughness > 0 && 'Soft coat', style.anisotropy > 0 && 'Brushed', style.sheen > 0 && 'Sheen', style.iridescence > 0 && 'Iridescent film'].filter(Boolean);
 
   if (rightTab !== 'composition') return <>
     <ModelMotionControls style={style} onChange={modelStyle => onPatch(layer.id, { modelStyle })}/>
+    {octahedron && <Section title="Shape animation" defaultOpen>
+      {range('octaSpeed', 'Overall speed', { scale: 1, decimals: 2, suffix: ' ×' })}
+      {range('octaRotation', 'Shape rotation', { scale: 1, decimals: 2, suffix: ' rad/s' })}
+      {octaVolume && <>
+        {range('octaEvolution', 'Interior evolution', { scale: 1, decimals: 2, suffix: ' ×' })}
+        {range('octaColorSpeed', 'Color speed', { scale: 1, decimals: 2 })}
+      </>}
+      <p className="helper">Overall speed controls procedural rotation, interior evolution and color together. Zero freezes and negative values reverse each motion. Independent of Automatic motion and embedded clips.</p>
+    </Section>}
+    {morphing && <Section title="Shape animation">
+      {range('morphSpeed', 'Morph speed', { scale: 1, decimals: 2, suffix: ' ×' })}
+      <p className="helper">Zero freezes deformation and palette animation; negative values reverse them. Independent of Automatic motion, embedded clips and material animation.</p>
+    </Section>}
+    {liquidShape && <Section title="Shape animation">
+      {range('liquidDuration', 'Liquid cycle', { scale: 1000, suffix: 's' })}
+      {range('liquidEase', 'Liquid ease', { suffix: '%' })}
+      {range('liquidSpeed', 'Liquid speed', { scale: 1, decimals: 2, suffix: ' ×' })}
+      <p className="helper">Zero speed freezes the shape; negative values reverse it. Independent of Automatic motion, embedded clips and material animation.</p>
+    </Section>}
     <Section title="Embedded animation" detail={style.animationClip < 0 ? 'None' : clipActive ? (clips.find(clip => clip.index === style.animationClip).name || `Clip ${style.animationClip + 1}`).slice(0, 24) : metadata === null ? 'Loading' : 'No clip'}>
       <Field label="Embedded clip"><select aria-label="Embedded clip" value={style.animationClip} disabled={metadata !== null && clips.length === 0 && !missingClip} onChange={event => patchStyle({ animationClip: Number(event.target.value) })}>
         <option value={-1}>None</option>
@@ -70,7 +101,51 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
       {layer.space === 'flat' && range('perspective', 'Perspective', { step: 1, scale: 1, suffix: '°' })}
       <p className="helper">{style.framing === 'fit' ? 'Keeps every rotation and motion inside the object frame at 100%.' : 'Uses a fixed object frame; motion may reach past its edges.'}</p>
     </Section>
-    <Section title="Material" defaultOpen detail={MODEL_MATERIAL_PRESETS.find(preset => preset.id === selectedModelPreset(style))?.name ?? 'Custom'}>
+    {morphing && <Section title="Shape" defaultOpen>
+      {range('morphAmplitude', 'Deformation', { suffix: '%' })}
+      {range('morphWarp', 'Warp strength', { suffix: '%' })}
+      {range('morphFrequency', 'Warp frequency', { scale: 1, decimals: 2 })}
+      {range('morphFalloff', 'Warp falloff', { scale: 1, decimals: 2 })}
+      {range('morphDetail', 'Warp detail', { step: 1, scale: 1 })}
+      {range('morphContrast', 'Noise contrast', { scale: 1, decimals: 2 })}
+      {!custom && <>
+        <Color label="Shape color 1" value={style.morphColor1} onChange={morphColor1 => patchStyle({ morphColor1 })}/>
+        <Color label="Shape color 2" value={style.morphColor2} onChange={morphColor2 => patchStyle({ morphColor2 })}/>
+        <Color label="Shape color 3" value={style.morphColor3} onChange={morphColor3 => patchStyle({ morphColor3 })}/>
+        <Color label="Shape color 4" value={style.morphColor4} onChange={morphColor4 => patchStyle({ morphColor4 })}/>
+      </>}
+      <p className="helper">Original and Tinted use the animated shape palette. Custom materials replace its color while preserving deformation. Zero deformation makes a smooth sphere.</p>
+    </Section>}
+    {liquidShape && <Section title="Shape" defaultOpen>
+      {range('liquidRadius', 'Outer radius', { scale: 1, decimals: 2 })}
+      {range('liquidInnerRadius', 'Inner radius', { scale: 1, decimals: 2 })}
+      {range('liquidThickness', 'Sheet thickness', { scale: 1, step: .001, decimals: 3 })}
+      {range('liquidWarp', 'Fold strength', { suffix: '%' })}
+      {range('liquidFrequency', 'Fold frequency', { scale: 1, decimals: 2 })}
+      {range('liquidOpen', 'Open width', { scale: 1, decimals: 2 })}
+      {range('liquidClosed', 'Closed width', { scale: 1, decimals: 2 })}
+      {range('liquidDetail', 'Mesh resolution', { scale: 1, step: 1 })}
+      <p className="helper">Two folded sheets with independent open and closed widths; either width may be larger. Higher mesh resolution costs more geometry work. Material changes preserve the shape.</p>
+    </Section>}
+    {octahedron && <Section title="Shape" defaultOpen>
+      {range('octaRadius', 'Octahedron radius', { scale: 1, decimals: 2 })}
+      {range('octaHeight', 'Octahedron height', { scale: 1, decimals: 2 })}
+      {octaVolume && <>
+        {range('octaSteps', 'Volume steps', { step: 1, scale: 1 })}
+        {range('octaScale', 'Interior scale', { scale: 1, decimals: 2 })}
+        {range('octaPath', 'Sample path', { scale: 1, step: .001, decimals: 3 })}
+        {range('octaDensity', 'Interior density', { scale: 1, decimals: 2 })}
+        {range('octaOpacity', 'Optical density', { suffix: '%' })}
+        {range('octaOrb', 'Orb intensity', { scale: 1, decimals: 2 })}
+        {range('octaEdge', 'Front edge', { scale: 1, step: .001, decimals: 3 })}
+        {range('octaBackEdge', 'Back edge', { scale: 1, decimals: 2 })}
+        <Color label="Interior tint" value={style.octaTint} onChange={octaTint => patchStyle({ octaTint })}/>
+        <Color label="Front edge color" value={style.octaFrontColor} onChange={octaFrontColor => patchStyle({ octaFrontColor })}/>
+        <Color label="Back edge color" value={style.octaBackColor} onChange={octaBackColor => patchStyle({ octaBackColor })}/>
+      </>}
+      <p className="helper">Original and Tinted reveal a self-lit interior clipped to the octahedron. Optical density controls internal accumulation, not background transmission: the body is opaque. Higher volume steps cost more rendering work. Other materials preserve the shape and replace the interior.</p>
+    </Section>}
+    <Section title="Material" defaultOpen={!morphing && !liquidShape && !octahedron} detail={MODEL_MATERIAL_PRESETS.find(preset => preset.id === selectedModelPreset(style))?.name ?? 'Custom'}>
       <Field label="Material preset"><select aria-label="Material preset" value={selectedModelPreset(style)} onChange={event => onPatch(layer.id, { modelStyle: applyModelPreset(style, event.target.value) })}>
         <option value="custom" disabled>Custom</option>
         {MODEL_MATERIAL_FAMILIES.map(([family, label]) => <optgroup key={family} label={label}>{MODEL_MATERIAL_PRESETS.filter(preset => preset.family === family).map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</optgroup>)}
@@ -80,8 +155,8 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
       {/* Glass and edge glow exist only on the Physical look, so leaving it turns them off. */}
       {select('look', 'Look', MODEL_LOOKS, look => ({ look, ...(look !== 'physical' && { glass: 'none', fresnelIntensity: 0 }) }))}
       {physical && select('glass', 'Glass', MODEL_GLASS, value => ({ glass: value, ...(value !== 'none' && { fresnelIntensity: 0 }) }))}
-      {!custom && !refractive && <p className="helper">Imported and Tinted keep the imported finish; choose Custom to edit it.</p>}
-      {refractive && range('roughness', 'Roughness')}
+      {!custom && !dedicatedSurface && !octaVolume && <p className="helper">Imported and Tinted keep the imported finish; choose Custom to edit it.</p>}
+      {dedicatedSurface && range('roughness', 'Roughness')}
       {pbr && <>
         {range('roughness', 'Roughness')}
         {range('metalness', 'Metalness')}
@@ -101,7 +176,7 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
           <p className="helper">Brushing and a flowing film need model UV coordinates.</p>
         </details>
       </>}
-      {custom && !refractive && style.look !== 'wireframe' && <>
+      {custom && !dedicatedSurface && style.look !== 'wireframe' && <>
         <Color label="Emissive color" value={style.emissive} onChange={emissive => patchStyle({ emissive })}/>
         {range('emissiveIntensity', 'Emissive intensity')}
       </>}
@@ -113,20 +188,45 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
           {quality('refractionSamples', 'Refraction samples', MODEL_REFRACTION_SAMPLES)}
           {quality('refractionResolution', 'Refraction resolution', MODEL_REFRACTION_RESOLUTIONS)}
         </>}
+        {liquid && <>
+          <Color label="Liquid tint" value={style.liquidTint} onChange={liquidTint => patchStyle({ liquidTint })}/>
+          {range('liquidReflectance', 'Reflectance', { scale: 1, decimals: 2 })}
+          {range('liquidIorSpread', 'Transmission spread', { scale: 1, decimals: 2 })}
+          <button type="button" className="outline-button" onClick={() => onPatch(layer.id, { modelStyle: applyLightingPreset(style, 'liquid-studio') })}>Use liquid lighting</button>
+        </>}
+        {holographic && <>
+          <p className="helper">The reference look uses a dark Holographic studio with white, blue and pink highlights and ACES filmic tone mapping. Apply its lighting without changing your material or motion.</p>
+          <button type="button" className="outline-button" onClick={() => onPatch(layer.id, { modelStyle: applyLightingPreset(style, 'holographic-studio') })}>Use reference lighting</button>
+          {range('holographicIntensity', 'Holographic intensity', { suffix: '%' })}
+          {range('holographicScale', 'Band density', { scale: 1, decimals: 2 })}
+          {range('holographicSpeed', 'Holographic speed', { scale: 1, decimals: 2, suffix: ' cycles/s' })}
+          {range('holographicSweep', 'Light sweep', { scale: 1, decimals: 2 })}
+        </>}
+        {quantum && <>
+          {range('quantumIntensity', 'Crystal intensity', { suffix: '%' })}
+          {range('quantumScale', 'Crystal complexity', { scale: 1, decimals: 2 })}
+          {range('quantumDepth', 'Crystal depth', { suffix: '%' })}
+          {range('quantumSpeed', 'Crystal speed', { scale: 1, decimals: 2, suffix: ' ×' })}
+          {range('quantumMorphSpeed', 'Crystal morph speed', { scale: 1, decimals: 2, suffix: ' ×' })}
+          {range('quantumRim', 'Crystal rim', { scale: 1, decimals: 2 })}
+          <Color label="Crystal color 1" value={style.quantumColor1} onChange={quantumColor1 => patchStyle({ quantumColor1 })}/>
+          <Color label="Crystal color 2" value={style.quantumColor2} onChange={quantumColor2 => patchStyle({ quantumColor2 })}/>
+          <Color label="Crystal color 3" value={style.quantumColor3} onChange={quantumColor3 => patchStyle({ quantumColor3 })}/>
+        </>}
         <p className="helper">{glassHelp[style.glass]}</p>
       </>}
       {style.look === 'toon' && range('toonSteps', 'Toon steps', { step: 1, scale: 1 })}
-      {physical && !glass && <>
+      {physical && !glass && !octaVolume && <>
         {range('fresnelIntensity', 'Edge glow')}
         {style.fresnelIntensity > 0 && <>
           <Color label="Edge glow color" value={style.fresnelColor} onChange={fresnelColor => patchStyle({ fresnelColor })}/>
           {range('fresnelPower', 'Edge glow power', { step: 1, scale: 1 })}
         </>}
       </>}
-      {metadata?.unlit && !refractive && <p className="helper">Unlit source materials stay unlit on Imported and Tinted bases.</p>}
-      {((pbr && style.metalness >= .5) || (glass && !refractive)) && style.environment === 'none' && <p className="helper">{glass ? 'Glass' : 'Metal'} needs a Lighting environment, such as Studio, to reflect.</p>}
+      {metadata?.unlit && !dedicatedSurface && <p className="helper">Unlit source materials stay unlit on Imported and Tinted bases.</p>}
+      {((pbr && style.metalness >= .5) || (glass && !refractive && !quantum)) && style.environment === 'none' && <p className="helper">{glass ? 'Glass' : 'Metal'} needs a Lighting environment, such as Studio, to reflect.</p>}
     </Section>
-    <Section title="Lighting" detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
+    {!octaVolume && <Section title="Lighting" detail={MODEL_LIGHTING_PRESETS.find(preset => preset.id === lighting)?.name ?? 'Custom'}>
       <Field label="Lighting preset"><select aria-label="Lighting preset" value={lighting} onChange={event => onPatch(layer.id, { modelStyle: applyLightingPreset(style, event.target.value) })}>
         <option value="custom" disabled>Custom</option>
         {MODEL_LIGHTING_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
@@ -148,6 +248,6 @@ export function ModelControls({ layer, onPatch, rightTab = 'composition' }) {
         <Color label="Rim color" value={style.rimColor} onChange={rimColor => patchStyle({ rimColor })}/>
         {range('lightRotation', 'Light rig rotation', { step: 1, scale: 1, suffix: '°' })}
       </>}
-    </Section>
+    </Section>}
   </>;
 }

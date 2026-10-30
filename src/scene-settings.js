@@ -1,4 +1,4 @@
-export const SPATIAL_LAYER_TYPES = Object.freeze(['text', 'logo', 'media', 'model', 'carousel']);
+export const SPATIAL_LAYER_TYPES = Object.freeze(['text', 'logo', 'media', 'model', 'dataflow', 'carousel']);
 export const LAYER_SPACES = Object.freeze(['flat', 'spatial']);
 export const SCENE_DEPTH_RANGE = Object.freeze([-1000, 1000]);
 export const SCENE_CAMERA_RANGES = Object.freeze(Object.fromEntries(Object.entries({

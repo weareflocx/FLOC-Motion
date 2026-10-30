@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { LIQUID_STUDIO } from './model-liquid-material.js';
 
 // Reflection environments are generated locally from small scenes; nothing is
 // downloaded. Each is prefiltered once per model scene through PMREM.
@@ -24,6 +25,24 @@ const BUILDERS = {
     panel(scene, 1.6, 10, 5, [8, 1, -2]);
     panel(scene, 5, 3, 2.2, [3, 2, 9], 0xfff2e2);
     return { scene, sigma: .03 };
+  },
+  liquid: () => {
+    const scene = new THREE.Scene();
+    dome(scene, `varying vec3 direction;\n${LIQUID_STUDIO}\nvoid main() { gl_FragColor = vec4(liquidStudio(normalize(direction)), 1.0); }`);
+    return { scene, sigma: 0 };
+  },
+  // Reference holographic studio: dark dome, white overhead strip, blue/pink lobes.
+  holographic: () => {
+    const scene = new THREE.Scene();
+    dome(scene, `varying vec3 direction; void main() {
+      vec3 d = normalize(direction);
+      vec3 color = mix(vec3(0.004, 0.005, 0.012), vec3(0.012, 0.008, 0.03), clamp(d.y * 0.5 + 0.5, 0.0, 1.0)) * 2.0;
+      color += vec3(1.0, 0.96, 0.92) * 3.0 * (1.0 - smoothstep(0.05, 0.25, abs(d.x))) * smoothstep(0.55, 0.8, d.y);
+      color += vec3(0.35, 0.7, 1.3) * 2.0 * smoothstep(0.78, 0.96, dot(d, vec3(-0.94, 0.19, 0.28)));
+      color += vec3(1.2, 0.45, 0.95) * 1.6 * smoothstep(0.8, 0.97, dot(d, vec3(0.93, -0.28, -0.19)));
+      color += vec3(0.05, 0.06, 0.1) * (1.0 - smoothstep(-0.8, 0.0, d.y));
+      gl_FragColor = vec4(color, 1.0); }`);
+    return { scene, sigma: 0 };
   },
   // Small hard softboxes on black: graphic, high-contrast reflections.
   stage: () => {

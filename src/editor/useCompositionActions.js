@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { PROJECT_LIMITS, duplicateLayer, reorderLayer, demoProject, carouselImages } from '../project.js';
 import { BRAND } from '../brand.js';
 import { effectLayer } from '../effects.js';
+import { dataFlowLayer } from '../data-flow-style.js';
 import { safeArea } from '../layout.js';
 import { evaluateChoreography } from '../choreography.js';
 import { ALIGN_MODES, alignDeltas, applyPositions, arrangedPositions, distributeDeltas, selectionBounds } from './arrange.js';
@@ -67,7 +68,7 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
   const addLayer = useCallback((type, fields = {}) => {
     const current = projectRef.current;
     if (type === 'background' || current.layers.length >= PROJECT_LIMITS.maxLayers) return false;
-    const source = type === 'effect' ? effectLayer(crypto.randomUUID(), current.duration) : demoProject().layers.find(l => l.type === type);
+    const source = type === 'dataflow' ? dataFlowLayer(current.duration, crypto.randomUUID()) : type === 'effect' ? effectLayer(crypto.randomUUID(), current.duration) : demoProject().layers.find(l => l.type === type);
     if (!source) return;
     const layer = { ...source, ...fields, id: crypto.randomUUID(), type, end: current.duration, ...(type === 'carousel' ? { images: fields.images ?? [], name: `Carousel ${current.layers.filter(l => l.type === type).length + 1}` } : {}) };
     if (!change({ ...current, layers: [...current.layers, layer] })) return false;

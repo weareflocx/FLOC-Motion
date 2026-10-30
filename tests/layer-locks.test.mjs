@@ -9,6 +9,7 @@ import { createStyleAlternatives } from '../src/visual-alternatives.js';
 import { historyShortcut } from '../src/editor/history-shortcut.js';
 import * as historyOps from '../src/editor/history.js';
 import { createTools } from '../src/webmcp.js';
+import { dataFlowLayer } from '../src/data-flow-style.js';
 
 const layer = (project, id) => project.layers.find(item => item.id === id);
 const replace = (project, id, fields) => ({ ...project, layers: project.layers.map(item => item.id === id ? { ...item, ...fields } : item) });
@@ -19,6 +20,7 @@ function editor() {
   const slots = []; let cursor = 0, selected = 'headline';
   const context = {
     PROJECT_LIMITS, assertLocksRespected, blankProject, demoProject, patchLayer, validateProject, historyShortcut, createStyleAlternatives, duplicateLayer, reorderLayer, carouselImages, crypto: webcrypto, ...historyOps,
+    dataFlowLayer,
     editorSession: () => ({ draftId: 'draft', compositionId: null, remember() {} }),
     request: async () => { throw new Error('Offline'); },
     useCallback: fn => fn, useEffect() {},
@@ -36,7 +38,7 @@ function editor() {
     const api = context.useProject();
     const alternatives = context.useVisualAlternatives({ projectRef: api.projectRef, change: api.change, setPlaying() {} });
     const actions = context.useCompositionActions({ project: api.projectRef.current, projectRef: api.projectRef, selected, setSelected(id) { selected = id; }, setLeftTab() {}, change: api.change });
-    return { ...api, alternatives, actions };
+    return { ...api, alternatives, actions, selected };
   };
 }
 
@@ -103,6 +105,49 @@ test('locked model timing, axes and sectors cannot change through patches or who
     assert.throws(() => check(project, replace(project, 'model', { modelStyle })), /Unlock/);
     assert.throws(() => check(project, replace(project, 'model', { modelStyle }), { allow: ['format'] }), /Unlock/);
   }
+});
+
+test('locked data flow settings, pose and timing reject patches and whole-project edits', () => {
+  const flow = { ...dataFlowLayer(12, 'flow'), locked: true };
+  const project = validateProject({ ...demoProject(), layers: [flow] });
+  for (const fields of [
+    { flowStyle: { ...flow.flowStyle, seed: 8 } }, { x: -25, y: 30 }, { size: 150 },
+    { tilt: 120, yaw: -80, roll: 30, z: 20 }, { start: 2 }, { fadeIn: 1 }
+  ]) {
+    assert.throws(() => patchLayer(project, 'flow', fields), /Unlock/);
+    assert.throws(() => check(project, replace(project, 'flow', fields)), /Unlock/);
+  }
+  assert.doesNotThrow(() => check(project, patchLayer(project, 'flow', { visible: false })));
+  assert.doesNotThrow(() => check(project, patchLayer(project, 'flow', { locked: false })));
+});
+
+test('editor creates, selects, undoes, redoes and duplicates Data flow without changing the background', () => {
+  const render = editor();
+  const before = structuredClone(render().projectRef.current);
+  assert.equal(render().actions.addLayer('dataflow'), true);
+  let api = render();
+  const flow = api.projectRef.current.layers.at(-1);
+  assert.equal(flow.type, 'dataflow');
+  assert.equal(flow.space, 'flat');
+  assert.equal(flow.end, before.duration);
+  assert.equal(api.selected, flow.id);
+  assert.deepEqual(api.projectRef.current.layers.slice(0, -1), before.layers);
+  assert.deepEqual(flow.flowStyle, dataFlowLayer(before.duration, 'reference').flowStyle);
+  api.undo();
+  assert.deepEqual(render().projectRef.current, before);
+  render().redo();
+  assert.deepEqual(render().projectRef.current.layers.at(-1), flow);
+  render().actions.copyLayer(flow.id);
+  api = render();
+  const copy = api.projectRef.current.layers.find(item => item.type === 'dataflow' && item.id !== flow.id);
+  assert.ok(copy);
+  assert.equal(api.selected, copy.id);
+  assert.deepEqual(copy.flowStyle, flow.flowStyle);
+  assert.deepEqual(api.projectRef.current.layers[0], before.layers[0]);
+  api.undo();
+  assert.equal(render().projectRef.current.layers.filter(item => item.type === 'dataflow').length, 1);
+  render().redo();
+  assert.equal(render().projectRef.current.layers.filter(item => item.type === 'dataflow').length, 2);
 });
 
 test('editor changes, alternatives and layer drops respect locks; undo and import stay exempt', () => {

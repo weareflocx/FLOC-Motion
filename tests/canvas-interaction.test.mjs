@@ -17,6 +17,7 @@ import { transformableLayers } from '../src/editor/selection.js';
 import { groupPositions, placeLayer, selectionBounds } from '../src/editor/arrange.js';
 import { clampDepth, depthEditable, depthGuide, nextDepth, outerDepth } from '../src/editor/depth.js';
 import { shortcutsBlocked } from '../src/editor/useEditorShortcuts.js';
+import { dataFlowLayer } from '../src/data-flow-style.js';
 
 // Window-level depth shortcuts consult the document for open dialogs.
 globalThis.document = { querySelector: () => null };
@@ -37,7 +38,7 @@ function editor() {
     addEventListener(name, fn) { if (name === 'wheel') wheel = fn; },
     removeEventListener(name, fn) { if (name === 'wheel' && wheel === fn) wheel = null; } } };
   const changed = (a, b) => !a || b.some((value, index) => !Object.is(value, a[index]));
-  const context = { React: { createElement() {} }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
+  const context = { React: { createElement(type, props, ...children) { return { type, props: props ?? {}, children }; } }, FORMATS, canvasWheelSize, carouselPlacement, freePlacement,
     gridPlacement, nearestGridPoint, nudgePlacement, nudgeAmount, alignmentPlacement, DEFAULT_LAYOUT, dragModelOrientation, dragOrientation, wrapDegrees, evaluateChoreography, canvasMediaPlacement, centeredResize, layerResizeBounds, snapCenteredResize,
     layerPosition, measureLayerBounds, projectedRect, projectedShift, transformableLayers, groupPositions, placeLayer, selectionBounds,
     clampDepth, depthEditable, depthGuide, nextDepth, outerDepth, shortcutsBlocked,
@@ -95,7 +96,7 @@ function editor() {
   const flush = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
   const unmount = () => { for (const slot of slots) slot?.cleanup?.(); };
   render();
-  return { render, scroll, press, flush, unmount, patches, previews, gestures, node, rect, project, scene, timers, commit: (...args) => pending?.(...args) };
+  return { render, scroll, press, flush, unmount, patches, previews, gestures, node, root, rect, project, scene, timers, commit: (...args) => pending?.(...args) };
 }
 
 test('canvas focus leaves Space for playback and Enter selects the focused layer', () => {
@@ -245,9 +246,9 @@ test('a model turned past 90° keeps the Euler angles nearest its start for keyf
 });
 
 test('Shift-drag orients carousels by angle and models about the screen axes, without moving them', () => {
-  for (const type of ['carousel', 'model']) for (const cancelled of [false, true]) {
+  for (const type of ['carousel', 'model', 'dataflow']) for (const cancelled of [false, true]) {
     const h = editor();
-    const initial = { tilt: type === 'model' ? 100 : 10, yaw: 170, roll: 20 };
+    const initial = { tilt: type === 'carousel' ? 10 : 100, yaw: 170, roll: 20 };
     Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, ...initial });
     h.node.focus = () => {};
     const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
@@ -272,7 +273,7 @@ test('Shift-drag orients carousels by angle and models about the screen axes, wi
 });
 
 test('Shift+Alt-drag rotates only Z across spatial and flat layers; models roll about the view direction', () => {
-  for (const type of ['carousel', 'model', 'text', 'logo', 'media']) {
+  for (const type of ['carousel', 'model', 'dataflow', 'text', 'logo', 'media']) {
     const h = editor();
     Object.assign(h.project.layers.find(l => l.id === 'headline'), { type, x: 25, y: 25, size: 1, tilt: 10, yaw: 20, roll: 170 });
     h.node.focus = () => {};
@@ -283,13 +284,13 @@ test('Shift+Alt-drag rotates only Z across spatial and flat layers; models roll 
     handlers.onPointerMove({ ...event, clientX: 600, clientY: 650 });
     handlers.onPointerUp(event);
     assert.equal(h.patches.length, 1, type);
-    if (type !== 'model') assert.equal(h.patches[0].roll, -172, type);
+    if (!['model', 'dataflow'].includes(type)) assert.equal(h.patches[0].roll, -172, type);
     assert.equal(h.patches[0].x, undefined, type);
     assert.equal(h.patches[0].size, undefined, type);
     if (type === 'carousel') {
       assert.equal(h.patches[0].tilt, 10);
       assert.equal(h.patches[0].yaw, 20);
-    } else if (type === 'model') {
+    } else if (['model', 'dataflow'].includes(type)) {
       assert.ok(sameOrientation(h.patches[0], orientation({ tilt: 10, yaw: 20, roll: 170 }).premultiply(screenTurn([0, 0, 1], 18))), JSON.stringify(h.patches[0]));
     } else {
       assert.equal(h.patches[0].tilt, undefined);
@@ -811,4 +812,108 @@ test('depth controls stand down for fields, handled keys, multi-selection, locks
   const disabled = editor();
   disabled.render({ enabled: false }); disabled.press('PageUp');
   assert.equal(disabled.patches.length, 0); disabled.unmount();
+});
+
+function flowEditor() {
+  const h = editor();
+  const flow = { ...dataFlowLayer(h.project.duration, 'headline'), x: 10, y: 20, size: 40 };
+  h.project.layers[h.project.layers.findIndex(layer => layer.id === flow.id)] = flow;
+  h.project.format = 'landscape';
+  Object.assign(h.rect, { width: 1600, height: 900, right: 1600, bottom: 900 });
+  Object.assign(h.root.current, { clientWidth: 1600, clientHeight: 900 });
+  Object.assign(h.node, { offsetWidth: 640, offsetHeight: 360 });
+  h.node.getBoundingClientRect = () => ({ left: 160, top: 180, width: 640, height: 360, right: 800, bottom: 540 });
+  h.render();
+  return { ...h, flow };
+}
+
+test('data flow selection exposes rectangular transform handles and centered wheel resizing', () => {
+  const h = flowEditor(), attributes = new Map(), classes = new Map();
+  h.node.setAttribute = (name, value) => attributes.set(name, value);
+  h.node.classList.toggle = (name, value) => classes.set(name, value);
+  const { ring } = h.render({ sceneKey: {} });
+  assert.equal(classes.get('canvas-selected'), true);
+  assert.equal(h.node.tabIndex, 0);
+  assert.match(attributes.get('aria-label'), /Shift-drag to orient X\/Y/);
+  assert.equal(ring.props.className, 'canvas-transform-box');
+  assert.equal(parseFloat(ring.props.style.width) / parseFloat(ring.props.style.height), 1600 / 900);
+  assert.equal(ring.children[0].length, 4);
+  h.scroll({ clientX: 300, clientY: 300 }); h.scroll({ clientX: 300, clientY: 300 });
+  assert.equal(h.patches.length, 0);
+  h.flush();
+  assert.equal(h.patches.length, 1);
+  assert.equal(h.patches[0].id, 'headline');
+  assert.equal(h.patches[0].size, 42);
+  assert.ok(Math.abs(h.patches[0].x - 9) < 1e-9);
+  assert.ok(Math.abs(h.patches[0].y - 19) < 1e-9);
+  h.unmount();
+});
+
+test('data flow pointer resizing preserves the composition-aspect center and does not rotate', () => {
+  const h = flowEditor();
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 800, clientY: 540, shiftKey: true, altKey: true,
+    target: { closest: selector => selector === '[data-canvas-resize]' ? {} : null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render();
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 1120, clientY: 720 });
+  handlers.onPointerUp(event);
+  assert.deepEqual(h.patches, [{ id: 'headline', size: 80, x: -10, y: 0 }]);
+  h.unmount();
+});
+
+test('data flows drag and nudge in authored top-left coordinates with off-canvas position limits', () => {
+  const h = flowEditor();
+  h.flow.x = 995; h.flow.y = -995;
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 300, clientY: 300,
+    target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+  const { handlers } = h.render();
+  handlers.onPointerDown(event);
+  handlers.onPointerMove({ ...event, clientX: 460, clientY: 210 });
+  handlers.onPointerUp(event);
+  assert.deepEqual(h.patches, [{ id: 'headline', x: 1000, y: -1000 }]);
+  h.flow.x = 10; h.flow.y = 20;
+  const keys = h.render().handlers;
+  keys.onKeyDown({ key: 'ArrowRight', target: { closest: () => null }, preventDefault() {} });
+  assert.ok(Math.abs(h.patches.at(-1).x - (10 + 100 / FORMATS.landscape[0])) < 1e-6);
+  assert.equal(h.patches.at(-1).y, 20);
+  keys.onKeyDown({ key: 'ArrowDown', target: { closest: () => null }, preventDefault() {} });
+  assert.ok(Math.abs(h.patches.at(-1).y - (20 + 100 / FORMATS.landscape[1])) < 1e-6);
+  h.unmount();
+});
+
+test('data flow depth gestures use the same burst and keyboard path as other scene layers', () => {
+  const h = flowEditor();
+  h.scroll({ clientX: 300, clientY: 300, altKey: true });
+  assert.equal(h.patches.length, 0);
+  h.press('PageUp');
+  assert.deepEqual(h.patches, [{ id: 'headline', z: 3 }]);
+  h.flush();
+  assert.equal(h.patches.length, 1);
+  h.unmount();
+});
+
+test('locked data flows remain selectable but reject drag, resize, orientation, nudge and depth edits', () => {
+  const h = flowEditor(), selections = [];
+  h.flow.locked = true;
+  const { handlers, ring } = h.render({ onSelect: id => selections.push(id) });
+  assert.equal(ring, null);
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 300, clientY: 300,
+    target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+  for (const modifiers of [{}, { shiftKey: true }, { shiftKey: true, altKey: true }]) {
+    handlers.onPointerDown({ ...event, ...modifiers });
+    handlers.onPointerMove({ ...event, ...modifiers, clientX: 500 });
+    handlers.onPointerUp(event);
+  }
+  for (const extra of [{}, { altKey: true }, { target: { closest: selector => selector === '[data-canvas-resize]' ? {} : null } }]) {
+    handlers.onKeyDown({ key: 'ArrowRight', target: { closest: () => null }, preventDefault() {}, ...extra });
+  }
+  h.scroll({ clientX: 300, clientY: 300 });
+  h.scroll({ clientX: 300, clientY: 300, altKey: true });
+  h.press('PageUp'); h.flush();
+  assert.deepEqual(selections, ['headline', 'headline']);
+  assert.equal(h.patches.length, 0);
+  h.unmount();
 });

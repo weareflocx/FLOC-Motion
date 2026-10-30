@@ -8,7 +8,7 @@ export const EFFECTS = [
   { id: 'halftone', name: 'Halftone' }, { id: 'dithering', name: 'Dithering' }, { id: 'fluted-glass', name: 'Fluted glass' }
 ];
 export const MAX_EFFECTS = 10;
-export const EFFECT_LAYER_TYPES = ['background', 'text', 'logo', 'media', 'model', 'carousel', 'effect'];
+export const EFFECT_LAYER_TYPES = ['background', 'text', 'logo', 'media', 'model', 'dataflow', 'carousel', 'effect'];
 export const DEFAULT_NOISE = Object.freeze({ type: 'noise', enabled: true, mode: 'mono', sizeX: 1, sizeY: 1, linked: true, density: 1, opacity: 0.15, color1: '#000000', color2: '#ffffff', animated: false, seed: 42 });
 
 export const DEFAULT_FILTERS = Object.freeze({

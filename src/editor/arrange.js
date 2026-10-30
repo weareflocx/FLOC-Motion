@@ -2,7 +2,7 @@ import { patchLayer } from '../project.js';
 import { choreographyPatch } from './choreography-edit.js';
 
 // Stored position limits, matching the single-layer canvas gestures.
-const POSITION_RANGES = { text: [0, 95], logo: [-1000, 1000], media: [-1000, 1000], model: [-1000, 1000], carousel: [10, 90] };
+const POSITION_RANGES = { text: [0, 95], logo: [-1000, 1000], media: [-1000, 1000], model: [-1000, 1000], dataflow: [-1000, 1000], carousel: [10, 90] };
 const rounded = value => Math.round(value * 1e6) / 1e6;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const extent = axis => axis === 'x' ? 'width' : 'height';

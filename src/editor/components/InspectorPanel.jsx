@@ -14,6 +14,7 @@ import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section, SectionScope } from '../controls.jsx';
 import { SelectionSummary } from './SelectionSummary.jsx';
 import { ModelControls } from './ModelControls.jsx';
+import { DataFlowControls } from './DataFlowControls.jsx';
 import { ProjectControls } from './ProjectControls.jsx';
 import { LayerHeader } from './LayerHeader.jsx';
 import { CardList } from './CardList.jsx';
@@ -23,7 +24,7 @@ import { ReplaceCardDialog } from './ReplaceCardDialog.jsx';
 const CARD_RATIOS = [[9 / 16, '9:16'], [0.8, '4:5'], [1 / 1.14, '7:8'], [1, '1:1'], [4 / 3, '4:3'], [16 / 9, '16:9']];
 const FIT_OPTIONS = [['height', 'Each image · same height'], ['width', 'Each image · same width']];
 // Layers whose pose can be keyframed in the timeline.
-const KEYFRAMED = ['text', 'logo', 'media', 'model', 'carousel', 'effect'];
+const KEYFRAMED = ['text', 'logo', 'media', 'model', 'dataflow', 'carousel', 'effect'];
 const playsSource = layer => layer.type === 'music' || (layer.type === 'media' && /\.(mp4|webm|gif)$/i.test(layer.src));
 
 // Fixed ratios crop every card to one shape; per-image fits keep each image's
@@ -111,6 +112,7 @@ function Design({ project, layer, images, uploading, cards, onPatch, onPick, onR
     </>}
     {['logo', 'media'].includes(layer.type) && <FlatTransform layer={layer} onPatch={onPatch} defaultOpen/>}
     {layer.type === 'model' && <ModelControls layer={layer} onPatch={onPatch} rightTab="composition"/>}
+    {layer.type === 'dataflow' && <DataFlowControls layer={layer} onPatch={onPatch}/>}
     {layer.type === 'music' && <Section title="Soundtrack" defaultOpen detail={layer.src ? `${Math.round(layer.volume * 100)}%` : 'No source'}>
       <Range label="Volume" value={layer.volume} min={0} max={1} step={0.05} onChange={value => onPatch(layer.id, { volume: value })}/>
       {layer.src ? <button className="text-button" onClick={() => onPatch(layer.id, { src: '' })}>Remove music</button> : <p className="helper">Choose an MP3, WAV, M4A or OGG file.</p>}
@@ -125,11 +127,12 @@ function Design({ project, layer, images, uploading, cards, onPatch, onPick, onR
 
 function Motion({ layer, images, onPatch }) {
   const plays = playsSource(layer);
-  const own = ['carousel', 'text', 'model'].includes(layer.type) || plays;
+  const own = ['carousel', 'text', 'model', 'dataflow'].includes(layer.type) || plays;
   return <>
     {layer.type === 'carousel' && <MotionControls layer={layer} count={layer.cardCount || images.length} onPatch={onPatch}/>}
     {layer.type === 'text' && <TextRevealControls layer={layer} onPatch={onPatch}/>}
     {layer.type === 'model' && <ModelControls layer={layer} onPatch={onPatch} rightTab="animation"/>}
+    {layer.type === 'dataflow' && <DataFlowControls layer={layer} onPatch={onPatch} rightTab="animation"/>}
     {plays && <Section title="Playback" defaultOpen detail={`From ${Math.round(layer.offset * 1000)} ms${layer.loop ? ' · Loop' : ''}`}>
       <NumberField scale={1000} suffix="ms" label="Source offset" value={layer.offset} min={0} max={3600} onChange={offset => onPatch(layer.id, { offset })}/>
       {layer.type === 'music' && <Range label="Fade in / out" value={layer.fade} min={0} max={5} step={0.1} suffix="s" onChange={value => onPatch(layer.id, { fade: value })}/>}

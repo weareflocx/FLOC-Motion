@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { evaluateChoreography } from './choreography.js';
 import { createResourceCache } from './scene-resources.js';
-import { normalizeModelStyle, automaticModelMotion, modelMotionReach } from './model-style.js';
+import { normalizeModelStyle, automaticModelMotion, modelMotionReach, MODEL_STYLE_RANGES } from './model-style.js';
 import { registerModelMetadata } from './model-metadata.js';
 import { createModelMaterials } from './model-materials.js';
 import { createModelEnvironment } from './model-environment.js';
@@ -11,6 +11,10 @@ import { modelRenderer, modelResolution } from './model-renderer.js';
 import { registerModelCanvas } from './model-canvas.js';
 import { scenePosition, sceneDimensions, projectedObjectBounds } from './scene-camera.js';
 import { SCENE_PASS } from './scene-pass.js';
+import { MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from './model-shapes.js';
+import { createMorphingSphere } from './model-morph.js';
+import { createLiquidRibbons } from './model-liquid.js';
+import { createMagicalOctahedron } from './model-octahedron.js';
 
 // Fixed framing is the pre-v11 camera: 38° from 4.5 units, model scaled to two units.
 const FIXED_DISTANCE = 4.5, FIXED_HALF_FOV = THREE.MathUtils.degToRad(19);
@@ -21,7 +25,7 @@ const CLIP_SAMPLES = 24;
 const SKINNED_SAMPLES = 20000;
 // Envelope radius per decoded source and clip (-1: none), shared by its instances.
 const reaches = new WeakMap();
-const TONE_MAPPINGS = { none: THREE.NoToneMapping, neutral: THREE.NeutralToneMapping, agx: THREE.AgXToneMapping };
+const TONE_MAPPINGS = { none: THREE.NoToneMapping, neutral: THREE.NeutralToneMapping, agx: THREE.AgXToneMapping, aces: THREE.ACESFilmicToneMapping };
 async function loadModel(src) {
   const manager = new THREE.LoadingManager();
   manager.setURLModifier(url => {
@@ -79,7 +83,8 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   const motion = { phase: 0, advance: 0, stepped: false, rotationX: 0, rotationY: 0, rotationZ: 0, offsetX: 0, offsetY: 0, offsetZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }, skeletons = new Set();
   const sphere = new THREE.Sphere(), point = new THREE.Vector3(), raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
   const inversePlacement = new THREE.Matrix4(), inverseCamera = new THREE.Quaternion();
-  let mixer, model, source, materials, clips, action, clip, clipIndex, lastTime, lastDraft, drawnBounds, disposed = false, unregister = () => {};
+  let mixer, model, source, materials, deformation, clips, action, clip, clipIndex, lastTime, lastDraft, drawnBounds, disposed = false, unregister = () => {};
+  let deformationScale = 1, deformationOffset = 0;
   let width = compositionWidth;
   let sampled, spatialScale = 1, spatialRadius = 1;
   let refractionMask;
@@ -129,6 +134,8 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   // Any authored rotation keeps geometry within this radius of the pivot; an
   // embedded clip is sampled across its duration.
   function envelopeRadius() {
+    // Procedural geometry has an analytic whole-animation bound, not a sampled clip.
+    if (deformation) return (deformation.radius + deformationOffset) * deformationScale;
     const key = action ? clipIndex : -1;
     let measured = reaches.get(source);
     if (!measured) reaches.set(source, measured = new Map());
@@ -164,6 +171,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
   function applyStyle(next) {
     selectClip(next.animationClip);
     materials.update(next);
+    deformation?.setStyle(next);
     ambient.intensity = next.ambientIntensity;
     key.intensity = next.keyIntensity; fill.intensity = next.fillIntensity; rim.intensity = next.rimIntensity;
     key.color.set(next.keyColor); fill.color.set(next.fillColor); rim.color.set(next.rimColor);
@@ -185,6 +193,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     mixer?.stopAllAction();
     if (model) mixer?.uncacheRoot(model);
     materials?.dispose();
+    deformation?.dispose();
     skeletons.forEach(skeleton => skeleton.dispose());
     environment.dispose();
     handle.release();
@@ -199,6 +208,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       action.reset().play();
       mixer.setTime(sample);
     }
+    deformation?.update(elapsed);
     const state = sampled = evaluateChoreography(layer, time);
     automaticModelMotion(style, elapsed, motion);
     const tilt = THREE.MathUtils.degToRad(draft?.tilt ?? state.tilt), yaw = THREE.MathUtils.degToRad(draft?.yaw ?? state.yaw), roll = THREE.MathUtils.degToRad(draft?.roll ?? state.roll);
@@ -209,6 +219,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     else { posed.rotation.set(tilt, yaw, roll); target.rotation.set(motion.rotationX, motion.rotationY, motion.rotationZ); }
     target.position.set(motion.offsetX, motion.offsetY, motion.offsetZ);
     target.scale.set(motion.scaleX, motion.scaleY, motion.scaleZ);
+    if (!spatial) materials.setTime(elapsed);
     drawnBounds = undefined;
   }
   function draw(time, draft) {
@@ -267,6 +278,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       screen.position.applyQuaternion(outputCamera.quaternion);
     }
     scene.updateMatrixWorld(true);
+    materials.setTime(Math.max(0, lastTime - layer.start));
     return placementRoot;
   }
   function renderSpatial(outputCamera, pass, opacity = 1, id = 0, options = {}) {
@@ -317,11 +329,31 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     source = await handle.value;
     model = clone(source.scene);
     model.traverse(node => { if (node.skeleton) skeletons.add(node.skeleton); });
-    materials = createModelMaterials(model, { spatial });
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const extent = Math.max(size.x, size.y, size.z);
     if (!Number.isFinite(extent) || extent <= 0) throw new Error('Model has no visible geometry.');
+    if (layer.src === MORPHING_SPHERE_SRC || (renderMode && layer.modelShape === 'morphing-sphere')) deformation = createMorphingSphere(model, { widthSegments: 192, heightSegments: 144 });
+    const liquid = layer.src === LIQUID_RIBBONS_SRC || (renderMode && layer.modelShape === 'liquid-ribbons');
+    if (liquid) deformation = createLiquidRibbons(model);
+    const octahedron = layer.src === MAGICAL_OCTAHEDRON_SRC || (renderMode && layer.modelShape === 'magical-octahedron');
+    if (octahedron) deformation = createMagicalOctahedron(model);
+    if (deformation) {
+      deformationScale = 2 / extent;
+      deformationOffset = box.getCenter(new THREE.Vector3()).length();
+    }
+    // Fixed material coordinates encompass every permitted procedural pose.
+    let materialBounds = deformation ? box.clone().expandByScalar(MODEL_STYLE_RANGES.morphAmplitude[1]) : box;
+    if (liquid) {
+      const radius = Math.max(MODEL_STYLE_RANGES.liquidRadius[1], MODEL_STYLE_RANGES.liquidInnerRadius[1])
+        + MODEL_STYLE_RANGES.liquidThickness[1] + Math.sqrt(3) * MODEL_STYLE_RANGES.liquidWarp[1] * 2;
+      materialBounds = new THREE.Box3(new THREE.Vector3(-radius, -radius, -radius), new THREE.Vector3(radius, radius, radius));
+    }
+    if (octahedron) {
+      const radius = MODEL_STYLE_RANGES.octaRadius[1], height = radius * MODEL_STYLE_RANGES.octaHeight[1];
+      materialBounds = new THREE.Box3(new THREE.Vector3(-radius, -height, -radius), new THREE.Vector3(radius, height, radius));
+    }
+    materials = createModelMaterials(model, { spatial, bounds: materialBounds, surfaceNormals: deformation?.surfaceNormals, originalSurface: deformation?.originalSurface });
     const normalizer = new THREE.Group();
     model.position.sub(box.getCenter(new THREE.Vector3()));
     normalizer.add(model); normalizer.scale.setScalar(2 / extent); object.add(normalizer);

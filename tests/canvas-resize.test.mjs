@@ -5,6 +5,9 @@ import { centeredResize, layerResizeBounds, snapCenteredResize } from '../src/ed
 import { demoProject, fileLayer, patchLayer, validateProject, linkFormats, switchFormat } from '../src/project.js';
 import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { registerStageScene } from '../src/editor/layer-bounds.js';
+import { readFileSync } from 'node:fs';
+import { choreographyPatch } from '../src/editor/choreography-edit.js';
+import { dataFlowLayer } from '../src/data-flow-style.js';
 
 test('growing and shrinking images preserves their center even outside the canvas', () => {
   const layer = { type: 'media', size: 40 };
@@ -135,4 +138,64 @@ test('spatial resize snaps projected edges without replacing its authored coordi
   assert.deepEqual([next.x, next.y], [0, 20]);
   assert(next.guides.some(guide => guide.axis === 'y' && guide.value === 0));
   assert(next.guides.some(guide => guide.axis === 'y' && guide.value === 100));
+});
+
+test('data flow resizing preserves the composition-aspect center in landscape and portrait', () => {
+  for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
+    const layer = { id: 'flow', type: 'dataflow', space: 'flat', x: -20, y: 30, size: 40 };
+    const node = { dataset: { flocLayer: 'flow' }, offsetWidth: width * .4, offsetHeight: height * .4 };
+    const root = { clientWidth: width, clientHeight: height, querySelectorAll: () => [node] };
+    registerStageScene(root, { projectedBounds: () => ({ x: -20, y: 30, width: 40, height: 40 }) });
+    const bounds = layerResizeBounds(layer, root);
+    assert.deepEqual(bounds, { x: -20, y: 30, width: 40, height: 40 });
+    for (const size of [2, 20, 80, 500]) {
+      const next = centeredResize(layer, size, bounds);
+      assert.equal(next.x + size / 2, 0);
+      assert.equal(next.y + size / 2, 50);
+    }
+    assert.equal(centeredResize(layer, 1, bounds).size, 2);
+    assert.equal(centeredResize(layer, 501, bounds).size, 500);
+    assert.deepEqual(centeredResize(layer, 500, { x: -999, y: -999, width: 40, height: 40 }), { size: 500, x: -1000, y: -1000 });
+    registerStageScene(root, null);
+  }
+});
+
+test('data flow resizing snaps the projected composition edges without a square-model assumption', () => {
+  const layer = { type: 'dataflow', space: 'spatial', size: 40 };
+  const authored = { x: 20, y: 30, width: 40, height: 40 };
+  const projected = { x: 30, y: 25, width: 40, height: 50 };
+  const next = snapCenteredResize(layer, 79.6, authored, projected, { enabled: false }, { x: .6, y: .6 }, { x: 50, y: 50 });
+  assert.equal(next.size, 80);
+  assert.deepEqual([next.x, next.y], [0, 10]);
+  assert(next.guides.some(guide => guide.axis === 'y' && guide.value === 0));
+  assert(next.guides.some(guide => guide.axis === 'y' && guide.value === 100));
+});
+
+test('inspector size edits center the evaluated data flow pose and save one playhead keyframe', () => {
+  const source = readFileSync(new URL('../src/editor/useLayerEditing.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '').replace('export function', 'function');
+  for (const space of ['flat', 'spatial']) {
+    const project = demoProject(), flow = { ...dataFlowLayer(project.duration, 'flow'), space, x: 10, y: 20, size: 40 };
+    flow.choreography = captureState(flow, 0, project.fps, {}, 'start');
+    flow.choreography = captureState(flow, 2, project.fps, { x: 30, y: 40, size: 80 }, 'end');
+    project.layers.push(flow);
+    const node = { dataset: { flocLayer: 'flow' }, offsetWidth: 1152, offsetHeight: 648 };
+    const root = { clientWidth: 1920, clientHeight: 1080, querySelectorAll: () => [node] };
+    registerStageScene(root, { projectedBounds: () => ({ x: -5, y: 10, width: 90, height: 70 }) });
+    const deps = { useCallback: fn => fn, useMemo: fn => fn(), evaluateChoreography, choreographyPatch, centeredResize, layerResizeBounds, document: { querySelector: () => root } };
+    const hook = new Function(...Object.keys(deps), `${source}\nreturn useLayerEditing;`)(...Object.values(deps));
+    const patches = [], errors = [], playback = [];
+    const api = hook({ project, projectRef: { current: project }, clock: { get: () => ({ time: 1 }) }, time: 1,
+      patch(id, fields) { patches.push({ id, fields }); }, setTime() {}, setPlaying: value => playback.push(value), setError: error => errors.push(error) });
+    api.editLayer('flow', { size: 120 });
+    assert.deepEqual(errors, []);
+    assert.deepEqual(playback, [false]);
+    assert.equal(patches.length, 1);
+    const { id, fields } = patches[0];
+    const saved = patchLayer(project, id, fields).layers.find(layer => layer.id === id);
+    const at = evaluateChoreography(saved, 1);
+    assert.deepEqual([at.x, at.y, at.size], [-10, 0, 120]);
+    assert.deepEqual([evaluateChoreography(saved, 2).x, evaluateChoreography(saved, 2).size], [30, 80]);
+    assert.equal(saved.choreography.length, 3);
+    registerStageScene(root, null);
+  }
 });

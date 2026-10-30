@@ -2,7 +2,7 @@ import { evaluateChoreography } from '../choreography.js';
 
 // A selection is an ordered list of layer ids; the last id is the primary layer
 // that the inspector, timeline and single-layer gestures follow.
-export const POSITIONABLE_TYPES = Object.freeze(['text', 'logo', 'media', 'model', 'carousel']);
+export const POSITIONABLE_TYPES = Object.freeze(['text', 'logo', 'media', 'model', 'dataflow', 'carousel']);
 
 export const singleSelection = id => id == null ? [] : [id];
 export const primaryLayerId = ids => ids.at(-1) ?? null;

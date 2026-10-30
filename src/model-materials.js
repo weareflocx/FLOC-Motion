@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { createModelRefraction } from './model-refraction.js';
 import { bindScenePass, createScenePass, setSceneMaterialPass } from './scene-pass.js';
+import { HOLOGRAPHIC_PARS, HOLOGRAPHIC_GLASS } from './model-holographic.js';
+import { PROCEDURAL_VERTEX_PARS, PROCEDURAL_VERTEX } from './model-procedural.js';
+import { QUANTUM_PARS, QUANTUM_GLASS } from './model-quantum.js';
+import { LIQUID_PARS, LIQUID_GLASS } from './model-liquid-material.js';
+import { bindSurfaceNormals } from './model-surface-normals.js';
 
 // Imported textures/geometry remain cache-owned. Only these per-instance materials
 // and the generated toon ramp belong to this controller.
@@ -96,15 +101,21 @@ const STUDIO_GLASS = `
     gl_FragColor.a = 1.0;
   #endif
 `;
-function glass(material, kind) {
-  const uniforms = { modelGlassIOR: { value: 1.5 }, modelGlassBody: { value: .08 }, modelGlassDispersion: { value: 0 } };
+function glass(material, kind, procedural) {
+  const uniforms = { modelGlassIOR: { value: 1.5 }, modelGlassBody: { value: .08 }, modelGlassDispersion: { value: 0 }, ...procedural,
+    ...(kind === 'liquid' && { modelLiquidReflectance: { value: 2.27 }, modelLiquidIorSpread: { value: .1 }, modelLiquidTint: { value: new THREE.Color() } }) };
   material.onBeforeCompile = program => {
     Object.assign(program.uniforms, uniforms);
     program.fragmentShader = program.fragmentShader
       .replace('void main() {', STUDIO_GLASS_PARS)
-      .replace('#include <opaque_fragment>', kind === 'see-through' ? OVERLAY_GLASS : STUDIO_GLASS);
+      .replace('#include <opaque_fragment>', kind === 'see-through' ? OVERLAY_GLASS : kind === 'holographic' ? HOLOGRAPHIC_GLASS : kind === 'quantum' ? QUANTUM_GLASS : kind === 'liquid' ? LIQUID_GLASS : STUDIO_GLASS);
+    if (procedural) {
+      program.vertexShader = program.vertexShader.replace('#include <common>', '#include <common>\n' + PROCEDURAL_VERTEX_PARS).replace('#include <project_vertex>', PROCEDURAL_VERTEX);
+      program.fragmentShader = program.fragmentShader.replace('void main() {', (kind === 'quantum' ? QUANTUM_PARS : HOLOGRAPHIC_PARS) + '\nvoid main() {');
+    }
+    if (kind === 'liquid') program.fragmentShader = program.fragmentShader.replace('void main() {', LIQUID_PARS + '\nvoid main() {');
   };
-  material.customProgramCacheKey = () => `floc-model-glass-${kind}-v1`;
+  material.customProgramCacheKey = () => `floc-model-glass-${kind}-${kind === 'holographic' ? 'v3' : 'v2'}`;
   if (kind === 'see-through') {
     // Back faces render first, then front faces, so the far wall shows through the near one.
     material.transparent = true; material.depthWrite = false; material.side = THREE.DoubleSide; material.premultipliedAlpha = true;
@@ -113,12 +124,38 @@ function glass(material, kind) {
   }
   return uniforms;
 }
-export function createModelMaterials(model, { spatial = false } = {}) {
+export function createModelMaterials(model, { spatial = false, bounds, surfaceNormals, originalSurface } = {}) {
   const bindings = [], variants = new Map(), owned = new Set(), tint = new THREE.Color();
   // Brushing and a varying film need a UV frame; materials on meshes without UVs skip them.
   const withoutUv = new Set();
   let gradient, gradientSteps, film, refraction;
   const scenePass = createScenePass();
+  // Capture the authored coordinate frame before normalization/pose. Every child
+  // uses one normalized field, regardless of source units, UVs or material sharing.
+  bounds ??= new THREE.Box3().setFromObject(model);
+  const center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
+  const scale = 2 / Math.max(size.x, size.y, size.z, 1e-6);
+  const authoredFrame = new THREE.Matrix4().makeScale(scale, scale, scale);
+  authoredFrame.setPosition(center.multiplyScalar(-scale)).multiply(model.matrixWorld);
+  let surface, holographic, quantum, proceduralKind = 'none', holographicSpeed = 0, quantumSpeed = 1;
+  function proceduralUniforms() {
+    return surface ??= { modelSurfaceWorldToLocal: { value: new THREE.Matrix4() } };
+  }
+  function holographicUniforms() {
+    return holographic ??= {
+      ...proceduralUniforms(),
+      modelHoloPhase: { value: 0 }, modelHoloSweepY: { value: -2.5 },
+      modelHoloIntensity: { value: 0 }, modelHoloScale: { value: 1.4 }, modelHoloSweep: { value: 0 }
+    };
+  }
+  function quantumUniforms() {
+    return quantum ??= {
+      ...proceduralUniforms(), modelQuantumTime: { value: 0 }, modelQuantumMorphSpeed: { value: 1 },
+      modelQuantumScale: { value: 2.13 }, modelQuantumDepth: { value: .65 },
+      modelQuantumIntensity: { value: 1 }, modelQuantumRim: { value: 0 },
+      modelQuantumColor1: { value: new THREE.Color() }, modelQuantumColor2: { value: new THREE.Color() }, modelQuantumColor3: { value: new THREE.Color() }
+    };
+  }
   model.traverse(node => {
     if (!node.material) return;
     bindings.push({ node, source: node.material });
@@ -145,13 +182,13 @@ export function createModelMaterials(model, { spatial = false } = {}) {
   // One variant per lighting look; glass and edge glow are variants of the Physical look.
   const surfaceKind = style => style.look !== 'physical' ? style.look : style.glass !== 'none' ? style.glass : style.fresnelIntensity > 0 ? 'edge-glow' : 'physical';
   function variant(source, style, mesh) {
-    const kind = mesh ? surfaceKind(style) : 'physical';
+    const kind = mesh && originalSurface && style.base !== 'custom' && style.look === 'physical' && style.glass === 'none' ? 'original-volume' : mesh ? surfaceKind(style) : 'physical';
     const key = `${style.base}/${kind}${kind === 'refractive' ? `/${style.refractionSamples}` : ''}`;
     let table = variants.get(key);
     if (!table) { table = new Map(); variants.set(key, table); }
     let value = table.get(source);
     if (value) return value;
-    const preserve = style.base !== 'custom', glassy = ['see-through', 'environment', 'refractive'].includes(kind);
+    const preserve = style.base !== 'custom', glassy = ['see-through', 'environment', 'refractive', 'holographic', 'quantum', 'liquid'].includes(kind);
     let material;
     if (!mesh) {
       material = source.clone();
@@ -160,7 +197,8 @@ export function createModelMaterials(model, { spatial = false } = {}) {
         if ('alphaMap' in material) material.alphaMap = null;
         material.vertexColors = false; material.opacity = 1; material.transparent = false; material.alphaTest = 0; material.depthWrite = true;
       }
-    } else if (kind === 'wireframe') material = adapt(source, new THREE.MeshBasicMaterial(), preserve);
+    } else if (kind === 'original-volume') material = originalSurface.createMaterial();
+    else if (kind === 'wireframe') material = adapt(source, new THREE.MeshBasicMaterial(), preserve);
     else if (kind === 'toon') material = adapt(source, new THREE.MeshToonMaterial(), preserve);
     else if (glassy) {
       material = adapt(source, new THREE.MeshPhysicalMaterial(), preserve);
@@ -175,13 +213,15 @@ export function createModelMaterials(model, { spatial = false } = {}) {
       refraction ??= createModelRefraction();
       refraction.attach(material, style.refractionSamples);
     }
-    value = { source, material, refractive: kind === 'refractive', rim: kind === 'edge-glow' ? fresnel(material) : null, glass: kind === 'see-through' || kind === 'environment' ? glass(material, kind) : null };
+    value = { source, material, originalVolume: kind === 'original-volume', refractive: kind === 'refractive', liquid: kind === 'liquid', procedural: kind === 'holographic' || kind === 'quantum', rim: kind === 'edge-glow' ? fresnel(material) : null, glass: ['see-through', 'environment', 'holographic', 'quantum', 'liquid'].includes(kind) ? glass(material, kind, kind === 'holographic' ? holographicUniforms() : kind === 'quantum' ? quantumUniforms() : undefined) : null };
+    bindSurfaceNormals(material, surfaceNormals);
     bindScenePass(material, scenePass, { spatial, authoredOpaque: !['see-through', 'refractive'].includes(kind) && !material.transparent, lateAlpha: ['see-through', 'refractive'].includes(kind) || material.transmission > 0 });
     table.set(source, value); owned.add(material);
     return value;
   }
   function updateMaterial(value, style) {
     const { source, material, rim, glass } = value;
+    if (value.originalVolume) { originalSurface.updateMaterial(material, style); return; }
     if (material.color) {
       if (style.base === 'custom') material.color.set(style.color);
       else { material.color.copy(source.color ?? tint.set('#ffffff')); if (style.base === 'tinted') material.color.multiply(tint.set(style.color)); }
@@ -215,8 +255,13 @@ export function createModelMaterials(model, { spatial = false } = {}) {
       glass.modelGlassBody.value = style.glassOpacity;
       glass.modelGlassDispersion.value = style.dispersion;
     }
-    if (value.refractive) {
-      // This surface is dielectric transmission. Other preset surface details stay inactive.
+    if (value.liquid) {
+      glass.modelLiquidReflectance.value = style.liquidReflectance;
+      glass.modelLiquidIorSpread.value = style.liquidIorSpread;
+      glass.modelLiquidTint.value.set(style.liquidTint);
+    }
+    if (value.refractive || value.procedural || value.liquid) {
+      // Dedicated dielectric shells ignore the generic PBR finish controls.
       material.roughness = style.roughness;
       material.ior = style.ior;
       material.metalness = 0; material.metalnessMap = null;
@@ -227,6 +272,25 @@ export function createModelMaterials(model, { spatial = false } = {}) {
   }
   return {
     update(style) {
+      proceduralKind = style.look === 'physical' && ['holographic', 'quantum'].includes(style.glass) ? style.glass : 'none';
+      if (proceduralKind === 'holographic') {
+        const uniforms = holographicUniforms();
+        uniforms.modelHoloIntensity.value = style.holographicIntensity;
+        uniforms.modelHoloScale.value = style.holographicScale;
+        uniforms.modelHoloSweep.value = style.holographicSweep;
+        holographicSpeed = style.holographicSpeed;
+      } else if (proceduralKind === 'quantum') {
+        const uniforms = quantumUniforms();
+        uniforms.modelQuantumIntensity.value = style.quantumIntensity;
+        uniforms.modelQuantumScale.value = style.quantumScale;
+        uniforms.modelQuantumDepth.value = style.quantumDepth;
+        uniforms.modelQuantumMorphSpeed.value = style.quantumMorphSpeed;
+        uniforms.modelQuantumRim.value = style.quantumRim;
+        uniforms.modelQuantumColor1.value.set(style.quantumColor1);
+        uniforms.modelQuantumColor2.value.set(style.quantumColor2);
+        uniforms.modelQuantumColor3.value.set(style.quantumColor3);
+        quantumSpeed = style.quantumSpeed;
+      }
       const updated = new Set();
       for (const { node, source } of bindings) {
         const assign = source => {
@@ -237,6 +301,17 @@ export function createModelMaterials(model, { spatial = false } = {}) {
         node.material = Array.isArray(source) ? source.map(assign) : assign(source);
       }
       refraction?.update(style);
+    },
+    setTime(elapsed) {
+      if (proceduralKind === 'none' || !surface) return;
+      model.updateWorldMatrix(true, false);
+      surface.modelSurfaceWorldToLocal.value.copy(model.matrixWorld).invert().premultiply(authoredFrame);
+      // Absolute layer time makes backwards seeks and repeated exports identical.
+      if (proceduralKind === 'holographic') {
+        const phase = Math.max(0, elapsed) * holographicSpeed;
+        holographic.modelHoloPhase.value = phase;
+        holographic.modelHoloSweepY.value = (((phase * (0.51 / 0.08)) % 5 + 5) % 5) - 2.5;
+      } else quantum.modelQuantumTime.value = Math.max(0, elapsed) * quantumSpeed;
     },
     setRefraction(source, rect, resolution, scale = 1, planeMatrix = null) { refraction?.input(source, rect, resolution, scale, planeMatrix); },
     setRefractionMask(value) { refraction?.mask(value); },

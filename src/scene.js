@@ -1,4 +1,5 @@
 import { createModelScene } from './model-scene.js';
+import { createDataFlowScene } from './data-flow-scene.js';
 import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, cardFrameSource, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
 import { carouselCard, motionVariant, elasticState, cardMetrics, ringRadius } from './carousel-motion.js';
 import * as THREE from 'three';
@@ -38,6 +39,7 @@ export function stageMarkup(p, path = src => src) {
     }
     if (l.type === 'logo' && l.src) return `<img alt="Studio mark" src="${esc(path(l.src))}" ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
     if (l.type === 'model') return `<canvas id="model-${esc(l.id)}" class="clip" ${timing} ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;aspect-ratio:1" width="${w}" height="${w}"></canvas>`;
+    if (l.type === 'dataflow') return `<canvas id="dataflow-${esc(l.id)}" class="clip" ${timing} ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:${l.size * h / 100}px" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'media') {
       const style = `${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
       return cardMediaKind(l.src) === 'image' ? `<img alt="${esc(l.name)}" src="${esc(path(l.src))}" ${style}` : `<video id="media-${esc(l.id)}" class="clip" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(cardVideoSource(l.src)))}" ${style}</video>`;
@@ -149,6 +151,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   const context = { get lost() { return rendering.lost; }, dispose: unwatchContext };
   const imageNodes = layerNodes.filter(node => node.tagName === 'IMG');
   const models = [];
+  const dataFlows = [];
   const meshes = [];
   const textures = [];
   const handles = [];
@@ -181,7 +184,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   let requestedPlaying = false;
   function placeLayers(time) {
     const frame = p.layout?.enabled ? (carousel ? canvas : root).getBoundingClientRect() : null;
-    for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model', 'background'].includes(l.type))) {
+    for (const l of p.layers.filter(l => ['text', 'logo', 'media', 'model', 'dataflow', 'background'].includes(l.type))) {
       const el = layerNodes.find(node => node.dataset.flocLayer === l.id); if (!el) continue;
       const evaluated = evaluateChoreography(l, time);
       const placed = placementFor(l.id);
@@ -199,6 +202,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       const sizeValue = l.type === 'text' ? `${pos.size * width / 1080}px` : `${pos.size}%`;
       if (el.style[sizeProperty] !== sizeValue) el.style[sizeProperty] = sizeValue;
       if (l.type === 'model') el.style.height = `${pos.size * width / 100}px`;
+      if (l.type === 'dataflow') el.style.height = `${pos.size * height / 100}px`;
       let typography = '';
       if (l.type === 'text') {
         // Animated typography and color; the markup holds the layer's own values.
@@ -328,6 +332,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontFamily(l.font)}"`)));
     await document.fonts.ready;
     for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, { compositionWidth: width, resources, renderMode, deferRefraction: true, rendering, onError: onMediaError }));
+    for (const flow of p.layers.filter(l => l.type === 'dataflow')) dataFlows.push(createDataFlowScene(root.querySelector(`[id="dataflow-${CSS.escape(flow.id)}"]`), flow, { compositionWidth: width, compositionHeight: height, rendering, renderMode }));
     const sources = [...new Set((carousel ? p.images : []).map(img => img.src))];
     const results = await Promise.allSettled(sources.map(cardTexture));
     textures.push(...results.filter(result => result.status === 'fulfilled').map(result => result.value));
@@ -361,6 +366,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     mediaErrors.forEach(remove => remove());
     context.dispose();
     models.forEach(model => model.dispose());
+    dataFlows.forEach(flow => flow.dispose());
     mediaNodes.forEach(m => { pauseMedia(m); m.removeAttribute('src'); m.load(); });
     geometries.forEach(geometry => geometry.dispose()); material.dispose();
     textures.forEach(t => t.dispose());
@@ -373,6 +379,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     if (context.lost && renderMode) throw new Error('The graphics context was lost while rendering.');
     placeLayers(time);
     models.forEach(model => model.draw(time, placementFor(model.id) ?? undefined));
+    dataFlows.forEach(flow => flow.draw(time, placementFor(flow.id) ?? undefined));
     const sampled = { ...evaluateChoreography(layer, time), ...orientation };
     const cards = shapeCards(sampled);
     group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
@@ -484,6 +491,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       applySettings();
     }
     models.forEach(model => model.updateLayer(p.layers.find(l => l.id === model.id)));
+    dataFlows.forEach(flow => flow.updateLayer(p.layers.find(l => l.id === flow.id)));
     placementBounds.clear();
     textStyles.clear();
   }
@@ -495,6 +503,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   return {
     update, seek, drawRefraction,
     models,
+    dataFlows,
     carousel: carousel ? {
       id: carousel.id,
       root: group,
@@ -523,6 +532,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       if (canvas.height !== h) canvas.height = h;
       if (layer.space === 'spatial') material.uniforms.uCanvasPixels.value.set(outputWidth, outputHeight);
       models.forEach(model => model.setCompositionWidth(w));
+      dataFlows.forEach(flow => flow.setResolution(w, h, outputWidth, outputHeight));
     },
     setOrientation(value) { orientation = value; },
     setPlacement(value) { placement = value; },

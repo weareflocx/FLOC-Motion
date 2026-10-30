@@ -7,6 +7,7 @@ import * as modelStyle from '../src/model-style.js';
 import * as modelMetadata from '../src/model-metadata.js';
 import * as motionTiming from '../src/motion-timing.js';
 import * as easing from '../src/easing.js';
+import { MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from '../src/model-shapes.js';
 
 async function compile(file, name) {
   const source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -25,6 +26,7 @@ function inspector(initial = {}, component = 'model') {
   let rightTab = component === 'animation' || component === 'carousel' ? 'animation' : 'composition';
   const context = {
     ...modelStyle, ...modelMetadata, ...motionTiming, ...easing,
+    MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC,
     React: { Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }) },
     useCallback: callback => callback,
     useSyncExternalStore: (subscribe, snapshot) => snapshot(),
@@ -51,6 +53,150 @@ function inspector(initial = {}, component = 'model') {
     change(label, value) { const node = find(label); assert.ok(node, label); assert.equal(node.blocked, false, label); node.props.onChange(node.type === 'select' ? { target: { value: String(value) } } : value); }
   };
 }
+
+test('octahedron controls retain shape and motion while switching volume and ordinary materials', () => {
+  const h = inspector({ src: MAGICAL_OCTAHEDRON_SRC });
+  assert.equal(h.render().find(node => node.type === 'section' && node.props.title === 'Shape').props.defaultOpen, true);
+  assert.equal(h.find('Lighting preset'), undefined);
+  assert.equal(h.find('Edge glow'), undefined);
+  const edits = [
+    ['Octahedron radius', 'octaRadius', 2.8], ['Octahedron height', 'octaHeight', .7],
+    ['Volume steps', 'octaSteps', 96], ['Interior scale', 'octaScale', 83.2],
+    ['Sample path', 'octaPath', .087], ['Interior density', 'octaDensity', 12.3],
+    ['Optical density', 'octaOpacity', .4], ['Orb intensity', 'octaOrb', 34],
+    ['Front edge', 'octaEdge', 4.125], ['Back edge', 'octaBackEdge', 1.3],
+    ['Interior tint', 'octaTint', '#abcd12'], ['Front edge color', 'octaFrontColor', '#123456'],
+    ['Back edge color', 'octaBackColor', '#654321']
+  ];
+  for (const [label, key, value] of edits) {
+    h.change(label, value);
+    assert.equal(h.layer.modelStyle[key], value);
+  }
+  assert.equal(h.find('Volume steps').props.step, 1);
+  h.change('Base surface', 'tinted');
+  assert.ok(h.find('Interior density'));
+  for (const preset of ['chrome', 'holographic-glass']) {
+    h.change('Material preset', preset);
+    assert.ok(h.find('Octahedron radius'));
+    assert.ok(h.find('Lighting preset'));
+    assert.equal(h.find('Interior density'), undefined);
+    assert.equal(h.find('Volume steps'), undefined);
+    for (const [, key, value] of edits) assert.equal(h.layer.modelStyle[key], value);
+  }
+  h.change('Material preset', 'original');
+  h.showTab('animation');
+  for (const [label, key, value] of [['Overall speed', 'octaSpeed', -2], ['Shape rotation', 'octaRotation', 0], ['Interior evolution', 'octaEvolution', -1.5], ['Color speed', 'octaColorSpeed', 0]]) {
+    h.change(label, value);
+    assert.equal(h.layer.modelStyle[key], value);
+  }
+  h.change('Automatic motion', 'spin');
+  h.click('Reset motion');
+  assert.equal(h.layer.modelStyle.octaSpeed, -2);
+  assert.equal(h.layer.modelStyle.octaEvolution, -1.5);
+  h.showTab('composition');
+  for (const [label, , value] of edits) assert.equal(h.find(label).props.value, value);
+  h.setLayer({ src: 'replacement.glb' });
+  assert.equal(h.find('Octahedron radius'), undefined);
+  assert.ok(h.find('Lighting preset'));
+});
+
+test('liquid shape and reusable material controls preserve independent settings', () => {
+  const h = inspector({ src: LIQUID_RIBBONS_SRC, modelStyle: { motion: 'spin', motionSpeed: -2, animationClip: -1 } });
+  const edits = [
+    ['Outer radius', 'liquidRadius', 1.4, 1], ['Inner radius', 'liquidInnerRadius', .8, 1],
+    ['Sheet thickness', 'liquidThickness', .173, 1], ['Fold strength', 'liquidWarp', .7, 100],
+    ['Fold frequency', 'liquidFrequency', 2.3, 1], ['Open width', 'liquidOpen', .8, 1],
+    ['Closed width', 'liquidClosed', .2, 1], ['Mesh resolution', 'liquidDetail', 64, 1]
+  ];
+  for (const [label, key, value, scale] of edits) {
+    assert.equal(h.find(label).props.scale, scale);
+    h.change(label, value);
+    assert.equal(h.layer.modelStyle[key], value);
+  }
+  assert.equal(h.find('Sheet thickness').props.decimals, 3);
+  assert.equal(h.find('Mesh resolution').props.step, 1);
+  assert.equal(h.render().find(node => node.type === 'section' && node.props.title === 'Material').props.defaultOpen, false);
+  h.change('Material preset', 'liquid-chrome');
+  for (const base of ['imported', 'tinted', 'custom']) {
+    h.change('Base surface', base);
+    for (const label of ['Roughness', 'Liquid tint', 'Reflectance', 'Transmission spread', 'Dispersion']) assert.ok(h.find(label), label);
+    for (const label of ['Metalness', 'Emissive color', 'Crystal intensity']) assert.equal(h.find(label), undefined);
+  }
+  h.change('Liquid tint', '#abcdef');
+  h.change('Reflectance', 2.8);
+  const beforeLighting = { ...h.layer.modelStyle };
+  h.click('Use liquid lighting');
+  for (const key of Object.keys(beforeLighting).filter(key => !Object.hasOwn(modelStyle.MODEL_LIGHTING_PRESETS.find(preset => preset.id === 'liquid-studio').settings, key))) assert.deepEqual(h.layer.modelStyle[key], beforeLighting[key], key);
+  h.showTab('animation');
+  for (const [label, key, value] of [['Liquid cycle', 'liquidDuration', 15.25], ['Liquid ease', 'liquidEase', .12], ['Liquid speed', 'liquidSpeed', -2.35]]) {
+    h.change(label, value);
+    assert.equal(h.layer.modelStyle[key], value);
+  }
+  h.click('Reset motion');
+  assert.equal(h.layer.modelStyle.liquidSpeed, -2.35);
+  h.showTab('composition');
+  for (const preset of ['original', 'chrome', 'quantum-crystal', 'liquid-chrome']) {
+    h.change('Material preset', preset);
+    for (const [, key, value] of edits) assert.equal(h.layer.modelStyle[key], value);
+  }
+  h.setLayer({ src: 'replacement.glb' });
+  assert.equal(h.find('Outer radius'), undefined);
+  assert.ok(h.find('Liquid tint'), 'Liquid chrome is available on arbitrary models');
+  h.change('Look', 'toon');
+  assert.equal(h.layer.modelStyle.glass, 'none');
+  assert.equal(h.find('Liquid tint'), undefined);
+});
+
+test('morph shape controls preserve unrelated settings through material, motion and source transitions', () => {
+  const h = inspector({ src: MORPHING_SPHERE_SRC, modelStyle: { motion: 'spin', motionSpeed: -2, animationClip: -1, environment: 'neon', quantumSpeed: .4 } });
+  const edits = [
+    ['Deformation', 'morphAmplitude', .52, 100], ['Warp strength', 'morphWarp', 1.25, 100],
+    ['Warp frequency', 'morphFrequency', 8.12, 1], ['Warp falloff', 'morphFalloff', 1.45, 1],
+    ['Warp detail', 'morphDetail', 14, 1], ['Noise contrast', 'morphContrast', 1.32, 1],
+    ['Shape color 1', 'morphColor1', '#112233'], ['Shape color 2', 'morphColor2', '#445566'],
+    ['Shape color 3', 'morphColor3', '#778899'], ['Shape color 4', 'morphColor4', '#aabbcc']
+  ];
+  for (const [label, key, value, scale] of edits) {
+    const before = modelStyle.normalizeModelStyle(h.layer.modelStyle);
+    if (scale) assert.equal(h.find(label).props.scale, scale);
+    h.change(label, value);
+    for (const [otherKey, otherValue] of Object.entries(before)) if (otherKey !== key) assert.deepEqual(h.layer.modelStyle[otherKey], otherValue, otherKey);
+  }
+  assert.equal(h.find('Warp detail').props.step, 1);
+  assert.equal(h.find('Morph speed'), undefined);
+  h.change('Base surface', 'tinted');
+  for (const [label, , value] of edits) assert.equal(h.find(label).props.value, value);
+  for (const preset of ['chrome', 'holographic-glass', 'quantum-crystal']) {
+    h.change('Material preset', preset);
+    assert.ok(h.find('Deformation'));
+    assert.equal(h.find('Shape color 1'), undefined);
+    for (const [, key, value] of edits) assert.equal(h.layer.modelStyle[key], value);
+  }
+  h.change('Lighting preset', 'sunset');
+  h.change('Material preset', 'original');
+  for (const [label, , value] of edits) assert.equal(h.find(label).props.value, value);
+  h.showTab('animation');
+  assert.equal(h.find('Deformation'), undefined);
+  assert.equal(h.find('Morph speed').props.scale, 1);
+  for (const speed of [0, -2.35]) {
+    h.change('Morph speed', speed);
+    assert.equal(h.layer.modelStyle.motionSpeed, -2);
+    assert.equal(h.layer.modelStyle.animationClip, -1);
+    assert.equal(h.layer.modelStyle.morphSpeed, speed);
+  }
+  h.click('Reset motion');
+  assert.equal(h.layer.modelStyle.morphSpeed, -2.35);
+  for (const [, key, value] of edits) assert.equal(h.layer.modelStyle[key], value);
+  h.setLayer({ src: 'replacement.glb' });
+  assert.equal(h.find('Morph speed'), undefined);
+  h.showTab('composition');
+  for (const [label, key, value] of edits) {
+    assert.equal(h.find(label), undefined);
+    assert.equal(h.layer.modelStyle[key], value);
+  }
+  h.setLayer({ src: MORPHING_SPHERE_SRC });
+  for (const [label, , value] of edits) assert.equal(h.find(label).props.value, value);
+});
 
 test('material base and look transitions hide inapplicable overrides without erasing preserved settings', () => {
   const h = inspector({ modelStyle: { color: '#445566', metalness: .7, motion: 'float', animationClip: -1 } });
@@ -176,6 +322,95 @@ test('refractive controls edit canonical quality and roughness on every base wit
   assert.equal(h.find('Glass body').blocked, false);
 });
 
+test('holographic glass exposes UV-free environment controls without inactive PBR details', () => {
+  const h = inspector({ modelStyle: { motion: 'spin', animationClip: -1, keyIntensity: 4 } });
+  h.change('Material preset', 'holographic-glass');
+  assert.equal(h.find('Material preset').props.value, 'holographic-glass');
+  assert.ok(h.find('Glass').children.flat().some(option => option.props.value === 'holographic'));
+  const labels = ['Holographic intensity', 'Band density', 'Holographic speed', 'Light sweep'];
+  for (const base of ['imported', 'tinted', 'custom']) {
+    h.change('Base surface', base);
+    for (const label of ['Roughness', 'Refractive index ×100', 'Dispersion', ...labels]) assert.equal(h.find(label).blocked, false, `${base}: ${label}`);
+    for (const label of ['Metalness', 'Clearcoat', 'Iridescence', 'Sheen', 'Brushed', 'Emissive color', 'Emissive intensity', 'Thickness', 'Refraction samples', 'Refraction resolution', 'Glass body']) assert.equal(h.find(label), undefined, `${base}: ${label}`);
+  }
+  for (const [label, value] of [['Holographic intensity', .8], ['Band density', 3.2], ['Holographic speed', 0], ['Light sweep', 0]]) h.change(label, value);
+  assert.deepEqual([h.layer.modelStyle.holographicIntensity, h.layer.modelStyle.holographicScale, h.layer.modelStyle.holographicSpeed, h.layer.modelStyle.holographicSweep], [.8, 3.2, 0, 0]);
+  h.change('Lighting preset', 'sunset');
+  assert.equal(h.layer.modelStyle.holographicScale, 3.2);
+  h.change('Material preset', 'chrome');
+  for (const label of labels) assert.equal(h.find(label), undefined);
+  assert.deepEqual([h.layer.modelStyle.holographicIntensity, h.layer.modelStyle.holographicScale, h.layer.modelStyle.holographicSpeed, h.layer.modelStyle.holographicSweep], [.35, 1.4, .08, .6]);
+  assert.deepEqual([h.layer.modelStyle.motion, h.layer.modelStyle.animationClip, h.layer.modelStyle.environment], ['spin', -1, 'sunset']);
+  assert.equal(h.find('Metalness').blocked, false);
+});
+test('reference lighting action preserves customized material, palette and motion', () => {
+  const original = modelStyle.normalizeModelStyle({
+    ...modelStyle.applyModelPreset(undefined, 'holographic-glass'),
+    color: '#aabbcc', roughness: .17, ior: 1.8, dispersion: .4,
+    holographicIntensity: .7, holographicScale: 3.2, holographicSpeed: -.2, holographicSweep: 0,
+    quantumColor1: '#112233', quantumColor2: '#445566', quantumColor3: '#778899',
+    motion: 'rock', motionSpace: 'object', motionAxis: 'z', motionSpeed: -2,
+    animationClip: 2, animationSpeed: .5, zoom: 1.7, perspective: 52,
+    environment: 'neon', environmentIntensity: 3, environmentRotation: 70,
+    toneMapping: 'agx', exposure: 2, ambientIntensity: 3, keyIntensity: 4,
+    fillIntensity: 5, rimIntensity: 6, lightRotation: -40, keyColor: '#ff0000'
+  });
+  const h = inspector({ modelStyle: original, x: .2, offset: 4 });
+  h.click('Use reference lighting');
+  const lighting = modelStyle.MODEL_LIGHTING_PRESETS.find(preset => preset.id === 'holographic-studio').settings;
+  for (const [key, value] of Object.entries(original)) {
+    if (!Object.hasOwn(lighting, key)) assert.deepEqual(h.layer.modelStyle[key], value, key);
+  }
+  assert.equal(h.layer.x, .2);
+  assert.equal(h.layer.offset, 4);
+  assert.equal(h.find('Lighting preset').props.value, 'holographic-studio');
+  assert.equal(h.find('Material preset').props.value, 'custom');
+  assert.deepEqual(
+    ['environment', 'environmentIntensity', 'environmentRotation', 'toneMapping', 'exposure', 'ambientIntensity', 'keyIntensity', 'fillIntensity', 'rimIntensity', 'lightRotation', 'keyColor'].map(key => h.layer.modelStyle[key]),
+    ['holographic', 1, 0, 'aces', 1.2, 0, 1, 0, 0, 0, '#ffffff']
+  );
+  h.change('Material preset', 'chrome');
+  assert.equal(h.button('Use reference lighting'), undefined);
+});
+
+
+test('quantum controls roundtrip crystal edits and follow material visibility transitions', () => {
+  const h = inspector({ modelStyle: { motion: 'spin', animationClip: -1 } });
+  h.change('Material preset', 'quantum-crystal');
+  assert.equal(h.find('Material preset').props.value, 'quantum-crystal');
+  const edits = [
+    ['Crystal intensity', 'quantumIntensity', 1.7], ['Crystal complexity', 'quantumScale', 2.47],
+    ['Crystal depth', 'quantumDepth', 1.3], ['Crystal speed', 'quantumSpeed', 0],
+    ['Crystal morph speed', 'quantumMorphSpeed', 2.35], ['Crystal rim', 'quantumRim', .42],
+    ['Crystal color 1', 'quantumColor1', '#112233'], ['Crystal color 2', 'quantumColor2', '#445566'],
+    ['Crystal color 3', 'quantumColor3', '#aabbcc']
+  ];
+  for (const base of ['imported', 'tinted', 'custom']) {
+    h.change('Base surface', base);
+    for (const label of ['Roughness', 'Refractive index ×100', 'Dispersion', ...edits.map(([label]) => label)]) assert.equal(h.find(label).blocked, false, `${base}: ${label}`);
+    for (const label of ['Metalness', 'Clearcoat', 'Iridescence', 'Sheen', 'Brushed', 'Emissive color', 'Emissive intensity', 'Thickness', 'Refraction samples', 'Glass body', 'Holographic intensity']) assert.equal(h.find(label), undefined, `${base}: ${label}`);
+  }
+  for (const [label, key, value] of edits) {
+    h.change(label, value);
+    assert.equal(h.layer.modelStyle[key], value);
+    assert.equal(h.find(label).props.value, value);
+  }
+  h.change('Lighting preset', 'sunset');
+  for (const [, key, value] of edits) assert.equal(h.layer.modelStyle[key], value);
+  h.change('Glass', 'holographic');
+  for (const [label] of edits) assert.equal(h.find(label), undefined);
+  assert.equal(h.find('Holographic intensity').blocked, false);
+  h.change('Glass', 'quantum');
+  for (const [label, , value] of edits) assert.equal(h.find(label).props.value, value);
+  h.change('Look', 'toon');
+  assert.equal(h.layer.modelStyle.glass, 'none');
+  for (const [label] of edits) assert.equal(h.find(label), undefined);
+  h.change('Material preset', 'chrome');
+  for (const [, key] of edits) assert.equal(h.layer.modelStyle[key], modelStyle.DEFAULT_MODEL_STYLE[key]);
+  assert.equal(h.find('Metalness').blocked, false);
+  assert.deepEqual([h.layer.modelStyle.motion, h.layer.modelStyle.animationClip, h.layer.modelStyle.environment], ['spin', -1, 'sunset']);
+});
+
 test('motion axis space offers Screen and Object, and Legacy only to projects that use it', () => {
   const h = inspector({ modelStyle: { motion: 'spin' } }, 'animation');
   const spaces = () => h.find('Motion axis space').children.flat().map(option => option.props.value);
@@ -241,7 +476,6 @@ test('automatic motion and embedded playback dependencies remain independent', (
 test('environment controls preserve reflection settings while incompatible looks hide them', () => {
   const h = inspector({ modelStyle: { environment: 'none' } });
   assert.equal(h.find('Environment intensity'), undefined);
-  assert.deepEqual(h.find('Reflection environment').children.flat().map(option => option.props.value), ['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
   h.change('Reflection environment', 'sunset');
   h.change('Environment intensity', 1.7);
   h.change('Environment rotation', -35);

@@ -9,6 +9,7 @@ const STRUCTURAL = {
   logo: ['src', 'space'],
   media: ['src', 'space'],
   model: ['src', 'space'],
+  dataflow: ['space'],
   music: ['src'],
   carousel: ['template', 'cardCount', 'space'],
   effect: ['effectScope']

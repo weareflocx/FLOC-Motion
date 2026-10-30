@@ -42,16 +42,18 @@ function IntegerInput({ ariaLabel, value, min, max, scale = 1, decimals = 0, suf
   </span>;
 }
 
-export function Range({ label, ariaLabel = label, value, min, max, step = 1, suffix = '', scale = suffix === 's' ? 1000 : step < 1 ? 100 : 1, onChange }) {
+export function Range({ label, ariaLabel = label, value, min, max, step = 1, suffix = '', scale = suffix === 's' ? 1000 : step < 1 ? 100 : 1, decimals = 0, onChange }) {
   const unit = suffix === 's' ? 'ms' : suffix || (scale === 100 ? '%' : '');
-  const display = `${Math.round(value * scale) || 0}${unit}`;
+  const factor = 10 ** decimals;
+  const rounded = Math.round(value * scale * factor) / factor || 0;
+  const display = `${rounded}${unit}`;
   const progress = max > min ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
   return <div className="field integrated-range" style={{ '--range-progress': progress }}>
     <span className="range-fill" aria-hidden="true"/>
     <span className="range-ticks" aria-hidden="true">{[0, 1, 2, 3, 4].map(i => <i key={i}/>)}</span>
     <span className="range-label">{label}</span>
-    <input aria-label={ariaLabel} aria-valuetext={display} type="range" min={Math.ceil(min * scale)} max={Math.floor(max * scale)} step={1} value={Math.round(value * scale)} onChange={e => onChange(Number(e.target.value) / scale || 0)}/>
-    <IntegerInput ariaLabel={`${ariaLabel} value`} value={value} min={min} max={max} scale={scale} suffix={unit} onChange={onChange}/>
+    <input aria-label={ariaLabel} aria-valuetext={display} type="range" min={Math.ceil(min * scale * factor) / factor} max={Math.floor(max * scale * factor) / factor} step={1 / factor} value={rounded} onChange={e => onChange(Number(e.target.value) / scale || 0)}/>
+    <IntegerInput ariaLabel={`${ariaLabel} value`} value={value} min={min} max={max} scale={scale} decimals={decimals} suffix={unit} onChange={onChange}/>
   </div>;
 }
 

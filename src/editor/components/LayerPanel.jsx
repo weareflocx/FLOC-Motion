@@ -4,7 +4,7 @@ import { LayerList } from './LayerList.jsx';
 import { MediaLibrary } from './MediaLibrary.jsx';
 import { IconButton } from '../controls.jsx';
 
-const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle, effect: DotsNine };
+const layerIcons = { background: ImageSquare, carousel: Images, text: TextT, logo: Sparkle, music: MusicNotes, media: ImageSquare, model: Circle, dataflow: DotsNine, effect: DotsNine };
 
 // Composition output and layout settings live in the inspector while nothing is selected.
 export function LayerPanel({ project, selected, selection, leftTab, uploading, onSelectLayer, onSetLeftTab, onPatch, onOpenAdd, onRemoveLayer, onMoveLayer, onDropLayer, onDuplicateLayer, onPlaceAsset }) {

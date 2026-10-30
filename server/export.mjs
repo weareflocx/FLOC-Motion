@@ -15,6 +15,7 @@ import { extractCardFrames } from './card-frames.mjs';
 import { stageMarkup } from '../src/scene.js';
 import { readJson, writeJsonAtomic } from './json-store.mjs';
 import { isTerminalJobState, RESTART_MESSAGE, CANCELLED_MESSAGE } from '../src/export-jobs.js';
+import { MODEL_SHAPES } from '../src/model-shapes.js';
 export const jobs = new Map();
 const controllers = new Map();
 // Local exports run one at a time; later ones wait in a FIFO queue of up to EXPORT_QUEUE_LIMIT.
@@ -68,6 +69,12 @@ export async function prepareComposition(input, folder, settings = {}, signal, f
   const copied = new Set();
   for (const item of sources) {
     const src = item.src;
+    // Keep built-in identity in the prepared runtime project before relocating its
+    // bytes. Persisted render-input.json remains the original validated project.
+    if (item.type === 'model') {
+      const shape = MODEL_SHAPES.find(shape => shape.src === src);
+      if (shape) item.modelShape = shape.id;
+    }
     let local = src.startsWith('/assets/') ? path.join(runtimeConfig().data, src.slice(1)) : path.join(root, `public${src}`);
     // Normalize GIF cards, including GIFs in projects saved before video support.
     const gifCard = (cards.includes(item) || item.type === 'media') && cardMediaKind(src) === 'gif';

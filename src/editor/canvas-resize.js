@@ -1,7 +1,7 @@
 import { safeArea } from '../layout.js';
 import { layerPosition, stageScene } from './layer-bounds.js';
 
-const limits = { logo: [2, 500], media: [2, 500], model: [2, 500] };
+const limits = { logo: [2, 500], media: [2, 500], model: [2, 500], dataflow: [2, 500] };
 
 // Keep the top-left coordinates used by saved projects and exported scenes.
 export function centeredResize(layer, size, bounds) {

@@ -1,12 +1,60 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
-import { normalizeModelStyle, applyModelPreset, applyLightingPreset, selectedModelPreset, selectedLightingPreset, automaticModelMotion, resetModelMotion } from '../src/model-style.js';
+import { normalizeModelStyle, applyModelPreset, applyLightingPreset, selectedModelPreset, selectedLightingPreset, automaticModelMotion, resetModelMotion, MODEL_MATERIAL_PRESETS, MODEL_LIGHTING_PRESETS, MODEL_STYLE_RANGES } from '../src/model-style.js';
 import { getModelMetadata, registerModelMetadata, subscribeModelMetadata } from '../src/model-metadata.js';
 import { DEFAULT_MOTION, MOTION_CURVES, motionEase } from '../src/motion-timing.js';
 
 const close = (actual, expected) => { for (const key of Object.keys(expected).filter(key => Object.hasOwn(neutral, key))) assert.ok(Math.abs(actual[key] - expected[key]) < 1e-10, `${key}: ${actual[key]} != ${expected[key]}`); };
 const neutral = { rotationX: 0, rotationY: 0, rotationZ: 0, offsetX: 0, offsetY: 0, offsetZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 };
+
+test('liquid shape survives every preset while liquid surface resets independently', () => {
+  const shape = { liquidRadius: 1.8, liquidInnerRadius: 1.2, liquidThickness: .3, liquidWarp: .8, liquidFrequency: 2.2, liquidOpen: 1, liquidClosed: .1, liquidDetail: 72, liquidDuration: 20, liquidEase: .13, liquidSpeed: -3 };
+  const style = normalizeModelStyle({ ...shape, liquidReflectance: 3, liquidIorSpread: .4, liquidTint: '#Ab12Ef', motion: 'rock', environment: 'neon' });
+  assert.deepEqual(normalizeModelStyle(JSON.parse(JSON.stringify(style))), style);
+  for (const preset of MODEL_MATERIAL_PRESETS) {
+    const next = applyModelPreset(style, preset.id);
+    for (const [key, value] of Object.entries(shape)) assert.equal(next[key], value, `${preset.id}: ${key}`);
+    assert.equal(next.liquidReflectance, 2.27);
+    assert.equal(next.liquidIorSpread, .1);
+    assert.equal(next.liquidTint, '#697077');
+    assert.equal(next.environment, 'neon');
+  }
+  for (const preset of MODEL_LIGHTING_PRESETS) {
+    const next = applyLightingPreset(style, preset.id);
+    for (const [key, value] of Object.entries({ ...shape, liquidReflectance: 3, liquidIorSpread: .4, liquidTint: '#Ab12Ef' })) assert.equal(next[key], value);
+  }
+  for (const [key, value] of Object.entries(shape)) assert.equal(resetModelMotion(style)[key], value);
+  const chrome = applyModelPreset(style, 'liquid-chrome');
+  assert.equal(selectedModelPreset(chrome), 'liquid-chrome');
+  assert.deepEqual([chrome.base, chrome.glass, chrome.color, chrome.roughness, chrome.ior, chrome.dispersion], ['custom', 'liquid', '#ffffff', .03, 1.45, .18]);
+  assert.equal(selectedLightingPreset(applyLightingPreset(chrome, 'liquid-studio')), 'liquid-studio');
+  for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES).filter(([key]) => key.startsWith('liquid'))) {
+    for (const value of [min, max]) assert.equal(normalizeModelStyle({ [key]: value })[key], value);
+    for (const value of [min - .01, max + .01, NaN, Infinity, '1', null]) assert.throws(() => normalizeModelStyle({ [key]: value }), undefined, key);
+  }
+  assert.throws(() => normalizeModelStyle({ liquidDetail: 56.5 }));
+  for (const liquidTint of ['#fff', '#12345678', 'red', null]) assert.throws(() => normalizeModelStyle({ liquidTint }));
+  assert.throws(() => normalizeModelStyle({ glass: 'liquid', look: 'toon' }));
+  assert.throws(() => normalizeModelStyle({ glass: 'liquid', fresnelIntensity: .1 }));
+});
+
+test('morph shape defaults validate independently and survive surface, lighting and motion resets', () => {
+  const defaults = { morphAmplitude: .35, morphWarp: .6, morphFrequency: 6, morphFalloff: 1.2, morphDetail: 10, morphContrast: .6, morphSpeed: 1, morphColor1: '#002aff', morphColor2: '#0040ff', morphColor3: '#4400ff', morphColor4: '#330aff' };
+  const shape = { morphAmplitude: .72, morphWarp: 1.3, morphFrequency: 8.2, morphFalloff: 1.5, morphDetail: 16, morphContrast: 1.7, morphSpeed: -3, morphColor1: '#Ab12Ef', morphColor2: '#112233', morphColor3: '#445566', morphColor4: '#778899' };
+  for (const [key, value] of Object.entries(defaults)) assert.equal(normalizeModelStyle()[key], value, key);
+  const style = normalizeModelStyle({ ...shape, motion: 'spin', motionSpeed: -2, animationSpeed: .5 });
+  assert.deepEqual(normalizeModelStyle(JSON.parse(JSON.stringify(style))), style);
+  for (const id of ['original', 'chrome', 'holographic-glass', 'quantum-crystal']) {
+    const applied = applyModelPreset(style, id);
+    assert.equal(selectedModelPreset(applied), id);
+    for (const [key, value] of Object.entries(shape)) assert.equal(applied[key], value, key);
+  }
+  for (const applied of [applyLightingPreset(style, 'sunset'), resetModelMotion(style)]) {
+    for (const [key, value] of Object.entries(shape)) assert.equal(applied[key], value, key);
+  }
+  assert.throws(() => normalizeModelStyle({ morphDetail: 2.5 }));
+});
 
 test('automatic model motion loops, reverses and freezes without accumulating pose', () => {
   for (const motion of ['spin', 'rock', 'float', 'pulse']) {
@@ -103,6 +151,61 @@ test('refractive presets select true refraction and preserve all nonsurface sett
   }
   assert.equal(applyModelPreset(original, 'clear-glass').glass, 'see-through');
   assert.equal(applyModelPreset(original, 'prism').glass, 'environment');
+});
+
+test('holographic settings roundtrip bounded values and reject invalid inputs', () => {
+  const ranges = {
+    holographicIntensity: [0, .35, 1], holographicScale: [.1, 1.4, 6],
+    holographicSpeed: [-1, 0, .08, 1], holographicSweep: [0, .6, 2]
+  };
+  for (const [key, values] of Object.entries(ranges)) {
+    for (const value of values) {
+      const style = normalizeModelStyle({ glass: 'holographic', [key]: value });
+      assert.equal(style[key], value);
+      assert.deepEqual(normalizeModelStyle(JSON.parse(JSON.stringify(style))), style);
+    }
+    for (const value of [values[0] - .01, values.at(-1) + .01, Infinity, NaN, '0', null]) {
+      assert.throws(() => normalizeModelStyle({ [key]: value }), new RegExp(key));
+    }
+  }
+  assert.throws(() => normalizeModelStyle({ look: 'toon', glass: 'holographic' }), /Physical look/);
+  assert.throws(() => normalizeModelStyle({ glass: 'holographic', fresnelIntensity: .2 }), /edge glow/);
+});
+
+test('holographic preset resets its surface while preserving lighting and motion', () => {
+  const original = normalizeModelStyle({ environment: 'neon', exposure: 2, keyIntensity: 4, motion: 'rock', motionSpeed: -2, animationClip: -1, zoom: 1.7 });
+  const style = applyModelPreset(original, 'holographic-glass');
+  assert.equal(selectedModelPreset(style), 'holographic-glass');
+  assert.deepEqual([style.base, style.glass, style.color, style.roughness, style.ior, style.dispersion, style.holographicIntensity], ['custom', 'holographic', '#ffffff', .02, 1.67, .11, .23]);
+  const edited = normalizeModelStyle({ ...style, holographicIntensity: .9, holographicScale: 3, holographicSpeed: 0, holographicSweep: 0 });
+  assert.equal(selectedModelPreset(edited), 'custom');
+  const lit = applyLightingPreset(edited, 'sunset');
+  const keys = ['holographicIntensity', 'holographicScale', 'holographicSpeed', 'holographicSweep'];
+  for (const key of keys) assert.equal(lit[key], edited[key], key);
+  for (const id of ['holographic-glass', 'chrome', 'original', 'refractive-clear', 'prism']) {
+    const reset = applyModelPreset(edited, id);
+    assert.equal(selectedModelPreset(reset), id);
+    assert.deepEqual(keys.map(key => reset[key]), [id === 'holographic-glass' ? .23 : .35, 1.4, .08, .6]);
+    for (const key of ['environment', 'exposure', 'keyIntensity', 'motion', 'motionSpeed', 'animationClip', 'zoom']) assert.equal(reset[key], original[key], key);
+  }
+});
+
+test('quantum preset resets every crystal surface setting without changing lighting or motion', () => {
+  const original = normalizeModelStyle({ environment: 'neon', exposure: 2, keyIntensity: 4, motion: 'rock', motionSpeed: -2, animationClip: -1, zoom: 1.7 });
+  const preset = applyModelPreset(original, 'quantum-crystal');
+  assert.equal(selectedModelPreset(preset), 'quantum-crystal');
+  assert.deepEqual([preset.base, preset.glass, preset.color, preset.roughness, preset.ior, preset.dispersion], ['custom', 'quantum', '#ffffff', .08, 1.5, .22]);
+  const changes = { quantumIntensity: 2, quantumScale: 3, quantumDepth: 0, quantumSpeed: -4, quantumMorphSpeed: 5, quantumRim: 4, quantumColor1: '#aabbcc', quantumColor2: '#112233', quantumColor3: '#445566' };
+  const edited = normalizeModelStyle({ ...preset, ...changes });
+  assert.equal(selectedModelPreset(edited), 'custom');
+  const lit = applyLightingPreset(edited, 'sunset');
+  for (const key of Object.keys(changes)) assert.equal(lit[key], edited[key], key);
+  for (const id of ['quantum-crystal', 'holographic-glass', 'chrome', 'original', 'refractive-clear', 'prism']) {
+    const reset = applyModelPreset(edited, id);
+    assert.equal(selectedModelPreset(reset), id);
+    for (const key of Object.keys(changes)) assert.equal(reset[key], preset[key], key);
+    for (const key of ['environment', 'exposure', 'keyIntensity', 'motion', 'motionSpeed', 'animationClip', 'zoom']) assert.equal(reset[key], original[key], key);
+  }
 });
 
 test('all axes affect exactly their selected transform and reused samples clear stale motion', () => {

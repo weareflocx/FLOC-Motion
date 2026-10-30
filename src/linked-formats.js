@@ -13,6 +13,7 @@ export const FORMAT_LOCAL_FIELDS = Object.freeze({
   logo: ['space', 'z', 'tilt', 'yaw', 'x', 'y', 'roll', 'size', 'choreography'],
   media: ['space', 'z', 'tilt', 'yaw', 'x', 'y', 'roll', 'size', 'choreography'],
   model: ['space', 'z', 'x', 'y', 'size', 'tilt', 'yaw', 'roll', 'choreography'],
+  dataflow: ['space', 'z', 'x', 'y', 'size', 'tilt', 'yaw', 'roll', 'choreography'],
   carousel: ['space', 'z', 'x', 'y', 'size', 'tilt', 'yaw', 'roll', 'gap', 'radius', 'perspective', 'cardAspect', 'choreography'],
   background: ['fit', 'x', 'y', 'roll'],
   music: [],
@@ -30,6 +31,7 @@ const LOCAL_BOUNDS = {
   logo: { z: SCENE_DEPTH_RANGE, tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
   media: { z: SCENE_DEPTH_RANGE, tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180], x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
   model: { z: SCENE_DEPTH_RANGE, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
+  dataflow: { z: SCENE_DEPTH_RANGE, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
   carousel: { z: SCENE_DEPTH_RANGE, x: [10, 90], y: [10, 90], size: [0.5, 2.5], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180], gap: [0, 1], radius: [0, 6], perspective: [15, 75], cardAspect: [0.25, 4] }
 };
 const ALL_FIELDS = new Set(Object.values(FORMAT_LOCAL_FIELDS).flat());
@@ -140,7 +142,7 @@ export function assistedFormatSnapshot(project, format, formats) {
   const layers = project.layers.map(layer => {
     const bounds = LOCAL_BOUNDS[layer.type];
     if (!bounds) return { ...layer };
-    const center = ['carousel', 'model'].includes(layer.type);
+    const center = ['carousel', 'model', 'dataflow'].includes(layer.type);
     if (layer.type === 'background') return { ...layer };
     const position = (value, axis) => {
       const ratio = axis === 'x' ? ratioX : ratioY;

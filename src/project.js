@@ -12,8 +12,9 @@ import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
 import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
 import { PATTERN_SCALE, PROJECT_LIMITS } from './project-limits.js';
-import { normalizeModelStyle } from './model-style.js';
-import { isModelShape } from './model-shapes.js';
+import { normalizeModelStyle, applyModelPreset, applyLightingPreset } from './model-style.js';
+import { isModelShape, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from './model-shapes.js';
+import { normalizeDataFlowStyle } from './data-flow-style.js';
 import { SPATIAL_LAYER_TYPES, LAYER_SPACES, SCENE_DEPTH_RANGE, normalizeScene, assertPlainSceneRecord } from './scene-settings.js';
 export { PROJECT_LIMITS } from './project-limits.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
@@ -48,7 +49,7 @@ export function demoProject() {
 const fail = message => { throw new Error(message); };
 const finite = (v, min, max, label) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max || fail(`${label} must be between ${min} and ${max}.`);
 const str = (v, max, label) => typeof v === 'string' && v.length <= max || fail(`Invalid ${label}.`);
-const FADE_LAYERS = ['text', 'logo', 'carousel', 'media', 'model', 'effect'];
+const FADE_LAYERS = ['text', 'logo', 'carousel', 'media', 'model', 'dataflow', 'effect'];
 function validateChoreography(layer) {
   const fields = choreographyFields(layer), optional = optionalChoreographyFields(layer);
   if (!Array.isArray(layer.choreography) || layer.choreography.length > 32) fail('Use up to 32 choreography states.');
@@ -91,6 +92,7 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   logo: ['src', 'x', 'y', 'size', 'roll'],
   media: ['src', 'x', 'y', 'size', 'roll', 'offset', 'loop'],
   model: ['src', 'x', 'y', 'size', 'yaw', 'tilt', 'roll', 'offset', 'loop', 'modelStyle'],
+  dataflow: ['x', 'y', 'size', 'flowStyle'],
   carousel: ['images', 'template', 'speed', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
     'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'stretch',
     'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing'],
@@ -107,6 +109,8 @@ function closeShape(p) {
   for (const images of [p.images, ...layers.filter(l => l.type === 'carousel').map(l => l.images)]) if (Array.isArray(images)) images.forEach(img => keepKeys(img, IMAGE_KEYS));
   for (const l of layers) {
     if (l.type !== 'model' && Object.hasOwn(l, 'modelStyle')) fail('Only model layers accept model settings.');
+    if (l.type !== 'dataflow' && Object.hasOwn(l, 'flowStyle')) fail('Only Data flow layers accept flow settings.');
+    if (l.type === 'dataflow' && Object.hasOwn(l, 'src')) fail('Data flow layers do not accept a source.');
     if (Object.hasOwn(LAYER_KEYS, l.type)) keepKeys(l, LAYER_KEYS[l.type]);
   }
   return p;
@@ -120,6 +124,10 @@ export function validateProject(input) {
   if (Object.hasOwn(input, 'linkedFormats')) assertLinkedFormatInput(input.linkedFormats);
   for (const layer of Array.isArray(input.layers) ? input.layers : []) {
     assertPlainSceneRecord(layer, 'layer');
+    if (layer.type === 'dataflow') {
+      if (Object.hasOwn(layer, 'src')) fail('Data flow layers do not accept a source.');
+      normalizeDataFlowStyle(layer.flowStyle);
+    } else if (Object.hasOwn(layer, 'flowStyle')) fail('Only Data flow layers accept flow settings.');
     for (const state of Array.isArray(layer.choreography) ? layer.choreography : []) {
       assertPlainSceneRecord(state, 'choreography state');
       assertPlainSceneRecord(state.values, 'choreography values');
@@ -246,6 +254,9 @@ export function validateProject(input) {
       color(l.patternAccent); finite(l.patternAccentAmount, 0, 1, 'Accent amount');
       color(l.color); asset(l.src); if (l.src && !(l.mode === 'video' ? /\.(mp4|webm)$/i : l.mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid background asset type.'); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
     } else if (l.type === 'logo') { asset(l.src); if (l.src && !/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(l.src)) fail('Logo requires an image.'); finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Logo size');
+    } else if (l.type === 'dataflow') {
+      finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Size');
+      l.flowStyle = normalizeDataFlowStyle(l.flowStyle);
     } else if (l.type === 'media' || l.type === 'model') {
       asset(l.src);
       if (!l.src || !(l.type === 'model' ? /\.glb$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid layer asset type.');
@@ -469,7 +480,10 @@ export function fileLayer(asset, duration, id) {
   const common = { id, name: asset.name.slice(0, 100), visible: true, locked: false, start: 0, end: duration, src: asset.src };
   if (/\.(mp3|wav|m4a|ogg)$/i.test(asset.src)) return { ...common, type: 'music', volume: 0.6, offset: 0, fade: 0.5, loop: false };
   const model = /\.glb$/i.test(asset.src);
-  return { ...common, type: model ? 'model' : 'media', space: 'spatial', z: 0, tilt: 0, yaw: 0, roll: 0, x: 25, y: 25, size: 50, offset: 0, loop: true, fadeIn: 0, fadeOut: 0, ...(model ? { modelStyle: normalizeModelStyle() } : {}) };
+  const modelStyle = model ? asset.src === LIQUID_RIBBONS_SRC
+    ? applyLightingPreset(applyModelPreset(undefined, 'liquid-chrome'), 'liquid-studio')
+    : normalizeModelStyle() : undefined;
+  return { ...common, type: model ? 'model' : 'media', space: 'spatial', z: 0, tilt: asset.src === MAGICAL_OCTAHEDRON_SRC ? -10.84 : 0, yaw: 0, roll: 0, x: 25, y: 25, size: 50, offset: 0, loop: true, fadeIn: 0, fadeOut: 0, ...(model ? { modelStyle } : {}), ...(asset.src === LIQUID_RIBBONS_SRC && { x: 12.5, y: 12.5, size: 75 }) };
 }
 
 export const carouselImages = (project, layer) => layer?.images ?? (layer ? project.images : []);

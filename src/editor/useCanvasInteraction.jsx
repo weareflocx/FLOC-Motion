@@ -55,7 +55,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   useEffect(() => {
     const node = root.current?.parentElement ?? root.current;
     function wheel(event) {
-      if (!enabled || multi || event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model'].includes(layer.type)) return;
+      if (!enabled || multi || event.ctrlKey || gesture.current || !layer || layer.locked || !['text', 'logo', 'carousel', 'media', 'model', 'dataflow'].includes(layer.type)) return;
       // Depth is most useful when the layer is partly hidden by nearer pieces, so Alt+wheel
       // targets the selected layer's projected box; plain wheel resizes the visible layer only.
       if (event.altKey) {
@@ -123,14 +123,14 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   }, [project, selected, multi, enabled, cancelWheel, commitWheel, onPatch, onDepthGesture]);
   useEffect(() => {
     for (const l of project.layers) {
-      const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model', 'background'].includes(l.type)) continue;
+      const node = nodeFor(l.id); if (!node || !['text', 'logo', 'carousel', 'media', 'model', 'dataflow', 'background'].includes(l.type)) continue;
       node.classList.toggle('canvas-selected', enabled && selectedIds.includes(l.id) && l.type !== 'carousel');
       const visible = l.visible && time >= l.start && time < l.end;
       node.tabIndex = visible && enabled ? 0 : -1; node.setAttribute('role', 'button');
       node.setAttribute('aria-disabled', String(!enabled));
       node.setAttribute('aria-hidden', String(!visible));
       const depth = l.type === 'background' ? '' : '; Alt+wheel or Page Up/Down changes depth';
-      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : ['carousel', 'model'].includes(l.type) ? `: drag to move; Shift-drag to orient X/Y; Shift+Alt-drag to rotate Z${depth}; Escape cancels` : `: drag to move; Shift+Alt-drag or drag rotation handle to rotate Z${depth}; Escape cancels`}`);
+      node.setAttribute('aria-label', `Edit ${l.name}${l.locked ? ' (locked)' : ['carousel', 'model', 'dataflow'].includes(l.type) ? `: drag to move; Shift-drag to orient X/Y; Shift+Alt-drag to rotate Z${depth}; Escape cancels` : `: drag to move; Shift+Alt-drag or drag rotation handle to rotate Z${depth}; Escape cancels`}`);
       node.style.pointerEvents = 'none';
       node.draggable = false;
     }
@@ -162,11 +162,11 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const box = root.current.getBoundingClientRect();
     const shown = projectedRect(root.current, l.id, engine.current);
     if (!shown) return;
-    const spatial = ['carousel', 'model'].includes(l.type);
+    const spatial = ['carousel', 'model', 'dataflow'].includes(l.type);
     const rollDrag = !resize && !event.metaKey && !event.ctrlKey && event.shiftKey && event.altKey;
-    const orient = !!ring || !resize && !event.metaKey && !event.ctrlKey && (spatial && event.shiftKey && ['carousel', 'model'].includes(l.type) || rollDrag);
+    const orient = !!ring || !resize && !event.metaKey && !event.ctrlKey && (spatial && event.shiftKey || rollDrag);
     const center = { x: (shown.left + shown.right) / 2, y: (shown.top + shown.bottom) / 2 };
-    const measured = ['logo', 'media', 'model'].includes(l.type) && layerResizeBounds(l, root.current);
+    const measured = ['logo', 'media', 'model', 'dataflow'].includes(l.type) && layerResizeBounds(l, root.current);
     const dx = event.clientX - center.x, dy = event.clientY - center.y;
     const halfWidth = shown.width / 2, halfHeight = shown.height / 2;
     const tolerance = Math.min(12, halfWidth / 2, halfHeight / 2);
@@ -230,7 +230,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       const angle = Math.atan2(event.clientY - g.center.y, event.clientX - g.center.x);
       g.delta += wrapDegrees((angle - g.angle) * 180 / Math.PI); g.angle = angle;
       const rollDelta = g.ring ? g.delta : g.rollDrag ? dx / g.box.width * 180 : null;
-      g.latest = g.layer.type === 'model' ? dragModelOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : { roll: wrapDegrees(g.initial.roll + rollDelta) };
+      g.latest = ['model', 'dataflow'].includes(g.layer.type) ? dragModelOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : g.spatial ? dragOrientation(g.initial, dx / g.box.width, dy / g.box.height, rollDelta) : { roll: wrapDegrees(g.initial.roll + rollDelta) };
     } else if (g.layer.type === 'background') {
       g.latest = { x: Math.max(-100, Math.min(100, g.initial.x + dx / g.box.width * 100)), y: Math.max(-100, Math.min(100, g.initial.y + dy / g.box.height * 100)) };
     } else {
@@ -303,7 +303,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
       if (bounds) onPatch(l.id, centeredResize(l, size, bounds));
     } else if (l.type !== 'carousel' && l.type !== 'music' && (event.altKey || event.target.closest('[data-canvas-ring]'))) {
       const delta = (dx || dy) * (event.shiftKey ? 5 : 1);
-      onPatch(l.id, l.type === 'model' ? dragModelOrientation({ tilt: l.tilt, yaw: l.yaw, roll: l.roll }, 0, 0, delta) : { roll: wrapDegrees((l.roll ?? 0) + delta) });
+      onPatch(l.id, ['model', 'dataflow'].includes(l.type) ? dragModelOrientation({ tilt: l.tilt, yaw: l.yaw, roll: l.roll }, 0, 0, delta) : { roll: wrapDegrees((l.roll ?? 0) + delta) });
     } else if (l.type === 'background') {
       const [w, h] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
       onPatch(l.id, { x: Math.max(-100, Math.min(100, l.x + dx * step / w * 100)), y: Math.max(-100, Math.min(100, l.y + dy * step / h * 100)) });
@@ -313,7 +313,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     } else if (l.type === 'carousel') {
       const [w, h] = FORMATS[project.format];
       onPatch(l.id, carouselPlacement(l.x + dx * nudgeAmount(nudge, event.shiftKey) / w * 100, l.y + dy * nudgeAmount(nudge, event.shiftKey) / h * 100));
-    } else if (['logo', 'media', 'model'].includes(l.type)) {
+    } else if (['logo', 'media', 'model', 'dataflow'].includes(l.type)) {
       const [w, h] = FORMATS[project.format], step = nudgeAmount(nudge, event.shiftKey);
       onPatch(l.id, canvasMediaPlacement(l.x + dx * step / w * 100, l.y + dy * step / h * 100));
     } else if (l.type === 'text') {
@@ -342,8 +342,8 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   const fitsWidth = box && frame && Math.abs(box.left - frame.left) < .5 && Math.abs(box.right - frame.right) < .5;
   const fitsHeight = box && frame && Math.abs(box.top - frame.top) < .5 && Math.abs(box.bottom - frame.bottom) < .5;
   const fitLabel = fitsWidth && fitsHeight ? 'Fits width & height' : fitsWidth ? 'Fits width' : fitsHeight ? 'Fits height' : null;
-  const selection = editable && center && ['text', 'logo', 'media', 'model'].includes(editable.type) ? <div className="canvas-transform-box" data-canvas-move="true" style={{ left: `${center.x}%`, top: `${center.y}%`, width: `${boxWidth}px`, height: `${boxHeight}px`, transform: 'translate(-50%,-50%)', '--handle-size': `${10 / scale}px`, '--handle-offset': `${24 / scale}px`, '--selection-line': `${1 / scale}px`, '--fit-font-size': `${11 / scale}px`, '--fit-padding': `${4 / scale}px` }}>
-    {['logo', 'media', 'model'].includes(editable.type) && ['nw', 'ne', 'sw', 'se'].map(corner => <button key={corner} type="button" className={`canvas-resize-handle ${corner}`} data-canvas-resize={corner} title="Resize from center · ⌘/Ctrl-drag an object corner · Shift bypasses snapping · Escape cancels" aria-label={`Resize ${editable.name} from ${corner}: drag from center or use arrow keys; Command/Control-drag an object corner; Shift bypasses snapping; Escape cancels`}/>)}
+  const selection = editable && center && ['text', 'logo', 'media', 'model', 'dataflow'].includes(editable.type) ? <div className="canvas-transform-box" data-canvas-move="true" style={{ left: `${center.x}%`, top: `${center.y}%`, width: `${boxWidth}px`, height: `${boxHeight}px`, transform: 'translate(-50%,-50%)', '--handle-size': `${10 / scale}px`, '--handle-offset': `${24 / scale}px`, '--selection-line': `${1 / scale}px`, '--fit-font-size': `${11 / scale}px`, '--fit-padding': `${4 / scale}px` }}>
+    {['logo', 'media', 'model', 'dataflow'].includes(editable.type) && ['nw', 'ne', 'sw', 'se'].map(corner => <button key={corner} type="button" className={`canvas-resize-handle ${corner}`} data-canvas-resize={corner} title="Resize from center · ⌘/Ctrl-drag an object corner · Shift bypasses snapping · Escape cancels" aria-label={`Resize ${editable.name} from ${corner}: drag from center or use arrow keys; Command/Control-drag an object corner; Shift bypasses snapping; Escape cancels`}/>)}
     <button type="button" className="canvas-rotate-handle" data-canvas-ring="true" aria-label={`Rotate ${editable.name}: drag or use arrow keys; Escape cancels`}/>
     {fitLabel && <span className="canvas-fit-label" role="status">{fitLabel}</span>}
   </div> : null;

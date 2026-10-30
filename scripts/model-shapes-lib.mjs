@@ -5,6 +5,7 @@ import { ParametricGeometry } from 'three/addons/geometries/ParametricGeometry.j
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MODEL_SHAPES } from '../src/model-shapes.js';
 import { blankProject, fileLayer, validateProject } from '../src/project.js';
+import { createLiquidGeometry } from '../src/model-liquid.js';
 
 // Shapes are generated deterministically, so the generator reproduces every published
 // file; never change a published shape in place (see src/model-shapes.js).
@@ -134,7 +135,16 @@ const GENERATORS = {
   'infinity-ribbon': () => sweep(lemniscate, bandProfile(0.42, 0.06, 0.025, 8), { segments: 480, symmetry: 2, turns: 3 }),
   'soft-star': () => surface(softStar, 240, 96),
   'fluted-torus': () => surface(flutedTorus, 288, 96),
-  'pleated-orb': () => surface(pleatedOrb, 288, 96)
+  'pleated-orb': () => surface(pleatedOrb, 288, 96),
+  // Immutable unit sphere; each scene owns its animated vertex/normal/color copy.
+  'morphing-sphere': () => {
+    const geometry = new THREE.SphereGeometry(1, 128, 96);
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(geometry.attributes.position.count * 3).fill(1), 3));
+    return geometry;
+  },
+  'liquid-ribbons': () => createLiquidGeometry(),
+  // Immutable reference-sized, sharp eight-face hull; the scene owns shape edits.
+  'magical-octahedron': () => new THREE.OctahedronGeometry(2.06, 0).scale(1, 1.16, 1)
 };
 
 // GLTFExporter reads its Blob through the browser FileReader contract.
@@ -143,7 +153,9 @@ globalThis.FileReader ??= class { readAsArrayBuffer(blob) { blob.arrayBuffer().t
 // The published GLB bytes of a shape.
 export async function generateShape(id) {
   if (!GENERATORS[id]) throw new Error(`No generator for ${id}.`);
-  const geometry = GENERATORS[id](), material = new THREE.MeshStandardMaterial({ metalness: 0, roughness: 1 });
+  const geometry = GENERATORS[id](), material = id === 'liquid-ribbons'
+    ? new THREE.MeshPhysicalMaterial({ color: '#ffffff', metalness: 1, roughness: .03 })
+    : new THREE.MeshStandardMaterial({ metalness: 0, roughness: id === 'morphing-sphere' ? .35 : 1, vertexColors: id === 'morphing-sphere' });
   try { return Buffer.from(await new GLTFExporter().parseAsync(new THREE.Mesh(geometry, material), { binary: true })); }
   finally { geometry.dispose(); material.dispose(); }
 }

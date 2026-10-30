@@ -21,9 +21,13 @@ function resize(value, width, height) {
 export function createSceneWorld(root, sourceRoot, project, { rendering, capture, cameras, engines, renderMode = false }) {
   const [nativeWidth, nativeHeight] = FORMATS[project.format];
   const models = new Map(engines.flatMap(engine => engine.scene.models).map(model => [model.id, model]));
+  const dataFlows = new Map(engines.flatMap(engine => engine.scene.dataFlows).map(flow => [flow.id, flow]));
   const carousels = new Map(engines.map(engine => engine.scene.carousel).filter(Boolean).map(carousel => [carousel.id, carousel]));
   const leaves = new Map(), groups = new Map();
   const output = canvas(); output.dataset.flocSceneOutput = ''; output.setAttribute('aria-hidden', 'true');
+  // Export reads every frame. Fix the backing store before its first draw so
+  // readback never changes Chromium's premultiplied-alpha rounding mid-seek.
+  output.getContext('2d', { willReadFrequently: renderMode });
   output.style.cssText = `position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:${project.layers.length}`;
   root.append(output);
   const point = new THREE.Vector3(), direction = new THREE.Vector3(), boxPoint = new THREE.Vector3();
@@ -35,7 +39,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
   function fullBounds() { return { x: 0, y: 0, width: nativeWidth, height: nativeHeight }; }
   function sourceSurface(value) { return { canvas: value, ...fullBounds() }; }
   function makeLeaf(layer, index) {
-    const node = { id: layer.id, index, layer, value: layer, alpha: 0, element: element(layer.id), model: models.get(layer.id), carousel: carousels.get(layer.id), surface: createSceneSurface(rendering),
+    const node = { id: layer.id, index, layer, value: layer, alpha: 0, element: element(layer.id), model: models.get(layer.id), flow: dataFlows.get(layer.id), carousel: carousels.get(layer.id), surface: createSceneSurface(rendering),
       colorCanvas: canvas(), maskCanvas: canvas(), cropCanvas: canvas(), maskCropCanvas: canvas(), sortPoint: new THREE.Vector3(), projected: false, refFrame: 0, fxBounds: null, raster: false };
     leaves.set(layer.id, node); return node;
   }
@@ -99,6 +103,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     const id = node.index + 1, camera = cameras.output;
     if (node.raster) node.surface.render(camera, pass, node.rasterOpacity ?? 1, id, { background: node.background, ...options });
     else if (node.model) node.model.renderSpatial(camera, pass, node.alpha, id, options);
+    else if (node.flow) node.flow.renderSpatial(camera, pass, node.alpha, id, options);
     else if (node.carousel) node.carousel.render(camera, pass, node.alpha, id, options);
   }
   function renderData(nodes, pass) {
@@ -142,7 +147,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     rendering.copyTo(node.colorCanvas);
     capture.setResolution(width, height);
     const color = capture.captureLayer(node.id, { source: crop(node.colorCanvas, node.cropCanvas, bounds), bounds, opacity: false });
-    const center = node.model ? node.model.spatialRoot.position : node.carousel.root.position;
+    const center = (node.model ?? node.flow)?.spatialRoot.position ?? node.carousel.root.position;
     const fallbackDepth = point.copy(center).project(cameras.output).z * .5 + .5;
     uploadLeaf(node, color, { projected: true, depth: depth.texture, fallbackDepth });
     node.projected = true; node.rasterOpacity = 1;
@@ -233,16 +238,17 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
         node.alpha = layerAlpha(node.layer, at); node.background = node.layer.type === 'background' && node.index === 0;
         node.refractive = node.layer.type === 'model' && node.layer.modelStyle?.glass === 'refractive';
         node.hasEffects = node.layer.effects?.some(effect => effect.enabled) ?? false;
-        node.projected = false; node.raster = !(node.layer.space === 'spatial' && (node.model || node.carousel));
-        if (node.model && node.layer.space === 'spatial') {
-          node.model.prepareSpatial(current.format, cameras.output);
-          node.fxBounds = projectedSphere(node.model);
+        node.projected = false; node.raster = !(node.layer.space === 'spatial' && (node.model || node.flow || node.carousel));
+        const native = node.model ?? node.flow;
+        if (native && node.layer.space === 'spatial') {
+          native.prepareSpatial(current.format, cameras.output);
+          node.fxBounds = projectedSphere(native);
           if (node.element) {
             node.element.dataset.flocFilterWidth = String(node.fxBounds.width); node.element.dataset.flocFilterHeight = String(node.fxBounds.height);
             node.element.dataset.flocFilterFullFrame = String(node.fxBounds.width === nativeWidth && node.fxBounds.height === nativeHeight);
           }
         }
-        if (node.model && node.layer.space === 'spatial') node.sortPoint.copy(node.model.spatialRoot.position);
+        if (native && node.layer.space === 'spatial') node.sortPoint.copy(native.spatialRoot.position);
         else if (node.carousel && node.layer.space === 'spatial') node.sortPoint.copy(node.carousel.root.position);
         else if (node.element) {
           // Deferred lenses have no uploaded quad on their first frame. Sort
@@ -282,13 +288,15 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
       const node = leaves.get(id); if (!node || node.alpha <= 0 || node.layer.type === 'effect') return null;
       if (node.background) return { x: 0, y: 0, width: 100, height: 100 };
       if (node.model && node.layer.space === 'spatial') return node.model.projectedBounds(cameras.output);
+      if (node.flow && node.layer.space === 'spatial') return node.flow.projectedBounds(cameras.output);
       if (node.model) return node.surface.elementBounds(cameras.output, node.element, modelCanvasGeometry(node.element)?.bounds());
+      if (node.flow) return node.surface.elementBounds(cameras.output, node.element, node.flow.sourceBounds());
       if (node.carousel && node.layer.space === 'spatial') return node.carousel.bounds(cameras.output);
       return node.surface.bounds(cameras.output);
     },
     projectPointer(u, v, id) {
       const node = id ? leaves.get(id) : null, depth = node?.value.z ?? 0;
-      const orderedDepth = depth + (node && !(node.layer.space === 'spatial' && (node.model || node.carousel)) ? node.index * ORDER_DEPTH_PERCENT : 0);
+      const orderedDepth = depth + (node && !(node.layer.space === 'spatial' && (node.model || node.flow || node.carousel)) ? node.index * ORDER_DEPTH_PERCENT : 0);
       const result = cameras.pointerOnPlane(u, v, orderedDepth);
       return result ? { ...result, z: depth } : null;
     },
@@ -301,8 +309,9 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
         if (node.alpha <= 0 || !SPATIAL_LAYER_TYPES.includes(node.layer.type)) continue;
         const pieces = [], spatial = node.layer.space === 'spatial';
         if (spatial && node.carousel) node.carousel.depthPieces(pieces);
-        else if (spatial && node.model) {
-          const z = toDepth(node.model.spatialRoot.position.z), radius = toDepth(node.model.spatialRadius);
+        else if (spatial && (node.model || node.flow)) {
+          const native = node.model ?? node.flow;
+          const z = toDepth(native.spatialRoot.position.z), radius = toDepth(native.spatialRadius);
           pieces.push({ min: z - radius, max: z + radius });
         } else pieces.push({ min: node.value.z ?? 0, max: node.value.z ?? 0 });
         if (!pieces.length) continue;

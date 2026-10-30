@@ -15,6 +15,7 @@ import { captureState, evaluateChoreography } from '../src/choreography.js';
 import { alignDeltas, distributeDeltas, groupPositions } from '../src/editor/arrange.js';
 import { rangeSelection, selectAllIds, toggleSelection, transformableLayers } from '../src/editor/selection.js';
 import * as kinds from '../src/editor/layer-kinds.js';
+import { dataFlowLayer } from '../src/data-flow-style.js';
 
 const strip = code => code.replace(/^import .*;\n/gm, '').replace(/export function /g, 'function ');
 const read = file => fs.readFileSync(new URL(`../src/editor/${file}`, import.meta.url), 'utf8');
@@ -74,6 +75,24 @@ test('alignment and distribution move measured boxes, and group offsets respect 
   assert.throws(() => alignDeltas(rects, 'diagonal'), /Unknown alignment/);
   const members = [{ id: 't', type: 'text', start: { x: 90, y: 50 } }, { id: 'c', type: 'carousel', start: { x: 50, y: 50 } }, { id: 'm', type: 'media', start: { x: 400, y: 0 } }];
   assert.deepEqual(groupPositions(members, 20, -60).map(({ x, y }) => [x, y]), [[95, 10], [55, 10], [405, -40]]);
+});
+
+test('data flows participate in selection, projected bounds and arrangement with their own off-canvas limits', () => {
+  const flow = { ...dataFlowLayer(12, 'flow'), x: 990, y: -990 };
+  const project = { layers: [flow] };
+  assert.deepEqual(selectAllIds(project, 1), ['flow']);
+  assert.deepEqual(transformableLayers(project, ['flow'], 1).map(layer => layer.id), ['flow']);
+  assert.deepEqual(arrangeOps.placeLayer('dataflow', flow, 20, -20), { x: 1000, y: -1000 });
+  const members = [{ id: 'flow', type: 'dataflow', start: flow }, { id: 'model', type: 'model', start: { x: 0, y: 0 } }];
+  assert.deepEqual(groupPositions(members, 20, -20), [{ id: 'flow', x: 1000, y: -1000 }, { id: 'model', x: 10, y: -10 }]);
+  const scene = { projectedBounds: id => id === 'flow' ? { x: 12, y: -30, width: 45, height: 70 } : null };
+  assert.deepEqual(boundsOps.measureLayerBounds(null, [flow], scene), [{ id: 'flow', x: 12, y: -30, width: 45, height: 70 }]);
+  assert.deepEqual(boundsOps.measureLayerBounds(null, [flow], { projectedBounds: () => null }), []);
+  for (const fields of [{ locked: true }, { visible: false }, { start: 2 }, { end: 1 }]) {
+    const unavailable = { layers: [{ ...flow, ...fields }] };
+    assert.deepEqual(selectAllIds(unavailable, 1), []);
+    assert.deepEqual(transformableLayers(unavailable, ['flow'], 1), []);
+  }
 });
 
 function workspace({ layout } = {}) {

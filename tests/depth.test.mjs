@@ -72,7 +72,7 @@ test('only one visible, unlocked, depth-capable layer inside its time range is e
   assert.equal(depthEditable({ ...layer, visible: false }, 1), false);
   assert.equal(depthEditable(layer, 5), false);
   for (const type of ['background', 'music', 'effect']) assert.equal(depthEditable({ ...layer, type }, 1), false);
-  for (const type of ['logo', 'media', 'model', 'carousel']) assert.equal(depthEditable({ ...layer, type }, 1), true);
+  for (const type of ['logo', 'media', 'model', 'dataflow', 'carousel']) assert.equal(depthEditable({ ...layer, type }, 1), true);
 });
 
 test('the ruler scale fits every piece and the layer with a margin; equal reports compare equal', () => {

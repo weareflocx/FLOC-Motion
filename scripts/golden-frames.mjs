@@ -122,6 +122,7 @@ function serve(routes, exportRoot, assetDirectory) {
   const server = http.createServer(async (req, res) => {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+      if (pathname === '/favicon.ico') { res.writeHead(302, { Location: '/brand/floc-symbol-white.svg' }); return res.end(); }
       if (routes.has(pathname)) { const [type, body] = routes.get(pathname); res.writeHead(200, { 'Content-Type': type }); return res.end(body); }
       const [prefix, folder] = pathname.startsWith('/export/') ? ['/export/', exportRoot] : pathname.startsWith('/assets/') ? ['/assets/', assetDirectory] : ['/', path.join(root, 'public')];
       const file = path.join(folder, path.normalize(pathname.slice(prefix.length)));
@@ -171,7 +172,7 @@ async function imageTools(page) {
 // SwiftShader serializes WebGL inside one browser's GPU process, so
 // parallelism comes from separate browsers.
 const defaultLanes = Math.max(1, Math.min(4, Math.floor(os.availableParallelism() / 2)));
-export async function openGoldenSession({ lanes = defaultLanes, assetDirectory = FIXTURE_ASSET_DIR } = {}) {
+export async function openGoldenSession({ lanes = defaultLanes, assetDirectory = FIXTURE_ASSET_DIR, captureWidth = CAPTURE_WIDTH } = {}) {
   const { default: puppeteer } = await import('puppeteer-core');
   const work = await mkdtemp(path.join(os.tmpdir(), 'floc-golden-'));
   // Exports read workspace assets from the data folder; this session's is temporary.
@@ -213,6 +214,7 @@ export async function openGoldenSession({ lanes = defaultLanes, assetDirectory =
   async function render({ browser, tools }, url, selector, fixture, start, seek) {
     const page = await browser.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url || url})`); });
     page.on('requestfailed', request => errors.push(`Request failed: ${request.url()}`));
     try {
       const [width, height] = FORMATS[fixture.project.format];
@@ -225,7 +227,7 @@ export async function openGoldenSession({ lanes = defaultLanes, assetDirectory =
         // Let the compositor present the drawn frame before capturing it.
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const full = await (await page.$(selector)).screenshot({ encoding: 'base64', omitBackground: fixture.settings?.transparent === true });
-        frames.push(Buffer.from(await tools.evaluate((value, width) => window.shrink(value, width), full, CAPTURE_WIDTH), 'base64'));
+        frames.push(Buffer.from(await tools.evaluate((value, width) => window.shrink(value, width), full, captureWidth), 'base64'));
       }
       if (errors.length) throw new Error(errors.join('\n'));
       return frames;

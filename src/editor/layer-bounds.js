@@ -1,5 +1,5 @@
 const scenes = new WeakMap();
-const MEASURED_TYPES = ['text', 'logo', 'media', 'model', 'carousel'];
+const MEASURED_TYPES = ['text', 'logo', 'media', 'model', 'dataflow', 'carousel'];
 
 // The stage owns scene lifetime; arrangement and inspector resize share its geometry authority.
 export function registerStageScene(root, scene) {

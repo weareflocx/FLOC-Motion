@@ -7,6 +7,8 @@ import * as projectApi from '../src/project.js';
 import * as sceneSettings from '../src/scene-settings.js';
 import * as modelStyle from '../src/model-style.js';
 import * as modelMetadata from '../src/model-metadata.js';
+import * as dataFlowStyle from '../src/data-flow-style.js';
+import { MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from '../src/model-shapes.js';
 import { MOTION_VARIANTS } from '../src/carousel-motion.js';
 import { DEFAULT_LAYOUT } from '../src/layout.js';
 
@@ -16,6 +18,7 @@ const files = [
   '../src/editor/components/SpatialControls.jsx',
   '../src/editor/components/ProjectControls.jsx',
   '../src/editor/components/ModelControls.jsx',
+  '../src/editor/components/DataFlowControls.jsx',
   '../src/editor/components/InspectorPanel.jsx'
 ];
 const compiled = (await Promise.all(files.map(async file => {
@@ -28,15 +31,16 @@ function fixture() {
   const project = projectApi.demoProject();
   project.layers.push(projectApi.fileLayer({ name: 'Photo', src: '/demo/poster-1.svg' }, project.duration, 'photo'));
   project.layers.push(projectApi.fileLayer({ name: 'Model', src: '/assets/12345678-1234-1234-1234-123456789012.glb' }, project.duration, 'model'));
+  project.layers.push(dataFlowStyle.dataFlowLayer(project.duration, 'dataflow'));
   return projectApi.validateProject(project);
 }
 
-function inspector(initial, selected = null) {
+function inspector(initial, selected = null, rightTab = 'composition') {
   let project = initial;
   const projectRef = { current: project };
   const changes = [];
   const context = {
-    ...projectApi, ...sceneSettings, ...modelStyle, ...modelMetadata, MOTION_VARIANTS, DEFAULT_LAYOUT,
+    ...projectApi, ...sceneSettings, ...modelStyle, ...modelMetadata, ...dataFlowStyle, MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC, MOTION_VARIANTS, DEFAULT_LAYOUT,
     // Preserve the real validation boundary across the harness's VM realm.
     patchScene: (value, patch) => projectApi.patchScene(value, plain(patch)),
     React: { Fragment: 'fragment', createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }) },
@@ -58,7 +62,7 @@ function inspector(initial, selected = null) {
   }
   const onChangeProject = next => { changes.push(next); project = next; projectRef.current = next; return next; };
   const render = () => nodes(context.inspector({
-    project, projectRef, layer: selected ? project.layers.find(layer => layer.id === selected) : null, rightTab: 'composition',
+    project, projectRef, layer: selected ? project.layers.find(layer => layer.id === selected) : null, rightTab,
     settings: { project, onChangeProject, onChangeDuration() {}, onChangeFps() {} },
     onPatch(id, patch) { return onChangeProject(projectApi.patchLayer(project, id, plain(patch))); },
     cards: { onMove() {}, onRemove() {}, onAddAsset() {} }, onPick() {}, onRemoveText() {}, onSetRightTab() {}
@@ -193,4 +197,49 @@ test('spatial controls inherit layer locks and fixed backgrounds and audio have 
     assert.equal(h.input('Presentation'), undefined);
     assert.equal(h.input('Depth'), undefined);
   }
+});
+
+test('Data flow design edits use direct units and preserve simulation through presentation changes', () => {
+  const h = inspector(fixture(), 'dataflow');
+  const background = plain(h.project.layers.find(layer => layer.type === 'background'));
+  for (const [label, key, value] of [['Fiber count', 'fiberCount', 93], ['Detail samples', 'samples', 128], ['Pinch sharpness', 'pinchSharpness', 2.75], ['Line width', 'lineWidth', 1.25], ['Pulse size', 'particleSize', 3.5], ['Glow radius', 'glowRadius', .33], ['Distance fog', 'fog', .0037]]) {
+    h.change(label, value);
+    assert.equal(h.layer.flowStyle[key], value);
+  }
+  h.change('Seed', 31);
+  h.change('Line color', '#123abc');
+  h.change('Pinch width', 18);
+  h.change('Bundle spread', 10);
+  assert.equal(h.layer.flowStyle.pinchWidth, 10);
+  const settings = plain(h.layer.flowStyle);
+  assert.ok(h.input('Perspective'));
+  h.change('Presentation', 'spatial');
+  assert.equal(h.input('Perspective'), undefined);
+  h.change('Position X', -125.5);
+  h.change('Size', 140);
+  h.change('Presentation', 'flat');
+  assert.deepEqual(plain(h.layer.flowStyle), settings);
+  assert.deepEqual(plain(h.project.layers.find(layer => layer.type === 'background')), background);
+});
+
+test('Data flow motion controls author independent signed speeds', () => {
+  const h = inspector(fixture(), 'dataflow', 'animation');
+  const design = plain(h.layer.flowStyle);
+  for (const [label, key, value] of [['Overall speed', 'speed', -1.25], ['Structure flow', 'flowSpeed', -73], ['Pulse flow', 'particleSpeed', 140], ['View travel', 'travelSpeed', 0]]) {
+    h.change(label, value);
+    assert.equal(h.layer.flowStyle[key], value);
+    design[key] = value;
+  }
+  assert.deepEqual(plain(h.layer.flowStyle), design);
+});
+
+test('Data flow retains full orientation in Flat and Spatial', () => {
+  const h = inspector(fixture(), 'dataflow');
+  for (const [label, value] of [['Orientation X (°)', 80], ['Orientation Y (°)', -95], ['Orientation Z (°)', 42]]) h.change(label, value);
+  assert.deepEqual([h.layer.tilt, h.layer.yaw, h.layer.roll], [80, -95, 42]);
+  h.change('Presentation', 'spatial');
+  assert.deepEqual([h.layer.tilt, h.layer.yaw, h.layer.roll], [80, -95, 42]);
+  h.change('Presentation', 'flat');
+  h.click('Reset orientation');
+  assert.deepEqual([h.layer.tilt, h.layer.yaw, h.layer.roll], [0, 0, 0]);
 });

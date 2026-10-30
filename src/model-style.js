@@ -17,6 +17,19 @@ export const DEFAULT_MODEL_STYLE = Object.freeze({
   // below (See-through) and the spectral spread of refracted light (Refractive, Environment).
   ior: 1.5, glassOpacity: .08, dispersion: 0,
   refractionThickness: .5, refractionSamples: 8, refractionResolution: 1024,
+  holographicIntensity: .35, holographicScale: 1.4, holographicSpeed: .08, holographicSweep: .6,
+  quantumIntensity: 1, quantumScale: 2.13, quantumDepth: .65, quantumSpeed: 1, quantumMorphSpeed: 1, quantumRim: 0,
+  quantumColor1: '#0055ff', quantumColor2: '#3355ff', quantumColor3: '#ff9900',
+  // Built-in morphing sphere shape settings, independent of its surface and motion presets.
+  morphAmplitude: .35, morphWarp: .6, morphFrequency: 6, morphFalloff: 1.2, morphDetail: 10, morphContrast: .6, morphSpeed: 1,
+  morphColor1: '#002aff', morphColor2: '#0040ff', morphColor3: '#4400ff', morphColor4: '#330aff',
+  liquidRadius: 1.01, liquidInnerRadius: .64, liquidThickness: .235, liquidWarp: .5, liquidFrequency: 1.51,
+  liquidOpen: .11, liquidClosed: .59, liquidDetail: 56, liquidDuration: 12.33, liquidEase: .10, liquidSpeed: 1,
+  liquidReflectance: 2.27, liquidIorSpread: .10, liquidTint: '#697077',
+  octaRadius: 2.06, octaHeight: 1.16, octaScale: 67.1, octaPath: .048, octaDensity: 7.9, octaOpacity: .72,
+  octaOrb: 25.2, octaEdge: 3.025, octaBackEdge: .38, octaSteps: 68,
+  octaSpeed: 1, octaRotation: .18, octaEvolution: 1, octaColorSpeed: .24,
+  octaTint: '#ffffff', octaFrontColor: '#b8e6ff', octaBackColor: '#a8d1ff',
   look: 'physical', glass: 'none', toonSteps: 4,
   // Edge glow (Physical look without glass) is off at zero intensity.
   fresnelColor: '#ffffff', fresnelIntensity: 0, fresnelPower: 3,
@@ -31,9 +44,10 @@ export const MODEL_BASES = Object.freeze(['imported', 'tinted', 'custom']);
 // How the surface is lit: physically based, banded toon light, or unlit edges.
 export const MODEL_LOOKS = Object.freeze(['physical', 'toon', 'wireframe']);
 // Physical look only. see-through reveals lower layers without bending; refractive bends and
-// blurs the actual lower-layer composition; environment refracts the model's own reflection
-// environment and is opaque.
-export const MODEL_GLASS = Object.freeze(['none', 'see-through', 'refractive', 'environment']);
+// blurs the actual lower-layer composition; environment and holographic refract the
+// model's own reflection environment and are opaque. Holographic adds UV-free bands;
+// quantum adds a self-lit, UV-free sampled crystal interior inside an opaque shell.
+export const MODEL_GLASS = Object.freeze(['none', 'see-through', 'refractive', 'environment', 'holographic', 'quantum', 'liquid']);
 export const MODEL_REFRACTION_SAMPLES = Object.freeze([4, 8, 16]);
 export const MODEL_REFRACTION_RESOLUTIONS = Object.freeze([256, 512, 1024, 2048]);
 export const MODEL_MOTIONS = Object.freeze(['none', 'spin', 'rock', 'float', 'pulse']);
@@ -42,10 +56,11 @@ export const MODEL_MOTION_AXES = Object.freeze(['auto', 'x', 'y', 'z']);
 // posed axes; euler is the pre-v12 sum of motion and pose angles.
 export const MODEL_MOTION_SPACES = Object.freeze(['screen', 'object', 'euler']);
 // Generated reflection environments ('studio' is the pre-v13 room); see model-environment.js.
-export const MODEL_ENVIRONMENTS = Object.freeze(['none', 'studio', 'softbox', 'stage', 'sunset', 'neon']);
+export const MODEL_ENVIRONMENTS = Object.freeze(['none', 'studio', 'softbox', 'holographic', 'stage', 'sunset', 'neon', 'liquid']);
 // none is the pre-v13 output: lighting clips at white instead of rolling off.
-export const MODEL_TONE_MAPPINGS = Object.freeze(['none', 'neutral', 'agx']);
-const MODEL_COLOR_KEYS = ['color', 'emissive', 'sheenColor', 'fresnelColor', 'keyColor', 'fillColor', 'rimColor'];
+export const MODEL_TONE_MAPPINGS = Object.freeze(['none', 'neutral', 'agx', 'aces']);
+const MODEL_COLOR_KEYS = ['color', 'emissive', 'sheenColor', 'fresnelColor', 'keyColor', 'fillColor', 'rimColor', 'quantumColor1', 'quantumColor2', 'quantumColor3', 'morphColor1', 'morphColor2', 'morphColor3', 'morphColor4'];
+MODEL_COLOR_KEYS.push('liquidTint', 'octaTint', 'octaFrontColor', 'octaBackColor');
 // Fit keeps the whole motion envelope in the layer; fixed is the pre-v11 camera.
 export const MODEL_FRAMINGS = Object.freeze(['fit', 'fixed']);
 // Pulse scales by up to 12% and Float moves by up to 0.2 normalized units at full amplitude.
@@ -56,6 +71,15 @@ export const MODEL_STYLE_RANGES = Object.freeze({
   iridescenceIOR: [1, 2.5], iridescenceThicknessMin: [0, 1200], iridescenceThicknessMax: [0, 1200],
   ior: [1, 2.5], glassOpacity: [0, 1], dispersion: [0, 1],
   refractionThickness: [0, 2],
+  holographicIntensity: [0, 1], holographicScale: [.1, 6], holographicSpeed: [-1, 1], holographicSweep: [0, 2],
+  quantumIntensity: [0, 2], quantumScale: [1, 3], quantumDepth: [0, 2], quantumSpeed: [-4, 4], quantumMorphSpeed: [0, 5], quantumRim: [0, 4],
+  morphAmplitude: [0, .75], morphWarp: [0, 1.5], morphFrequency: [1, 10], morphFalloff: [1, 1.6], morphDetail: [1, 16], morphContrast: [.2, 2], morphSpeed: [-4, 4],
+  liquidRadius: [.3, 2], liquidInnerRadius: [.1, 1.5], liquidThickness: [.04, .5], liquidWarp: [0, 1.2], liquidFrequency: [.2, 4],
+  liquidOpen: [0, 1.2], liquidClosed: [0, 1.2], liquidDetail: [32, 72], liquidDuration: [2, 60], liquidEase: [0, .15], liquidSpeed: [-4, 4],
+  liquidReflectance: [0, 3], liquidIorSpread: [0, .5],
+  octaRadius: [.5, 3], octaHeight: [.3, 2.5], octaScale: [10, 120], octaPath: [0, .15], octaDensity: [0, 20], octaOpacity: [0, 1],
+  octaOrb: [0, 50], octaEdge: [0, 8], octaBackEdge: [0, 4], octaSteps: [16, 128],
+  octaSpeed: [-4, 4], octaRotation: [-1, 1], octaEvolution: [-4, 4], octaColorSpeed: [-2, 2],
   toonSteps: [2, 8], fresnelIntensity: [0, 2], fresnelPower: [1, 8],
   environmentIntensity: [0, 4], environmentRotation: [-180, 180], exposure: [.25, 4],
   ambientIntensity: [0, 6], keyIntensity: [0, 10], fillIntensity: [0, 10], rimIntensity: [0, 10], lightRotation: [-180, 180],
@@ -64,7 +88,10 @@ export const MODEL_STYLE_RANGES = Object.freeze({
 });
 const SURFACE_KEYS = ['base', 'color', 'roughness', 'metalness', 'clearcoat', 'iridescence', 'emissive', 'emissiveIntensity',
   'clearcoatRoughness', 'sheen', 'sheenColor', 'sheenRoughness', 'anisotropy', 'anisotropyRotation', 'iridescenceIOR', 'iridescenceThicknessMin', 'iridescenceThicknessMax',
-  'ior', 'glassOpacity', 'dispersion', 'refractionThickness', 'refractionSamples', 'refractionResolution', 'look', 'glass', 'fresnelIntensity'];
+  'ior', 'glassOpacity', 'dispersion', 'refractionThickness', 'refractionSamples', 'refractionResolution',
+  'quantumIntensity', 'quantumScale', 'quantumDepth', 'quantumSpeed', 'quantumMorphSpeed', 'quantumRim', 'quantumColor1', 'quantumColor2', 'quantumColor3',
+  'liquidReflectance', 'liquidIorSpread', 'liquidTint',
+  'holographicIntensity', 'holographicScale', 'holographicSpeed', 'holographicSweep', 'look', 'glass', 'fresnelIntensity'];
 const paintDefaults = Object.fromEntries(SURFACE_KEYS.map(key => [key, DEFAULT_MODEL_STYLE[key]]));
 // Material presets set the surface only; lighting presets set the environment and rig.
 // Metal colors are the measured linear reflectance of each metal, written in sRGB.
@@ -100,6 +127,9 @@ export const MODEL_MATERIAL_PRESETS = Object.freeze([
   { id: 'refractive-clear', name: 'Clear refraction', family: 'refractive', settings: surface({ glass: 'refractive', roughness: .04, ior: 1.5, refractionThickness: .5 }) },
   { id: 'refractive-frosted', name: 'Frosted refraction', family: 'refractive', settings: surface({ glass: 'refractive', color: '#f2f5f8', roughness: .45, ior: 1.5, refractionThickness: .6 }) },
   { id: 'refractive-prism', name: 'Prismatic refraction', family: 'refractive', settings: surface({ glass: 'refractive', roughness: .02, ior: 1.6, dispersion: .6, refractionThickness: .75 }) },
+  { id: 'holographic-glass', name: 'Holographic glass', family: 'environment', settings: surface({ glass: 'holographic', color: '#ffffff', roughness: .02, ior: 1.67, dispersion: .11, holographicIntensity: .23 }) },
+  { id: 'quantum-crystal', name: 'Quantum crystal', family: 'environment', settings: surface({ glass: 'quantum', color: '#ffffff', roughness: .08, ior: 1.5, dispersion: .22 }) },
+  { id: 'liquid-chrome', name: 'Liquid chrome', family: 'environment', settings: surface({ glass: 'liquid', color: '#ffffff', roughness: .03, ior: 1.45, dispersion: .18 }) },
   { id: 'prism', name: 'Prism', family: 'environment', settings: surface({ glass: 'environment', roughness: 0, ior: 1.6, dispersion: .6 }) },
   { id: 'diamond', name: 'Diamond', family: 'environment', settings: surface({ glass: 'environment', roughness: 0, ior: 2.42, dispersion: 1 }) },
   { id: 'frosted-crystal', name: 'Frosted crystal', family: 'environment', settings: surface({ glass: 'environment', color: '#eef3f7', roughness: .4, ior: 1.5, dispersion: .2 }) }
@@ -112,6 +142,8 @@ const classic = Object.freeze({
 // Each lighting preset sets every environment, tone and light key, nothing else.
 export const MODEL_LIGHTING_PRESETS = Object.freeze([
   { id: 'studio', name: 'Studio', settings: STUDIO_LIGHTING },
+  { id: 'holographic-studio', name: 'Holographic studio', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'holographic', toneMapping: 'aces', exposure: 1.2, ambientIntensity: 0, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0 }) },
+  { id: 'liquid-studio', name: 'Liquid studio', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'liquid', toneMapping: 'aces', exposure: 1.1, ambientIntensity: 0, keyIntensity: 0, fillIntensity: 0, rimIntensity: 0 }) },
   { id: 'stage', name: 'Dark stage', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'stage', exposure: 1.1, ambientIntensity: .1, keyIntensity: 2.2, fillIntensity: 0, rimIntensity: 2.5, fillColor: '#ffffff' }) },
   { id: 'sunset', name: 'Sunset', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'sunset', ambientIntensity: .2, keyIntensity: 1.5, fillIntensity: .4, rimIntensity: 1, keyColor: '#ffb070', fillColor: '#4060ff', rimColor: '#ff8040' }) },
   { id: 'neon', name: 'Neon', settings: Object.freeze({ ...STUDIO_LIGHTING, environment: 'neon', ambientIntensity: .05, keyIntensity: 0, fillIntensity: 1.5, rimIntensity: 1.5, fillColor: '#ff2d9a', rimColor: '#2dd5ff' }) },
@@ -126,7 +158,7 @@ export function normalizeModelStyle(input) {
   if (!MODEL_BASES.includes(value.base) || !MODEL_LOOKS.includes(value.look) || !MODEL_GLASS.includes(value.glass) || !MODEL_MOTIONS.includes(value.motion) || !MODEL_MOTION_AXES.includes(value.motionAxis) || !MODEL_MOTION_SPACES.includes(value.motionSpace) || !MODEL_ENVIRONMENTS.includes(value.environment) || !MODEL_TONE_MAPPINGS.includes(value.toneMapping) || !MODEL_FRAMINGS.includes(value.framing)) throw new Error('Unknown 3D surface base, look, glass, environment, tone mapping, motion or framing.');
   for (const key of MODEL_COLOR_KEYS) if (typeof value[key] !== 'string' || !/^#[0-9a-f]{6}$/i.test(value[key])) throw new Error('Invalid 3D model color.');
   for (const [key, [min, max]] of Object.entries(MODEL_STYLE_RANGES)) {
-    if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || value[key] < min || value[key] > max || (['toonSteps', 'motionSteps', 'animationClip'].includes(key) && !Number.isInteger(value[key]))) throw new Error(`Invalid 3D model ${key}.`);
+    if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || value[key] < min || value[key] > max || (['toonSteps', 'motionSteps', 'animationClip', 'morphDetail', 'liquidDetail', 'octaSteps'].includes(key) && !Number.isInteger(value[key]))) throw new Error(`Invalid 3D model ${key}.`);
   }
   if (!MODEL_REFRACTION_SAMPLES.includes(value.refractionSamples)) throw new Error('Invalid 3D model refractionSamples.');
   if (!MODEL_REFRACTION_RESOLUTIONS.includes(value.refractionResolution)) throw new Error('Invalid 3D model refractionResolution.');

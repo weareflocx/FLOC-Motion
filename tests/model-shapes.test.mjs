@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { MODEL_SHAPES } from '../src/model-shapes.js';
+import { MODEL_SHAPES, MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from '../src/model-shapes.js';
 import { fileLayer, blankProject, validateProject } from '../src/project.js';
 import { generateShape, shapePreviewFixture } from '../scripts/model-shapes-lib.mjs';
 import { executablePath, openGoldenSession } from '../scripts/golden-frames.mjs';
 
 const publicFile = src => path.join('public', src);
+const proceduralShape = src => [MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC].includes(src);
 
 // Renderers fingerprint the registry, not the files: a generator change must not silently alter a published shape.
 test('the generator reproduces every published shape byte for byte, each with its picker thumbnail', async () => {
@@ -29,7 +30,11 @@ test('model layers accept registered shapes and reject other public paths', () =
 test('every shape renders visible geometry in export, matching the editor preview', { skip: !executablePath && 'Chrome or Edge is required for shape rendering', timeout: 300000 }, async t => {
   const session = await openGoldenSession();
   t.after(() => session.close());
-  const fixtures = MODEL_SHAPES.map(shapePreviewFixture);
+  const fixtures = MODEL_SHAPES.map(shape => {
+    const fixture = shapePreviewFixture(shape);
+    if (proceduralShape(shape.src)) fixture.times = [.1, .65, .1];
+    return fixture;
+  });
   const captures = await session.captureAll(fixtures);
   const empty = fixtures[0].project.layers[0];
   const background = { ...fixtures[0], id: 'empty', project: validateProject({ ...fixtures[0].project, layers: [empty] }) };
@@ -40,5 +45,16 @@ test('every shape renders visible geometry in export, matching the editor previe
     assert(coverage.ratio > 0.05, `${shape.id} covers only ${(coverage.ratio * 100).toFixed(2)}% of the frame`);
     const parity = await session.compare(preview, exported, { channel: 32, ratio: 0.005 });
     assert(parity.ok, `${shape.id} preview vs export: ${parity.summary}`);
+    if (proceduralShape(shape.src)) {
+      const [first, later, repeated] = captures[shape.id];
+      const animation = await session.compare(first.exported, later.exported, { channel: 8, ratio: 1 });
+      assert(animation.ratio > .002, `procedural motion must survive export asset relocation: ${animation.summary}`);
+      const seek = await session.compare(first.exported, repeated.exported, { channel: 0, ratio: 0 });
+      assert(seek.ok, `reverse seek must reconstruct the same mesh and colors: ${seek.summary}`);
+      for (const frame of [later, repeated]) {
+        const parity = await session.compare(frame.preview, frame.exported, { channel: 32, ratio: .005 });
+        assert(parity.ok, `procedural preview and export must share the deforming mesh: ${parity.summary}`);
+      }
+    }
   }
 });

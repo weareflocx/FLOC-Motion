@@ -61,6 +61,7 @@ export function AddLayerDialog({ project, initialTarget = 'layers', uploading, o
       <div className="add-layer-options">
         <Option Icon={TextT} label="Text" description="A headline or caption" disabled={disabled} onClick={() => create('text')}/>
         <Option Icon={Images} label="Carousel" description="Animated cards from images or video" disabled={disabled} onClick={() => setCreatingCarousel(true)}/>
+        <Option Icon={DotsNine} label="Data flow" description="Procedural fibers and pulses · transparent overlay" disabled={disabled} onClick={() => create('dataflow')}/>
         <Option Icon={DotsNine} label="Adjustment" description="Effects on the layers below" disabled={disabled} onClick={() => create('effect')}/>
         <Option Icon={Sparkle} label="Studio mark" description="The studio logo" disabled={disabled} onClick={() => create('logo')}/>
         <Option Icon={Shapes} label="Sculpture" description="A built-in 3D sculpture" disabled={disabled} onClick={() => setChoosingShape(true)}/>

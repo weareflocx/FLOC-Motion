@@ -13,6 +13,7 @@ const FIELDS = {
   logo: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
   media: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500] },
   model: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
+  dataflow: { ...COMMON_FIELDS, x: [-1000, 1000], y: [-1000, 1000], size: [2, 500], tilt: [-180, 180], yaw: [-180, 180], roll: [-180, 180] },
   carousel: { x: [10, 90], y: [10, 90], z: SCENE_DEPTH_RANGE, size: [0.5, 2.5], opacity: [0, 1], tilt: [-65, 65], yaw: [-180, 180], roll: [-180, 180] }
 };
 
@@ -35,7 +36,7 @@ const EFFECT_BOUNDS = Object.fromEntries(Object.entries(EFFECT_FIELDS).map(([fie
 const OPTIONAL_FIELDS = {
   text: { color: 'color', letterSpacing: [-0.15, 0.5], lineHeight: [0.5, 3], ...EFFECT_BOUNDS },
   carousel: { stretch: [0, 1], ...EFFECT_BOUNDS },
-  logo: EFFECT_BOUNDS, media: EFFECT_BOUNDS, model: EFFECT_BOUNDS, effect: EFFECT_BOUNDS,
+  logo: EFFECT_BOUNDS, media: EFFECT_BOUNDS, model: EFFECT_BOUNDS, dataflow: EFFECT_BOUNDS, effect: EFFECT_BOUNDS,
   background: { color: 'color', patternColor: 'color', patternAccent: 'color', patternAccentAmount: [0, 1], patternIntensity: [0, 1], patternScale: [PATTERN_SCALE.min, PATTERN_SCALE.max], patternSpeed: [-2, 2],
     patternDirection: [0, 360], patternFocusX: [0, 100], patternFocusY: [0, 100], patternVignette: [0, 1], patternGrain: [0, 1], ...EFFECT_BOUNDS }
 };

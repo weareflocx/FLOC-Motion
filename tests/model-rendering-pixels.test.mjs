@@ -149,6 +149,146 @@ test('shared model renderer produces real material, reflection, shader and deter
       style('a', { environment: 'none' }); const fallbackPrism = frame('a', .4);
       let fallbackLit = 0; for (let i = 0; i < fallbackPrism.length; i += 4) if (fallbackPrism[i + 3] > 0 && fallbackPrism[i] + fallbackPrism[i + 1] + fallbackPrism[i + 2] > 120) fallbackLit++;
       result.environmentGlass = { alpha: alphaStats(prism), dispersion: difference(prism, unspread), environment: difference(unspread, sunsetPrism), fallbackLit };
+      // Keep geometry/embedded clips static: only the UV-free holographic shader may move.
+      function holographicPixels(id) {
+        const previous = { ...layers.get(id).modelStyle };
+        try {
+          const holographic = applyLightingPreset(applyModelPreset(previous, 'holographic-glass'), 'holographic-studio');
+          style(id, { ...holographic, animationClip: -1, motion: 'none', glass: 'none' });
+          const beforeHolographic = frame(id, .4);
+          style(id, { glass: 'holographic' });
+          const first = frame(id, .4), later = frame(id, 2.1);
+          const output = { visible: opaque(first), temporal: difference(first, later), seek: difference(first, frame(id, .4)).total };
+          style(id, { holographicSpeed: 0 });
+          const frozen = frame(id, .4);
+          output.frozen = difference(frozen, frame(id, 2.1)).total;
+          style(id, { holographicIntensity: 0 }); const noFilm = frame(id, .4);
+          output.intensity = difference(frozen, noFilm);
+          style(id, { holographicIntensity: 1, holographicScale: .3 }); const broadBands = frame(id, .4);
+          style(id, { holographicScale: 5 }); output.scale = difference(broadBands, frame(id, .4));
+          style(id, { holographicSpeed: .08, holographicScale: 1.4, holographicSweep: 0 }); const noSweep = frame(id, 4.9);
+          style(id, { holographicSweep: 2 }); output.sweep = difference(noSweep, frame(id, 4.9));
+          // The film clock remains continuous across its former 12.5-second wrap.
+          style(id, { ...holographic, animationClip: -1, motion: 'none', holographicSpeed: .08, holographicSweep: 0 });
+          const beforeBoundary = frame(id, 12.499), afterBoundary = frame(id, 12.501);
+          output.clockBoundary = difference(beforeBoundary, afterBoundary);
+          output.clockInterval = difference(frame(id, 11.999), beforeBoundary);
+          output.clockSeek = difference(afterBoundary, frame(id, 12.501)).total;
+          // Isolate lighting from the animated coating, then restore the preset before
+          // the existing material-switch checks so those still compare like with like.
+          style(id, { holographicSpeed: 0, holographicIntensity: 0, holographicSweep: 0 });
+          const studioGlass = frame(id, .4);
+          const lit = p => { let count = 0; for (let i = 0; i < p.length; i += 4) if (p[i + 3] > 127 && p[i] + p[i + 1] + p[i + 2] > 12) count++; return count; };
+          output.studioLit = lit(studioGlass);
+          style(id, { environmentRotation: 90 }); output.environmentRotation = difference(studioGlass, frame(id, .4));
+          style(id, { environmentRotation: 0, environmentIntensity: .2 }); output.environmentIntensity = difference(studioGlass, frame(id, .4));
+          style(id, { environmentIntensity: 1, exposure: .3 }); output.acesExposure = difference(studioGlass, frame(id, .4));
+          style(id, { exposure: holographic.exposure, toneMapping: 'neutral' }); output.acesToneMapping = difference(studioGlass, frame(id, .4));
+          style(id, { toneMapping: 'aces', environmentIntensity: 0, ambientIntensity: 0, keyIntensity: 0, fillIntensity: 0, rimIntensity: 0, base: 'custom', color: '#ffffff', roughness: .4 });
+          const dark = frame(id, .4);
+          output.darkCoverage = opaque(dark);
+          output.darkMaximum = 0;
+          for (let i = 0; i < dark.length; i += 4) if (dark[i + 3] > 127) output.darkMaximum = Math.max(output.darkMaximum, dark[i], dark[i + 1], dark[i + 2]);
+          style(id, { keyIntensity: 6 });
+          output.directLight = difference(dark, frame(id, .4));
+          style(id, { ...holographic, animationClip: -1, holographicSpeed: 0, motion: 'spin', motionAxis: 'x', motionSpace: 'euler', motionSteps: 4, motionTiming: { mode: 'steps', action: .5, pause: .75, curve: 'linear', intensity: .5 } });
+          const actionStart = frame(id, .15);
+          output.action = difference(actionStart, frame(id, .4));
+          output.actionSeek = difference(actionStart, frame(id, .15)).total;
+          output.actionHold = difference(frame(id, .5), frame(id, 1)).total;
+          style(id, { ...holographic, animationClip: -1, motion: 'none' });
+          style(id, { glass: 'none' }); const off = frame(id, .4);
+          output.offRestored = difference(beforeHolographic, off).total;
+          style(id, { holographicSpeed: 1, holographicIntensity: 0, holographicScale: .1, holographicSweep: 0 });
+          output.offControls = difference(off, frame(id, .4)).total;
+          output.offTime = difference(off, frame(id, 2.1)).total;
+          const chromeStyle = applyModelPreset(layers.get(id).modelStyle, 'chrome');
+          style(id, chromeStyle); const chrome = frame(id, .4);
+          style(id, { ...holographic, animationClip: -1, motion: 'none' }); frame(id, 2.1);
+          style(id, chromeStyle);
+          output.switchAway = difference(chrome, frame(id, .4)).total;
+          output.switchAwayTime = difference(chrome, frame(id, 2.1)).total;
+          return output;
+        } finally {
+          style(id, previous);
+        }
+      }
+      result.holographic = holographicPixels('a');
+      // Static geometry isolates the inner crystal clock from embedded clips and automatic motion.
+      // Run the control sweep once; the UV-free cube repeats only the geometry/clock/isolation contract.
+      function quantumPixels(id, controls = false) {
+        const previous = { ...layers.get(id).modelStyle };
+        try {
+          const quantum = { ...applyLightingPreset(applyModelPreset(previous, 'quantum-crystal'), 'studio'), animationClip: -1, motion: 'none' };
+          style(id, { ...quantum, glass: 'none' }); const surface = frame(id, .4);
+          const holographicStyle = applyModelPreset(quantum, 'holographic-glass');
+          style(id, holographicStyle); const holographic = frame(id, .4), holographicLater = frame(id, 2.1);
+          const chromeStyle = applyModelPreset(quantum, 'chrome');
+          style(id, chromeStyle); const chrome = frame(id, .4);
+          style(id, quantum);
+          const first = frame(id, .4), later = frame(id, 2.1);
+          const output = {
+            alpha: alphaStats(first), surface: difference(surface, first), holographic: difference(holographic, first),
+            temporal: difference(first, later), seek: difference(first, frame(id, .4)).total,
+          };
+          style(id, { quantumSpeed: 0, quantumMorphSpeed: 5 });
+          const frozen = frame(id, .4);
+          output.frozen = difference(frozen, frame(id, 2.1)).total;
+          if (controls) {
+            output.controls = [];
+            for (const [key, low, high] of [
+              ['quantumIntensity', 0, 2], ['quantumScale', 1, 3], ['quantumDepth', .2, 1.6],
+              ['quantumMorphSpeed', 0, 4], ['quantumColor1', '#0055ff', '#ff1100'],
+              ['quantumColor2', '#3355ff', '#00ff44'], ['quantumColor3', '#ff9900', '#dd00ff'],
+              ['dispersion', 0, 1], ['quantumRim', 0, 4],
+            ]) {
+              style(id, { ...quantum, [key]: low }); const before = frame(id, 2.1);
+              style(id, { [key]: high });
+              output.controls.push({ key, delta: difference(before, frame(id, 2.1)) });
+            }
+          }
+          style(id, { ...quantum, quantumDepth: 0 }); const shell = frame(id, .4);
+          output.depth = difference(first, shell);
+          output.shellAlpha = alphaStats(shell);
+          output.depthZeroTime = difference(shell, frame(id, 2.1)).total;
+          style(id, { quantumIntensity: 2, quantumScale: 3, quantumMorphSpeed: 5, quantumColor1: '#ff1100', quantumColor2: '#00ff44', quantumColor3: '#dd00ff' });
+          output.depthZeroControls = difference(shell, frame(id, 2.1)).total;
+          style(id, chromeStyle);
+          output.chromeRestored = difference(chrome, frame(id, .4)).total;
+          style(id, { quantumIntensity: 0, quantumScale: 1, quantumDepth: 2, quantumSpeed: -4, quantumMorphSpeed: 0, quantumRim: 4 });
+          output.chromeIsolated = difference(chrome, frame(id, 2.1)).total;
+          style(id, holographicStyle);
+          output.holographicRestored = difference(holographic, frame(id, .4)).total;
+          style(id, { quantumIntensity: 2, quantumScale: 3, quantumDepth: 0, quantumSpeed: 4, quantumMorphSpeed: 5, quantumRim: 0 });
+          output.holographicIsolated = difference(holographicLater, frame(id, 2.1)).total;
+          return output;
+        } finally {
+          style(id, previous);
+        }
+      }
+      result.quantum = quantumPixels('a', true);
+      // The liquid finish is reusable on an ordinary mesh, independent of ribbons.
+      {
+        const previous = { ...layers.get('a').modelStyle };
+        try {
+          const liquid = { ...applyLightingPreset(applyModelPreset(previous, 'liquid-chrome'), 'liquid-studio'), animationClip: -1, motion: 'none' };
+          style('a', liquid); const first = frame('a', .4);
+          result.liquid = { alpha: alphaStats(first), staticTime: difference(first, frame('a', 2.1)).total, controls: [] };
+          for (const [key, low, high] of [['liquidReflectance', .2, 2.8], ['liquidIorSpread', 0, .5], ['liquidTint', '#202020', '#ffffff'], ['dispersion', 0, .8], ['ior', 1, 2.4], ['roughness', .02, .7], ['environmentRotation', 0, 90]]) {
+            style('a', { ...liquid, ...(key === 'liquidTint' || key === 'liquidIorSpread' || key === 'ior' ? { liquidReflectance: .2 } : {}), [key]: low });
+            const before = frame('a', .4); style('a', { [key]: high });
+            result.liquid.controls.push({ key, delta: difference(before, frame('a', .4)) });
+          }
+          style('a', { ...liquid, environmentIntensity: 0 }); const dark = frame('a', .4);
+          let bright = 0; for (let i = 0; i < dark.length; i += 4) if (dark[i + 3] > 250 && Math.max(dark[i], dark[i + 1], dark[i + 2]) > 1) bright++;
+          result.liquid.unlitBright = bright;
+          style('a', applyModelPreset(liquid, 'chrome')); const chrome = frame('a', .4);
+          result.liquid.chromeDifference = difference(first, chrome);
+          style('a', liquid); frame('a', 2.1);
+          style('a', applyModelPreset(liquid, 'chrome'));
+          result.liquid.chromeRestored = difference(chrome, frame('a', .4)).total;
+        } finally { style('a', previous); }
+      }
       style('a', { environment: 'softbox', glass: 'none' });
       style('a', CLASSIC_LIGHTING);
       style('a', { base: 'custom', color: '#888888', roughness: .8, metalness: 0, clearcoat: 0, iridescence: 0, ambientIntensity: .1, keyIntensity: 1, fillIntensity: 0, rimIntensity: 0, lightRotation: 0, look: 'physical', glass: 'none', fresnelIntensity: 0 }); const standard = frame('a', .4);
@@ -306,6 +446,8 @@ test('shared model renderer produces real material, reflection, shader and deter
       await mount('flatCube', flatSrc, { ...surfaceBase, animationClip: -1 }); const flatPlain = frame('flatCube', 0, flatPose);
       style('flatCube', { anisotropy: .9 }); const flatBrushed = frame('flatCube', 0, flatPose);
       result.unbrushedWithoutUv = { delta: difference(flatPlain, flatBrushed).total, visible: opaque(flatBrushed) };
+      result.holographicWithoutUv = holographicPixels('flatCube');
+      result.quantumWithoutUv = quantumPixels('flatCube');
       // More models than the browser's live-context limit share one renderer and all stay visible.
       const many = [];
       for (let i = 0; i < 20; i++) { await mount('many-' + i, src, undefined, { compositionWidth: 96 }); many.push(opaque(frame('many-' + i, .4))); }
@@ -379,6 +521,31 @@ test('shared model renderer produces real material, reflection, shader and deter
   assert.ok(result.environmentGlass.alpha.covered > 1000 && result.environmentGlass.alpha.translucent < result.environmentGlass.alpha.covered * .15, `environment glass is opaque: ${JSON.stringify(result.environmentGlass.alpha)}`);
   visible(result.environmentGlass.dispersion, 'Environment glass dispersion'); visible(result.environmentGlass.environment, 'Environment glass refracting its environment');
   assert.ok(result.environmentGlass.fallbackLit > 500, `environment glass without an environment still shows a neutral horizon: ${result.environmentGlass.fallbackLit}`);
+  assert.ok(result.liquid.alpha.covered > 1000 && result.liquid.alpha.translucent < result.liquid.alpha.covered * .15, 'liquid chrome preserves an opaque mesh silhouette');
+  assert.equal(result.liquid.staticTime, 0, 'liquid material does not move static geometry on its own');
+  assert.equal(result.liquid.unlitBright, 0, 'liquid chrome does not emit light with a zero-intensity environment');
+  assert.equal(result.liquid.chromeRestored, 0, 'switching to chrome does not retain liquid shader state');
+  visible(result.liquid.chromeDifference, 'Liquid spectral finish differs from ordinary chrome');
+  for (const { key, delta } of result.liquid.controls) visible(delta, 'Liquid ' + key);
+  for (const [label, holographic] of [['Holographic glass', result.holographic], ['Holographic glass without UVs', result.holographicWithoutUv]]) {
+    assert.ok(holographic.visible > 1000, `${label} must draw opaque environment glass`);
+    assert.ok(holographic.studioLit > 1000, `${label} must visibly reflect the Holographic studio`);
+    assert.ok(holographic.darkCoverage > 1000, `${label} must retain its silhouette without illumination`);
+    assert.ok(holographic.darkMaximum <= 1, `${label} must not emit light with film, sweep, environment intensity and direct lights off: ${holographic.darkMaximum}`);
+    assert.ok(holographic.clockInterval.total > 0 && holographic.clockBoundary.total <= Math.max(12, holographic.clockInterval.total * .08), `${label} film must remain continuous across 12.5 seconds: ${JSON.stringify({ boundary: holographic.clockBoundary, interval: holographic.clockInterval })}`);
+    for (const key of ['temporal', 'intensity', 'scale', 'sweep', 'environmentRotation', 'environmentIntensity', 'acesExposure', 'acesToneMapping', 'directLight', 'action']) visible(holographic[key], `${label} ${key}`);
+    for (const key of ['seek', 'frozen', 'clockSeek', 'actionSeek', 'actionHold', 'offRestored', 'offControls', 'offTime', 'switchAway', 'switchAwayTime']) assert.equal(holographic[key], 0, `${label} ${key} must be deterministic and isolated`);
+  }
+  for (const [label, quantum] of [['Quantum crystal', result.quantum], ['Quantum crystal without UVs', result.quantumWithoutUv]]) {
+    for (const [part, alpha] of [['volume', quantum.alpha], ['depth-zero shell', quantum.shellAlpha]]) {
+      assert.ok(alpha.covered > 1000 && alpha.translucent < alpha.covered * .15, `${label} ${part} must retain an opaque mesh silhouette: ${JSON.stringify(alpha)}`);
+    }
+    for (const key of ['surface', 'holographic', 'temporal', 'depth']) visible(quantum[key], `${label} ${key}`);
+    for (const key of ['seek', 'frozen', 'depthZeroTime', 'depthZeroControls', 'chromeRestored', 'chromeIsolated', 'holographicRestored', 'holographicIsolated']) {
+      assert.equal(quantum[key], 0, `${label} ${key} must be deterministic and isolated`);
+    }
+  }
+  for (const { key, delta } of result.quantum.controls) visible(delta, `Quantum crystal ${key}`);
   assert.deepEqual(result.unbrushedWithoutUv.delta, 0, 'brushing is ignored on meshes without UVs'); assert.ok(result.unbrushedWithoutUv.visible > 1000);
   assert.deepEqual(result.resolution, [192, 96, 288, 4096], 'canvas follows layer size, keyframed size and composition width, capped');
   assert.ok(result.fixedCrop > 0, 'fixed framing crops a rotated cube diagonal, as before');

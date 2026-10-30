@@ -2,6 +2,9 @@
 // scripts/generate-model-shapes.mjs. Renderers fingerprint this registry, not the GLB
 // files, so a published file never changes: new geometry gets a new id.
 const shape = (id, name) => Object.freeze({ id, name, src: `/shapes/${id}.glb`, preview: `/shapes/${id}.jpg` });
+export const MORPHING_SPHERE_SRC = '/shapes/morphing-sphere.glb';
+export const LIQUID_RIBBONS_SRC = '/shapes/liquid-ribbons.glb';
+export const MAGICAL_OCTAHEDRON_SRC = '/shapes/magical-octahedron.glb';
 
 export const MODEL_SHAPES = Object.freeze([
   shape('torus-knot', 'Torus knot'),
@@ -12,7 +15,10 @@ export const MODEL_SHAPES = Object.freeze([
   shape('infinity-ribbon', 'Infinity ribbon'),
   shape('soft-star', 'Soft star'),
   shape('fluted-torus', 'Fluted torus'),
-  shape('pleated-orb', 'Pleated orb')
+  shape('pleated-orb', 'Pleated orb'),
+  shape('morphing-sphere', 'Morphing sphere'),
+  shape('liquid-ribbons', 'Liquid ribbons'),
+  shape('magical-octahedron', 'Magical octahedron')
 ]);
 
 export const isModelShape = src => MODEL_SHAPES.some(item => item.src === src);
