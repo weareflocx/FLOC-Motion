@@ -6,7 +6,7 @@ import AdmZip from 'adm-zip';
 import { root } from '../server/runtime-config.mjs';
 import { rendererVersion } from '../server/renderer-version.mjs';
 
-const SERVER_FILES = ['export.mjs', 'card-frames.mjs', 'card-media.mjs', 'process.mjs', 'json-store.mjs', 'build-scene.mjs', 'runtime-config.mjs', 'renderer-version.mjs'];
+const SERVER_FILES = ['export.mjs', 'video-frames.mjs', 'card-media.mjs', 'process.mjs', 'json-store.mjs', 'build-scene.mjs', 'runtime-config.mjs', 'renderer-version.mjs'];
 const SCRIPT_FILES = ['render-worker.mjs', 'renderer-runtime.mjs', 'renderer-setup.mjs', 'renderer-update.mjs', 'renderer-autostart.mjs'];
 
 // The engine is what installers place in engines/<version> and what installed renderers download to update.

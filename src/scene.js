@@ -1,6 +1,6 @@
 import { createModelScene } from './model-scene.js';
 import { createDataFlowScene } from './data-flow-scene.js';
-import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, cardFrameSource, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
+import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, videoFrameIndex, videoFrameSource, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
 import { carouselCard, motionVariant, elasticState, cardMetrics, ringRadius } from './carousel-motion.js';
 import * as THREE from 'three';
 import { fontFamily, fontStack } from './fonts.js';
@@ -18,7 +18,7 @@ import { createSceneCameras, sceneDimensions, projectedObjectBounds, SCENE_VIEW_
 import { createScenePass, SCENE_PASS, SCENE_PASS_PARS, SCENE_PASS_FRAGMENT, setSceneMaterialPass } from './scene-pass.js';
 import { createSceneWorld } from './scene-world.js';
 
-export function stageMarkup(p, path = src => src) {
+export function stageMarkup(p, path = src => src, { videoFrames = {} } = {}) {
   const [w, h] = FORMATS[p.format];
   const esc = escapeHtml;
   return p.layers.map((l, i) => {
@@ -30,7 +30,13 @@ export function stageMarkup(p, path = src => src) {
       if (l.mode === 'color' || !l.src) return `<div ${timing} ${common}inset:0;background:${l.color}"></div>`;
       const fill = `<div style="position:absolute;inset:0;background:${l.color}"></div>`;
       const style = `data-floc-layer="${esc(l.id)}" data-floc-background-content style="position:absolute;inset:0;width:100%;height:100%;object-fit:${l.fit}">`;
-      return `<div ${timing} ${common}inset:0">` + fill + (l.mode === 'video' ? `<video id="media-${esc(l.id)}" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(l.src))}" ${style}</video>` : `<img alt="" src="${esc(path(l.src))}" ${style}`) + '</div>';
+      const frames = videoFrames[l.src];
+      const content = l.mode === 'video'
+        ? frames
+          ? `<canvas id="media-${esc(l.id)}" ${timing} data-floc-video-source="${esc(l.src)}" width="${frames.width}" height="${frames.height}" ${style}</canvas>`
+          : `<video id="media-${esc(l.id)}" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(l.src))}" ${style}</video>`
+        : `<img alt="" src="${esc(path(l.src))}" ${style}`;
+      return `<div ${timing} ${common}inset:0">` + fill + content + '</div>';
     }
     if (l.type === 'carousel') return `<canvas id="carousel-${esc(l.id)}" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'text') {
@@ -42,7 +48,11 @@ export function stageMarkup(p, path = src => src) {
     if (l.type === 'dataflow') return `<canvas id="dataflow-${esc(l.id)}" class="clip" ${timing} ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:${l.size * h / 100}px" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'media') {
       const style = `${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
-      return cardMediaKind(l.src) === 'image' ? `<img alt="${esc(l.name)}" src="${esc(path(l.src))}" ${style}` : `<video id="media-${esc(l.id)}" class="clip" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(cardVideoSource(l.src)))}" ${style}</video>`;
+      if (cardMediaKind(l.src) === 'image') return `<img alt="${esc(l.name)}" src="${esc(path(l.src))}" ${style}`;
+      const frames = videoFrames[l.src];
+      return frames
+        ? `<canvas id="media-${esc(l.id)}" class="clip" ${timing} data-floc-video-source="${esc(l.src)}" width="${frames.width}" height="${frames.height}" ${style}</canvas>`
+        : `<video id="media-${esc(l.id)}" class="clip" ${timing} data-media-start="${l.offset}" ${l.loop ? 'loop data-loop="true"' : ''} muted playsinline preload="auto" src="${esc(path(cardVideoSource(l.src)))}" ${style}</video>`;
     }
     if (l.type === 'music' && l.src) return `<audio id="media-${esc(l.id)}" data-floc-layer="${esc(l.id)}" preload="auto" src="${esc(path(l.src))}"></audio>`;
     return '';
@@ -104,7 +114,7 @@ async function loadCardVideo(src) {
   return video;
 }
 
-async function createLayerScene(root, p, { renderMode = false, rendering, onMediaError = () => {}, cardFrames = {}, resources } = {}) {
+async function createLayerScene(root, p, { renderMode = false, rendering, onMediaError = () => {}, videoFrames = {}, resources } = {}) {
   const [width, height] = FORMATS[p.format];
   const carousel = p.layers.find(l => l.type === 'carousel');
   let layer = carousel || { ...demoProject().layers.find(l => l.type === 'carousel'), visible: false };
@@ -157,7 +167,8 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   const handles = [];
   const cardVideos = [];
   const frameCards = [];
-  const frameLoader = new THREE.TextureLoader();
+  const preparedVideos = [];
+  let seekEpoch = 0;
   const imageLoader = new THREE.ImageLoader();
   const placementBounds = new Map();
   const cardBox = new THREE.Box3();
@@ -304,6 +315,15 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       mesh.frustumCulled = !stretched(layer);
     });
   }
+  async function loadVideoFrame(frames, index) {
+    const src = videoFrameSource(frames, index);
+    const handle = resources.acquire(`image\n${src}`, () => imageLoader.loadAsync(src));
+    try {
+      const image = await handle.value;
+      if (!image.naturalWidth || !image.naturalHeight) throw new Error(`A prepared video frame could not be decoded: ${src}`);
+      return image;
+    } finally { handle.release(); }
+  }
   async function cardTexture(src) {
     if (cardMediaKind(src) === 'image') {
       const handle = resources.acquire(`image\n${src}`, () => imageLoader.loadAsync(src));
@@ -313,9 +333,10 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       return texture;
     }
     if (renderMode) {
-      const frames = cardFrames[src];
-      if (!frames) throw new Error(`Prepared carousel frames are missing: ${src}`);
-      const texture = await frameLoader.loadAsync(cardFrameSource(frames, 0));
+      const frames = videoFrames[src];
+      if (!frames) throw new Error(`Prepared video frames are missing: ${src}`);
+      const texture = new THREE.Texture(await loadVideoFrame(frames, 0));
+      texture.needsUpdate = true;
       frameCards.push({ texture, frames, index: 0 });
       return texture;
     }
@@ -329,6 +350,17 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     return texture;
   }
   try {
+    if (renderMode) {
+      for (const l of p.layers.filter(l => l.type === 'media' && cardMediaKind(l.src) !== 'image' || l.type === 'background' && l.mode === 'video' && l.src)) {
+        const frames = videoFrames[l.src];
+        if (!frames) throw new Error(`Prepared video frames are missing: ${l.src}`);
+        const node = root.querySelector(`[id="media-${CSS.escape(l.id)}"]`);
+        if (node?.tagName !== 'CANVAS' || node.dataset.flocVideoSource !== l.src) throw new Error(`Prepared video canvas is missing: ${l.src}`);
+        const context = node.getContext('2d');
+        if (!context) throw new Error(`A prepared video canvas could not be initialized: ${l.src}`);
+        preparedVideos.push({ id: l.id, node, context, frames, index: -1 });
+      }
+    }
     await Promise.all(p.layers.filter(l => l.type === 'text').map(l => document.fonts.load(`${l.weight} ${l.size * width / 1080}px "${fontFamily(l.font)}"`)));
     await document.fonts.ready;
     for (const model of p.layers.filter(l => l.type === 'model')) models.push(await createModelScene(root.querySelector(`[id="model-${CSS.escape(model.id)}"]`), model, { compositionWidth: width, resources, renderMode, deferRefraction: true, rendering, onError: onMediaError }));
@@ -363,11 +395,14 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   function dispose() {
     if (disposed) return;
     disposed = true;
+    seekEpoch++;
     mediaErrors.forEach(remove => remove());
     context.dispose();
     models.forEach(model => model.dispose());
     dataFlows.forEach(flow => flow.dispose());
     mediaNodes.forEach(m => { pauseMedia(m); m.removeAttribute('src'); m.load(); });
+    preparedVideos.forEach(({ node }) => { node.width = 0; node.height = 0; });
+    preparedVideos.length = 0;
     geometries.forEach(geometry => geometry.dispose()); material.dispose();
     textures.forEach(t => t.dispose());
     // Shared decoders keep playing for the scene that replaces this one.
@@ -442,6 +477,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   }
   function seek(time, playing = false) {
     if (disposed) return Promise.resolve();
+    const epoch = ++seekEpoch;
     requestedTime = time;
     requestedPlaying = playing;
     if (playing && !renderMode) {
@@ -468,23 +504,36 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     frames.push(...frameCards.map(async card => {
       const index = cardFrameIndex(card.frames, time, layer.start);
       if (card.index === index) return;
-      const loaded = await frameLoader.loadAsync(cardFrameSource(card.frames, index));
-      if (!disposed && requestedTime === time) {
-        card.texture.image = loaded.image;
+      const image = await loadVideoFrame(card.frames, index);
+      if (!disposed && epoch === seekEpoch) {
+        card.texture.image = image;
         card.texture.needsUpdate = true;
         card.index = index;
       }
-      loaded.dispose();
+    }));
+    frames.push(...preparedVideos.map(async video => {
+      const l = p.layers.find(l => l.id === video.id);
+      const index = videoFrameIndex(video.frames, audioTime(l, time, video.frames.duration));
+      if (video.index === index) return;
+      const image = await loadVideoFrame(video.frames, index);
+      if (disposed || epoch !== seekEpoch) return;
+      // Decoded pixels own the dimensions: FFmpeg may have autorotated the stream.
+      if (video.node.width !== image.naturalWidth) video.node.width = image.naturalWidth;
+      if (video.node.height !== image.naturalHeight) video.node.height = image.naturalHeight;
+      video.context.clearRect(0, 0, video.node.width, video.node.height);
+      video.context.drawImage(image, 0, 0);
+      video.index = index;
     }));
     frames.push(...standalone);
     if (!frames.length) { draw(time, playing); return Promise.resolve(); }
-    const ready = Promise.all(frames).then(() => { if (!disposed && requestedTime === time) draw(time, playing); });
+    const ready = Promise.all(frames).then(() => { if (!disposed && epoch === seekEpoch) draw(time, playing); });
     if (renderMode) return ready;
     return ready.catch(error => { if (!disposed) onMediaError(error); });
   }
   try { await seek(0); } catch (error) { dispose(); throw error; }
   // Takes the engine's slice of a project that sceneUpdatePlan accepted.
   function update(next) {
+    seekEpoch++;
     p = next;
     if (carousel) {
       layer = p.layers.find(l => l.id === carousel.id);
@@ -554,8 +603,8 @@ function engineProjects(project) {
 // Copies attribute, inline style and text differences between the markup of
 // two structurally equal projects onto the live layer nodes. Styles change per
 // property so values written while drawing survive. Null means rebuild.
-function markupPatch(root, previous, next) {
-  const parse = project => { const template = document.createElement('template'); template.innerHTML = stageMarkup(project); return [...template.content.children]; };
+function markupPatch(root, previous, next, options) {
+  const parse = project => { const template = document.createElement('template'); template.innerHTML = stageMarkup(project, undefined, options); return [...template.content.children]; };
   const before = parse(previous), after = parse(next);
   if (before.length !== after.length) return null;
   const live = new Map([...root.querySelectorAll('[data-floc-layer]:not([data-floc-background-content])')].map(node => [node.dataset.flocLayer, node]));
@@ -637,7 +686,7 @@ export async function createScene(root, project, options = {}) {
       if (disposed) return false;
       const plan = sceneUpdatePlan(currentProject, next);
       if (!plan || !fontsLoaded(currentProject, next)) return false;
-      const patch = markupPatch(sources, currentProject, next);
+      const patch = markupPatch(sources, currentProject, next, options);
       if (!patch) return false;
       patch(); currentProject = next; seekEpoch++;
       const parts = engineProjects(next);

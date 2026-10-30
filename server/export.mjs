@@ -11,7 +11,7 @@ import { FORMATS, validateProject, escapeHtml } from '../src/project.js';
 import { validateExportSettings, exportDimensions, exportFormat } from '../src/export-settings.js';
 import { ensureGifVideo } from './card-media.mjs';
 import { cardMediaKind } from '../src/card-media.js';
-import { extractCardFrames } from './card-frames.mjs';
+import { extractVideoFrames } from './video-frames.mjs';
 import { stageMarkup } from '../src/scene.js';
 import { readJson, writeJsonAtomic } from './json-store.mjs';
 import { isTerminalJobState, RESTART_MESSAGE, CANCELLED_MESSAGE } from '../src/export-jobs.js';
@@ -76,7 +76,7 @@ export async function prepareComposition(input, folder, settings = {}, signal, f
       if (shape) item.modelShape = shape.id;
     }
     let local = src.startsWith('/assets/') ? path.join(runtimeConfig().data, src.slice(1)) : path.join(root, `public${src}`);
-    // Normalize GIF cards, including GIFs in projects saved before video support.
+    // Normalize GIF cards and media, including projects saved before video support.
     const gifCard = (cards.includes(item) || item.type === 'media') && cardMediaKind(src) === 'gif';
     if (gifCard) { const video = local.replace(/\.gif$/i, '.webm'); await ensureGifVideo(local, video, run); local = video; signal?.throwIfAborted(); }
     const dest = `assets/${path.basename(local)}`;
@@ -90,15 +90,15 @@ export async function prepareComposition(input, folder, settings = {}, signal, f
   for (const face of faces) await copyFile(path.join(runtimeConfig().data, 'fonts', workspaceFontFile(face)), path.join(folder, 'fonts', workspaceFontFile(face)));
   const fontCss = fontFaceCss('./') + workspaceFontFaceCss(faces, face => `./fonts/${workspaceFontFile(face)}`);
   signal?.throwIfAborted();
-  const cardFrames = await extractCardFrames(p, folder, (command, args, options = {}, onData) => run(command, args, { ...options, signal }, onData));
+  const videoFrames = await extractVideoFrames(p, folder, (command, args, options = {}, onData) => run(command, args, { ...options, signal }, onData));
   const [w, h] = FORMATS[p.format];
   // Music is mixed by FFmpeg after capture to support source offsets, looping and fades.
-  const markup = stageMarkup({ ...p, layers: p.layers.filter(l => l.type !== 'music') });
+  const markup = stageMarkup({ ...p, layers: p.layers.filter(l => l.type !== 'music') }, undefined, { videoFrames });
   const serialized = JSON.stringify(p).replace(/</g, '\\u003c');
   const scale = outputWidth / w;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(p.name)}</title><style>${fontCss}*{box-sizing:border-box}${backdrop}body{margin:0;font-family:Geist,Arial,sans-serif}.composition{position:relative;width:${outputWidth}px;height:${outputHeight}px;overflow:hidden}.export-scene{position:relative;width:${w}px;height:${h}px;transform:scale(${scale});transform-origin:top left}</style></head><body><div class="composition" data-composition-id="main" data-floc-project="${escapeHtml(serialized)}" data-render-scale="${scale}" data-start="0" data-duration="${p.duration}" data-width="${outputWidth}" data-height="${outputHeight}"><div class="export-scene">${markup}</div></div><script src="gsap.min.js"></script><script>window.__timelines=window.__timelines||{};const clock={time:0};const tl=gsap.timeline({paused:true});tl.to(clock,{time:${p.duration},duration:${p.duration},ease:"none",onUpdate:()=>window.dispatchEvent(new CustomEvent("hf-seek",{detail:{time:clock.time}}))},0);window.__timelines["main"]=tl;</script><script src="scene.js"></script></body></html>`;
-  const frameData = JSON.stringify(cardFrames).replace(/</g, '\\u003c');
-  await writeFile(path.join(folder, 'index.html'), html.replace('<script src="scene.js">', `<script id="floc-card-frames" type="application/json">${frameData}</script><script src="scene.js">`));
+  const frameData = JSON.stringify(videoFrames).replace(/</g, '\\u003c');
+  await writeFile(path.join(folder, 'index.html'), html.replace('<script src="scene.js">', `<script id="floc-video-frames" type="application/json">${frameData}</script><script src="scene.js">`));
   await writeJsonAtomic(path.join(folder, 'hyperframes.json'), { name: 'motion-export', entry: 'index.html', fps: p.fps, width: outputWidth, height: outputHeight });
   await writeJsonAtomic(path.join(folder, 'render-input.json'), { project: original, settings: validateExportSettings(settings), ...(faces.length && { fonts: faces }) });
   return original;

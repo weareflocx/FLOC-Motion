@@ -29,7 +29,7 @@ test('editor-only changes do not invalidate an otherwise identical installed ren
 test('scene, validation, export and worker changes still invalidate renderer compatibility', async t => {
   const directory = await checkout(t);
   const original = await rendererVersion(directory);
-  for (const name of ['src/scene.js', 'src/effects.js', 'src/project.js', 'src/project-migrations.js', 'server/export.mjs', 'server/card-frames.mjs', 'scripts/render-worker.mjs', 'scripts/renderer-runtime.mjs', 'server/renderer-version.mjs', 'server/runtime-config.mjs', 'package-lock.json']) {
+  for (const name of ['src/scene.js', 'src/effects.js', 'src/project.js', 'src/project-migrations.js', 'server/export.mjs', 'server/video-frames.mjs', 'scripts/render-worker.mjs', 'scripts/renderer-runtime.mjs', 'server/renderer-version.mjs', 'server/runtime-config.mjs', 'package-lock.json']) {
     const filename = path.join(directory, name), content = await readFile(filename, 'utf8');
     await writeFile(filename, content + (name.endsWith('.json') ? '\n ' : '\n// Runtime source changed.\n'));
     assert.notEqual(await rendererVersion(directory), original, name);

@@ -117,7 +117,7 @@ export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixtu
 export const fixtureHash = fixture => createHash('sha256').update(JSON.stringify({ times: fixture.times, project: { ...fixture.project, version: undefined } })).digest('hex').slice(0, 16);
 export const frameName = (id, time) => `${id}-${time.toFixed(2)}s.png`;
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webm': 'video/webm', '.glb': 'model/gltf-binary', '.woff2': 'font/woff2', '.json': 'application/json' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.glb': 'model/gltf-binary', '.woff2': 'font/woff2', '.json': 'application/json' };
 function serve(routes, exportRoot, assetDirectory) {
   const server = http.createServer(async (req, res) => {
     try {
@@ -128,7 +128,15 @@ function serve(routes, exportRoot, assetDirectory) {
       const file = path.join(folder, path.normalize(pathname.slice(prefix.length)));
       if (!file.startsWith(folder + path.sep)) throw new Error('Outside served folder');
       const body = await readFile(file);
-      res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' }); res.end(body);
+      const headers = { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Accept-Ranges': 'bytes' };
+      const range = req.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
+      if (range) {
+        const start = Number(range[1]), end = Math.min(range[2] ? Number(range[2]) : body.length - 1, body.length - 1);
+        if (start >= body.length || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${body.length}` }); return res.end(); }
+        res.writeHead(206, { ...headers, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${body.length}` });
+        return res.end(body.subarray(start, end + 1));
+      }
+      res.writeHead(200, { ...headers, 'Content-Length': body.length }); res.end(body);
     } catch { res.writeHead(404); res.end(); }
   });
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));

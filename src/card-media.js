@@ -8,10 +8,13 @@ export function cardMediaTime(time, start, duration) {
   if (!Number.isFinite(duration) || duration <= 0) return 0;
   return Math.max(0, time - start) % duration;
 }
-export function cardFrameIndex(frames, time, start) {
-  return Math.min(frames.count - 1, Math.floor(cardMediaTime(time, start, frames.duration) * frames.fps + 1e-6));
+export function videoFrameIndex(frames, sourceTime) {
+  return Math.max(0, Math.min(frames.count - 1, Math.floor(sourceTime * frames.fps + 1e-6) - frames.firstFrame));
 }
-export function cardFrameSource(frames, index) {
+export function cardFrameIndex(frames, time, start) {
+  return videoFrameIndex(frames, cardMediaTime(time, start, frames.duration));
+}
+export function videoFrameSource(frames, index) {
   return `${frames.directory}/${String(index).padStart(6, '0')}.${frames.extension}`;
 }
 const playback = new WeakMap();
