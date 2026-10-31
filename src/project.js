@@ -16,6 +16,7 @@ import { normalizeModelStyle, applyModelPreset, applyLightingPreset } from './mo
 import { isModelShape, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from './model-shapes.js';
 import { normalizeDataFlowStyle } from './data-flow-style.js';
 import { SPATIAL_LAYER_TYPES, LAYER_SPACES, SCENE_DEPTH_RANGE, normalizeScene, assertPlainSceneRecord } from './scene-settings.js';
+import { TEXTURE_LAYOUT_DEFAULTS, TEXTURE_LAYOUT_LIMITS, TEXTURE_LAYOUTS, TEXTURE_DISTRIBUTIONS } from './texture-layout.js';
 export { PROJECT_LIMITS } from './project-limits.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
 export const FORMAT_LABELS = { square: '1 : 1', portrait: '9 : 16', landscape: '16 : 9', portrait34: '3 : 4', landscape43: '4 : 3' };
@@ -96,7 +97,7 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   carousel: ['images', 'template', 'speed', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
     'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'stretch',
     'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing'],
-  background: ['color', 'mode', 'src', 'fit', 'offset', 'loop', 'x', 'y', 'roll', ...Object.keys(DEFAULT_PROCEDURAL_BACKGROUND)],
+  background: ['color', 'mode', 'src', 'fit', 'offset', 'loop', 'x', 'y', 'roll', ...Object.keys(DEFAULT_PROCEDURAL_BACKGROUND), ...Object.keys(TEXTURE_LAYOUT_DEFAULTS)],
   music: ['src', 'volume', 'offset', 'fade', 'loop'],
   effect: []
 }).map(([type, keys]) => [type, new Set(['id', 'type', 'name', 'visible', 'locked', 'start', 'end', 'effects', 'effectScope', 'opacity', 'choreography', 'contentField',
@@ -252,6 +253,15 @@ export function validateProject(input) {
       if (typeof l.patternLoop !== 'boolean') fail('Pattern loop must be true or false.');
       finite(l.patternDirection, 0, 360, 'Pattern direction'); finite(l.patternFocusX, 0, 100, 'Pattern focus X'); finite(l.patternFocusY, 0, 100, 'Pattern focus Y');
       color(l.patternAccent); finite(l.patternAccentAmount, 0, 1, 'Accent amount');
+      if (!TEXTURE_LAYOUTS.includes(l.textureLayout)) fail('Unknown texture layout.');
+      if (!TEXTURE_DISTRIBUTIONS.includes(l.textureDistribution)) fail('Unknown texture distribution.');
+      finite(l.textureDensity, ...TEXTURE_LAYOUT_LIMITS.density, 'Texture density');
+      for (const field of ['textureColumns', 'textureRows']) {
+        if (!Number.isInteger(l[field])) fail('Texture columns and rows must be integers.');
+        finite(l[field], ...TEXTURE_LAYOUT_LIMITS.count, 'Texture columns and rows');
+      }
+      finite(l.textureElementSize, ...TEXTURE_LAYOUT_LIMITS.elementSize, 'Texture element size');
+      finite(l.textureMargin, ...TEXTURE_LAYOUT_LIMITS.margin, 'Texture margin');
       color(l.color); asset(l.src); if (l.src && !(l.mode === 'video' ? /\.(mp4|webm)$/i : l.mode === 'image' ? /\.(png|jpe?g|webp|gif|avif|svg)$/i : /\.(png|jpe?g|webp|gif|avif|svg|mp4|webm)$/i).test(l.src)) fail('Invalid background asset type.'); finite(l.offset, 0, 3600, 'Media offset'); if (typeof l.loop !== 'boolean') fail('Invalid media loop.');
     } else if (l.type === 'logo') { asset(l.src); if (l.src && !/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(l.src)) fail('Logo requires an image.'); finite(l.x, -1000, 1000, 'X'); finite(l.y, -1000, 1000, 'Y'); finite(l.size, 2, 500, 'Logo size');
     } else if (l.type === 'dataflow') {
@@ -414,6 +424,9 @@ export function patchLayer(project, id, patch) {
     if (l.id !== id) return l;
     const changedFamily = patch.template && patch.template !== l.template;
     const next = { ...l, ...(changedFamily ? { motionVariant: 'default', motion: { ...DEFAULT_MOTION }, ...TEMPLATES.find(template => template.id === patch.template)?.defaults } : {}), ...patch };
+    if (l.type === 'background' && Object.hasOwn(patch, 'pattern') && patch.pattern !== l.pattern && !Object.hasOwn(patch, 'textureLayout')
+      && PROCEDURAL_BACKGROUNDS.some(({ id, source }) => id === patch.pattern && source)
+      && !PROCEDURAL_BACKGROUNDS.some(({ id, source }) => id === l.pattern && source)) next.textureLayout = 'adaptive';
     if (l.type === 'model' && Object.hasOwn(patch, 'src') && patch.src !== l.src) next.modelStyle = { ...normalizeModelStyle(next.modelStyle), animationClip: 0 };
     // Capture the pre-edit rhythm for legacy in-memory projects as well as saved ones.
     if (l.type === 'carousel' && !Object.hasOwn(patch, 'motionBaseline') && (changedFamily || !l.motionBaseline)) next.motionBaseline = motionBaseline(changedFamily ? next : l);

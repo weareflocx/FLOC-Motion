@@ -2,6 +2,8 @@ import { backgroundRenderer, disposeBackgroundRenderer } from './background-rend
 import { BRAND } from './brand.js';
 import { animatedFields, choreographyValueAt, evaluateChoreography } from './choreography.js';
 import { PATTERN_SCALE } from './project-limits.js';
+import { TEXTURE_BACKGROUNDS, drawTextureBackground } from './texture-backgrounds.js';
+import { TEXTURE_LAYOUT_DEFAULTS } from './texture-layout.js';
 
 // `controls` lists the pattern-specific settings the editor shows: direction
 // for patterns that drift across the frame, focus for those with a center.
@@ -23,7 +25,8 @@ export const PROCEDURAL_BACKGROUNDS = [
   { id: 'halftone', name: 'Halftone', controls: ['direction'] },
   { id: 'gradient', name: 'Gradient', controls: [], accent: 'layer' },
   { id: 'aurora', name: 'Aurora', controls: [], accent: 'layer' },
-  { id: 'noise', name: 'Noise', controls: [], accent: 'layer' }
+  { id: 'noise', name: 'Noise', controls: [], accent: 'layer' },
+  ...TEXTURE_BACKGROUNDS
 ];
 // Direction is in degrees (0 moves right, 90 up); focus is a percentage of the
 // frame. Their defaults depend on pattern and seed: see `proceduralDefaults`.
@@ -51,7 +54,8 @@ const TUNING = {
   halftone: { gain: 0.6, pace: 0.6, drift: { rate: 0.1 * Math.SQRT2, angle: 0, lattice: 'diagonal' } },
   gradient: { gain: 0.55, pace: 0.08 },
   aurora: { gain: 0.9, pace: 0.2 },
-  noise: { gain: 0.7, pace: 0.25 }
+  noise: { gain: 0.7, pace: 0.25 },
+  ...Object.fromEntries(TEXTURE_BACKGROUNDS.map(({ id }) => [id, { gain: 1, pace: 7.5 }]))
 };
 const IDS = PROCEDURAL_BACKGROUNDS.map(({ id }) => id);
 const ACCENT_LAYERS = new Set(PROCEDURAL_BACKGROUNDS.filter(({ accent }) => accent === 'layer').map(({ id }) => id));
@@ -73,7 +77,7 @@ const seededRandom = (seed, salt) => (mixBits(1048576 ^ mixBits(1048576 ^ mixBit
 export function proceduralDefaults(layer = {}) {
   const pattern = IDS.includes(layer.pattern) ? layer.pattern : DEFAULT_PROCEDURAL_BACKGROUND.pattern;
   const seed = Number.isInteger(layer.patternSeed) ? layer.patternSeed : DEFAULT_PROCEDURAL_BACKGROUND.patternSeed;
-  return { ...DEFAULT_PROCEDURAL_BACKGROUND, patternDirection: TUNING[pattern].drift?.angle ?? DEFAULT_PROCEDURAL_BACKGROUND.patternDirection,
+  return { ...DEFAULT_PROCEDURAL_BACKGROUND, ...TEXTURE_LAYOUT_DEFAULTS, patternDirection: TUNING[pattern].drift?.angle ?? DEFAULT_PROCEDURAL_BACKGROUND.patternDirection,
     patternFocusX: (0.3 + 0.4 * seededRandom(seed, 1)) * 100, patternFocusY: (0.3 + 0.4 * seededRandom(seed, 2)) * 100 };
 }
 
@@ -135,7 +139,7 @@ function travel(layer, pace, seconds) {
 // A seamless loop spans the layer's duration: pattern time runs from 0 to
 // `loop`, drift is corrected to whole lattice steps and the shader rounds
 // every other motion to whole cycles, so the last frame leads into the first.
-export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { tile = false } = {}) {
+export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { tile = false, aspect = width / height } = {}) {
   const settings = { ...proceduralDefaults(layer), ...layer };
   const seconds = Math.max(0, Number.isFinite(elapsed) ? elapsed : 0);
   const live = settings.choreography?.length && Number.isFinite(settings.start) ? evaluateChoreography(settings, settings.start + seconds) : settings;
@@ -159,6 +163,8 @@ export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { ti
     loop,
     frame: speed === 0 ? 0 : Math.floor(seconds * fps + 1e-4) >>> 0,
     pattern: IDS.indexOf(id),
+    texture: settings,
+    textureAspect: aspect,
     scale: clamp(live.patternScale, PATTERN_SCALE.min, PATTERN_SCALE.max),
     weight: clamp(live.patternIntensity, 0, 1) * gain,
     seed: settings.patternSeed >>> 0,
@@ -177,9 +183,13 @@ export function backgroundUniforms(layer, elapsed, width, height, fps = 24, { ti
 
 // Draws one frame onto a 2D canvas. Returns false while the graphics context
 // is lost (the canvas keeps its previous frame); throws without WebGL 2.
-export function drawProceduralBackground(canvas, layer, elapsed, fps = 24, renderer = null) {
+export function drawProceduralBackground(canvas, layer, elapsed, fps = 24, renderer = null, aspect = canvas.width / canvas.height) {
   if (!canvas.width || !canvas.height) return true;
-  return backgroundRenderer(IDS, renderer).draw(canvas, backgroundUniforms(layer, elapsed, canvas.width, canvas.height, fps));
+  if (renderer?.getContext().isContextLost()) return false;
+  const uniforms = backgroundUniforms(layer, elapsed, canvas.width, canvas.height, fps, { aspect });
+  const pattern = PROCEDURAL_BACKGROUNDS[uniforms.pattern];
+  if (pattern.source === 'textures.dev') return drawTextureBackground(canvas, pattern.id, uniforms);
+  return backgroundRenderer(IDS, renderer).draw(canvas, uniforms);
 }
 
 export function disposeProceduralBackgrounds(renderer) { disposeBackgroundRenderer(renderer); }
@@ -192,9 +202,17 @@ export function watchProceduralBackgrounds(listener) {
 
 // Editor tile. Without WebGL 2 the tile shows the base color only; the stage
 // reports the missing capability.
-export function drawBackgroundPreview(canvas, layer) {
+export function drawBackgroundPreview(canvas, layer, aspect = canvas.width / canvas.height) {
+  const uniforms = backgroundUniforms(layer, 1, canvas.width, canvas.height, 24, { tile: true, aspect });
+  const pattern = PROCEDURAL_BACKGROUNDS[uniforms.pattern];
+  if (pattern.source === 'textures.dev') {
+    // Match the shader tiles' magnified 324-unit crop rather than squeezing
+    // every tiny SVG mark into a thumbnail.
+    if (uniforms.texture.textureLayout === 'original') uniforms.scale *= 1080 / 324;
+    return drawTextureBackground(canvas, pattern.id, uniforms);
+  }
   try {
-    if (backgroundRenderer(IDS).draw(canvas, backgroundUniforms(layer, 1, canvas.width, canvas.height, 24, { tile: true }))) return true;
+    if (backgroundRenderer(IDS).draw(canvas, uniforms)) return true;
   } catch {}
   const context = canvas.getContext('2d');
   if (context) { context.fillStyle = layer.color ?? '#080808'; context.fillRect(0, 0, canvas.width, canvas.height); }

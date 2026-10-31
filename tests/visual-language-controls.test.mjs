@@ -6,6 +6,10 @@ import { transform } from 'esbuild';
 import { PROCEDURAL_BACKGROUNDS, proceduralDefaults } from '../src/backgrounds.js';
 import { PATTERN_SCALE } from '../src/project-limits.js';
 import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from '../src/text-style.js';
+import { textureLayout, TEXTURE_LAYOUT_LIMITS } from '../src/texture-layout.js';
+import { blankProject, patchLayer } from '../src/project.js';
+import { evaluateChoreography } from '../src/choreography.js';
+import { choreographyPatch } from '../src/editor/choreography-edit.js';
 
 async function compile(path) {
   const source = fs.readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -22,7 +26,7 @@ function controls(component, initial) {
   const changes = [], uploads = [], effects = [];
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    UploadSimple() {}, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
+    UploadSimple() {}, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults, textureLayout, TEXTURE_LAYOUT_LIMITS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
     useState: value => [value, () => {}],
     useRef: value => ({ current: value }), useEffect: effect => effects.push(effect),
     createContext: value => ({ value }), useContext: context => context.value, useSyncExternalStore: (subscribe, snapshot) => snapshot()
@@ -88,6 +92,56 @@ test('pattern selection and bounded controls keep other background settings inta
   assert.equal(h.layer().patternSeed, 42);
   h.input('Pattern color').props.onChange({ target: { value: '#ff0000' } });
   assert.equal(h.layer().patternColor, '#ff0000');
+});
+
+test('MIT texture selection stays visible on a white background and preserves authored colors and media', () => {
+  const h = controls('background', { ...background, mode: 'procedural', color: '#ffffff', patternColor: '#ffffff', patternSeed: 42 });
+  h.button('Magnet background').props.onClick();
+  assert.equal(h.layer().pattern, 'magnet');
+  assert.equal(h.layer().color, '#ffffff');
+  assert.equal(h.layer().patternColor, '#171919');
+  assert.equal(h.layer().src, background.src);
+  assert.equal(h.layer().patternSeed, 42);
+  h.editInput('Texture zoom value', '175');
+  assert.equal(h.layer().patternScale, 1.75);
+  h.input('Focus X').props.onChange({ target: { value: 20 } });
+  assert.equal(h.layer().patternFocusX, 20);
+  h.input('Pattern color').props.onChange({ target: { value: '#ff0000' } });
+  h.button('Watch background').props.onClick();
+  assert.equal(h.layer().patternColor, '#ff0000');
+  assert.equal(h.layer().patternScale, 1.75);
+  assert.equal(h.layer().patternFocusX, 20);
+});
+
+test('choosing a texture preserves animated color interpolation, including the state limit', () => {
+  for (const count of [2, 32]) {
+    const states = Array.from({ length: count }, (_, i) => ({ id: `color-${i}`, time: i / 4, easing: 'linear', values: { patternColor: i % 2 ? '#ff0000' : '#ffffff' } }));
+    const project = patchLayer(blankProject(), 'background', { mode: 'procedural', color: '#080808', patternColor: '#ffffff', choreography: states });
+    const at = .125, layer = project.layers[0], h = controls('background', evaluateChoreography(layer, at));
+    h.button('Magnet background').props.onClick();
+    const next = patchLayer(project, layer.id, choreographyPatch(layer, h.changes[0], at, project.fps));
+    assert.deepEqual(next.layers[0].choreography, layer.choreography);
+    assert.equal(evaluateChoreography(next.layers[0], .0625).patternColor, evaluateChoreography(layer, .0625).patternColor);
+    assert.equal(next.layers[0].pattern, 'magnet');
+  }
+});
+
+test('texture distribution switches without jumping counts and manual edits preserve other controls', () => {
+  const h = controls('background', { ...background, mode: 'procedural', pattern: 'watch', textureLayout: 'adaptive' });
+  h.input('Density').props.onChange({ target: { value: '150' } });
+  const auto = textureLayout('watch', h.layer(), 1);
+  h.input('Texture distribution').props.onChange({ target: { value: 'manual' } });
+  assert.equal(h.layer().textureColumns, auto.columns);
+  assert.equal(h.layer().textureRows, auto.rows);
+  h.editInput('Columns', '8'); h.editInput('Rows', '12');
+  h.input('Element size').props.onChange({ target: { value: '65' } });
+  h.input('Texture layout').props.onChange({ target: { value: 'fit' } });
+  h.input('Margin').props.onChange({ target: { value: '12' } });
+  assert.deepEqual(textureLayout('watch', h.layer(), 16 / 9), { columns: 8, rows: 12, width: 8 * 26.08, height: 12 * 26.08, elementSize: .65 });
+  assert.equal(h.layer().textureMargin, .12);
+  assert.equal(h.layer().src, background.src);
+  assert.equal(h.input('Texture zoom'), undefined);
+  assert.equal(h.input('Density'), undefined);
 });
 
 test('direction and focus follow the pattern registry, and the loop toggles alone', () => {

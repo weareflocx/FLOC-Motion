@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 15;
+export const CURRENT_PROJECT_VERSION = 17;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -326,8 +326,15 @@ function v14ToV15(project) {
   return project;
 }
 
+// v16 is a neutral compatibility step with no behavioral changes.
+function v15ToV16(project) { return project; }
+
+// v17 adds static texture distribution controls. The default Original layout
+// keeps the legacy field geometry and framing; validation supplies neutral values.
+function v16ToV17(project) { return project; }
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13, v13ToV14, v14ToV15];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13, v13ToV14, v14ToV15, v15ToV16, v16ToV17];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');

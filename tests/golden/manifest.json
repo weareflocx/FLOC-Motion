@@ -66,6 +66,70 @@
         "backgrounds-fonts-1.70s.png"
       ]
     },
+    "textures-settle": {
+      "hash": "fa33c5e80feb2a3a",
+      "format": "landscape",
+      "frames": [
+        "textures-settle-0.50s.png",
+        "textures-settle-1.70s.png"
+      ]
+    },
+    "textures-magnet": {
+      "hash": "31cd545b8156eeee",
+      "format": "landscape",
+      "frames": [
+        "textures-magnet-0.50s.png",
+        "textures-magnet-1.70s.png"
+      ]
+    },
+    "textures-warp": {
+      "hash": "fcd3f3b47427aa28",
+      "format": "landscape",
+      "frames": [
+        "textures-warp-0.50s.png",
+        "textures-warp-1.70s.png"
+      ]
+    },
+    "textures-pillars": {
+      "hash": "894a2bd90a7880f6",
+      "format": "landscape",
+      "frames": [
+        "textures-pillars-0.50s.png",
+        "textures-pillars-1.70s.png"
+      ]
+    },
+    "textures-pinch": {
+      "hash": "b891db1b12e2603b",
+      "format": "landscape",
+      "frames": [
+        "textures-pinch-0.50s.png",
+        "textures-pinch-1.70s.png"
+      ]
+    },
+    "textures-sphere": {
+      "hash": "a96697bbaab26c55",
+      "format": "landscape",
+      "frames": [
+        "textures-sphere-0.50s.png",
+        "textures-sphere-1.70s.png"
+      ]
+    },
+    "textures-twist": {
+      "hash": "a59fe756fe223851",
+      "format": "landscape",
+      "frames": [
+        "textures-twist-0.50s.png",
+        "textures-twist-1.70s.png"
+      ]
+    },
+    "textures-watch": {
+      "hash": "1473600aaac89d81",
+      "format": "landscape",
+      "frames": [
+        "textures-watch-0.50s.png",
+        "textures-watch-1.70s.png"
+      ]
+    },
     "effects": {
       "hash": "31d0e37f8205edfd",
       "format": "square",

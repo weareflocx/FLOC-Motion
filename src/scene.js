@@ -703,7 +703,8 @@ export async function createScene(root, project, options = {}) {
       if (disposed || epoch !== seekEpoch) return;
       for (const background of backgrounds) {
         const layer = currentProject.layers.find(value => value.id === background.id);
-        if (!drawProceduralBackground(background.canvas, layer, Math.max(0, time - layer.start), currentProject.fps, rendering.renderer) && options.renderMode) throw new Error('The shared scene lost its graphics context during background export.');
+        const [formatWidth, formatHeight] = FORMATS[currentProject.format];
+        if (!drawProceduralBackground(background.canvas, layer, Math.max(0, time - layer.start), currentProject.fps, rendering.renderer, formatWidth / formatHeight) && options.renderMode) throw new Error('The shared scene lost its graphics context during background export.');
       }
       world.pose(time);
       await effects.seek(time);

@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Images } from '@phosphor-icons/react';
 import { MOTION_VARIANTS } from '../../carousel-motion.js';
 import { FontControls } from './FontControls.jsx';
-import { PROJECT_LIMITS, TEMPLATES, carouselImages } from '../../project.js';
+import { FORMATS, PROJECT_LIMITS, TEMPLATES, carouselImages } from '../../project.js';
 import { PresetBrowser } from './PresetBrowser.jsx';
 import { MotionControls } from './MotionControls.jsx';
 import { LayerFadeControls } from './LayerFadeControls.jsx';
@@ -98,7 +98,7 @@ function FlatTransform({ layer, onPatch, defaultOpen = false }) {
 function Design({ project, layer, images, uploading, cards, onPatch, onPick, onRemoveText, onReplaceCard }) {
   return <>
     {layer.type === 'carousel' && <CarouselDesign layer={layer} images={images} uploading={uploading} cards={cards} onPatch={onPatch} onPick={onPick} onReplaceCard={onReplaceCard}/>}
-    {layer.type === 'background' && <><BackgroundControls layer={layer} uploading={uploading} onPatch={onPatch} onPick={onPick}/><FlatTransform layer={layer} onPatch={onPatch}/></>}
+    {layer.type === 'background' && <><BackgroundControls layer={layer} aspect={FORMATS[project.format][0] / FORMATS[project.format][1]} uploading={uploading} onPatch={onPatch} onPick={onPick}/><FlatTransform layer={layer} onPatch={onPatch}/></>}
     {layer.type === 'text' && <>
       <Section title="Content" defaultOpen>
         <Field label="Text"><textarea aria-label="Layer text" maxLength={500} rows={4} value={layer.text} onChange={event => onPatch(layer.id, { text: event.target.value })}/></Field>

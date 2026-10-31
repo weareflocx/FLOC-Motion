@@ -10,7 +10,7 @@ import { stageMarkup } from '../src/scene.js';
 import { demoProject, validateProject } from '../src/project.js';
 
 const executablePath = [process.env.HYPERFRAMES_BROWSER_PATH, ...browserCandidates()].find(file => file && existsSync(file));
-const IDS = PROCEDURAL_BACKGROUNDS.map(({ id }) => id);
+const IDS = PROCEDURAL_BACKGROUNDS.filter(pattern => !pattern.source).map(({ id }) => id);
 
 test('grain advances exactly once per video frame and speed zero freezes everything', () => {
   for (const fps of [24, 25, 30, 60]) for (let frame = 0; frame < 3 * fps; frame++) {
@@ -73,7 +73,7 @@ test('procedural stage markup has native dimensions, timing and authored stackin
   assert.doesNotMatch(legacy, /<canvas/);
 });
 
-test('rendered patterns are distinct, seek-safe, balanced, stable in motion and legible as tiles', { skip: !executablePath && 'Chrome or Edge is required for WebGL verification', timeout: 120000 }, async t => {
+test('rendered shader patterns are distinct, seek-safe, balanced, stable in motion and legible as tiles', { skip: !executablePath && 'Chrome or Edge is required for WebGL verification', timeout: 120000 }, async t => {
   const bundle = await build({ stdin: { resolveDir: path.resolve('src'), contents: `
     import { drawProceduralBackground, drawBackgroundPreview } from './backgrounds.js';
     const pixels = (layer, time, width = 480, height = 270) => {

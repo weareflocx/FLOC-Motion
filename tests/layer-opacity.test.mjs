@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { PROJECT_LIMITS, demoProject, validateProject, patchLayer, fileLayer, duplicateLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
+import { FORMATS, PROJECT_LIMITS, demoProject, validateProject, patchLayer, fileLayer, duplicateLayer, layerAlpha, linkFormats, switchFormat } from '../src/project.js';
 import { effectLayer } from '../src/effects.js';
 import { stageMarkup } from '../src/scene.js';
 
@@ -60,7 +60,7 @@ const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace(
 
 test('the inspector edits the selected visual layer opacity, respects locks and excludes audio', () => {
   const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    useState: initial => [initial, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], TEMPLATES: [], MOTION_VARIANTS: { circular: [] }, PROJECT_LIMITS, SectionScope: { Provider: 'section-scope' } };
+    useState: initial => [initial, () => {}], useRef: () => ({ current: null }), carouselImages: () => [], FORMATS, TEMPLATES: [], MOTION_VARIANTS: { circular: [] }, PROJECT_LIMITS, SectionScope: { Provider: 'section-scope' } };
   for (const name of ['Section', 'Range', 'Field', 'NumberField', 'Color', 'Images', 'FontControls', 'TypographyControls', 'TextRevealControls', 'BackgroundControls', 'MotionControls', 'SpatialControls', 'OrientationControl', 'ModelControls', 'EffectControls', 'LayerFadeControls', 'TemplateFieldControls', 'ProjectControls', 'LayerHeader', 'CardList']) context[name] = function() {};
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.render = InspectorPanel;', context);

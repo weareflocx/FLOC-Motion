@@ -81,7 +81,7 @@ function cardFitFixtures() {
 // exactly one pattern. Every third pattern also carries vignette and grain.
 function backgroundFixture() {
   const project = base('Backgrounds and fonts', 'portrait34');
-  const backgrounds = PROCEDURAL_BACKGROUNDS.map(({ id }, i) => ({ id: `pattern-${id}`, type: 'background', name: id, ...span, mode: 'procedural', src: '', fit: 'cover', offset: 0, loop: true,
+  const backgrounds = PROCEDURAL_BACKGROUNDS.filter(pattern => !pattern.source).map(({ id }, i) => ({ id: `pattern-${id}`, type: 'background', name: id, ...span, mode: 'procedural', src: '', fit: 'cover', offset: 0, loop: true,
     color: ['#0b1020', '#1f0b14', '#0b1f14', '#1a1a0b'][i % 4], pattern: id, patternColor: ['#ffffff', '#ff5a36', '#3ad1ff', '#d6ff3a'][i % 4], patternScale: 1, patternIntensity: 0.7, patternSpeed: 0.6, patternSeed: i + 3,
     ...(i % 3 === 2 && { patternVignette: 0.6, patternGrain: 0.3 }), x: i % 4 * 25, y: Math.floor(i / 4) * 25 }));
   const styles = FONTS.flatMap(font => font.weights.map(weight => ({ font: font.id, weight })));
@@ -91,6 +91,16 @@ function backgroundFixture() {
   project.layers = [...backgrounds, ...texts, { id: 'logo', type: 'logo', name: 'Logo', ...span, src: '/brand/floc-symbol-white.svg', x: 82, y: 88, size: 12, fadeIn: 1, fadeOut: 0 }];
   return { id: 'backgrounds-fonts', times: [0.5, 1.7], project };
 }
+function textureFixtures() {
+  return PROCEDURAL_BACKGROUNDS.filter(pattern => pattern.source).map(({ id, name }) => {
+    const project = base(`${name} texture`, 'landscape');
+    project.layers = [{ ...colorBackground('#101010'), mode: 'procedural', pattern: id, patternColor: '#ffffff',
+      patternScale: 1, patternIntensity: 1, patternSpeed: .2, patternSeed: 7, patternFocusX: 50, patternFocusY: 50,
+      patternAccent: '#0055ff', patternAccentAmount: .25, patternVignette: 0, patternGrain: 0 }];
+    return { id: `textures-${id}`, times: [.5, 1.7], project };
+  });
+}
+
 // The stack carousel proves an animated warp before a CSS blur. Halftone,
 // duotone and chromatic split also run on text: every visual layer shares the
 // same ordered effect implementation.
@@ -112,7 +122,7 @@ function effectFixture() {
   return { id: 'effects', times: [0.5, 1.7, 2.9], project };
 }
 
-export const FIXTURES = [...carouselFixtures(), backgroundFixture(), effectFixture(), ...cardFitFixtures()].map(fixture => ({ ...fixture, project: validateProject(fixture.project) }));
+export const FIXTURES = [...carouselFixtures(), backgroundFixture(), ...textureFixtures(), effectFixture(), ...cardFitFixtures()].map(fixture => ({ ...fixture, project: validateProject(fixture.project) }));
 // The schema version is left out: a version bump that keeps the project's content keeps its frames.
 export const fixtureHash = fixture => createHash('sha256').update(JSON.stringify({ times: fixture.times, project: { ...fixture.project, version: undefined } })).digest('hex').slice(0, 16);
 export const frameName = (id, time) => `${id}-${time.toFixed(2)}s.png`;

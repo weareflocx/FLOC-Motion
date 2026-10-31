@@ -330,7 +330,7 @@ test('legacy v1 fixtures migrate to the output the pre-migration validator produ
   for (const name of LEGACY) {
     const input = await fixture(name), before = structuredClone(input);
     const project = validateProject(input);
-    assert.deepEqual(project, await fixture(`${name}.expected`), name);
+    assert.deepEqual(project, { ...await fixture(`${name}.expected`), version: CURRENT_PROJECT_VERSION }, name);
     assert.deepEqual(input, before, `${name} input must not be mutated`);
     assert.equal(project.version, CURRENT_PROJECT_VERSION);
   }
@@ -417,7 +417,7 @@ test('image IDs must be nonempty and unique within each list; v1 repairs them de
 
 test('importing a project file migrates it and reports newer files', async () => {
   const file = value => { const source = JSON.stringify(value); return { size: source.length, text: async () => source }; };
-  assert.deepEqual(await parseProjectFile(file(await fixture('v1-legacy-text'))), await fixture('v1-legacy-text.expected'));
+  assert.deepEqual(await parseProjectFile(file(await fixture('v1-legacy-text'))), { ...await fixture('v1-legacy-text.expected'), version: CURRENT_PROJECT_VERSION });
   await assert.rejects(parseProjectFile(file({ ...demoProject(), version: CURRENT_PROJECT_VERSION + 1 })), { message: 'This project was created by a newer version of FLOC Motion.' });
 });
 
