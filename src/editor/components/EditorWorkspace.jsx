@@ -23,7 +23,8 @@ export function EditorWorkspace({ session, selection: { selected, selection, set
     <CanvasPanel nudge={nudge} onOpenNudge={dialogs.openNudge} selected={selected} selection={selection} onSelect={group.selectCanvasLayer} onToggle={group.toggleCanvasLayer} onPatch={editLayer} onMoveGroup={group.moveGroup}
       onPreview={previewPosition} onPendingEdit={setCanvasEdit} canvasEditing={canvasEditing} project={project} carousel={carousel} history={history} future={future} ready={ready} positionPreview={positionPreview}
       clock={clock} time={time} playing={playing} onTimeChange={setTime} onSetPlaying={setPlaying} onError={showError} onReady={sceneReady} onUndo={undo} onRedo={redo} zoom={zoom} onZoom={setZoom} onDropAsset={(asset, point) => files.placeAssets([asset], 'layers', point)}
-      arrange={{ canAlign: arrangeState.align, canDistribute: arrangeState.distribute, target: arrangeState.target }} onArrange={group.arrange}/>
+      arrange={{ canAlign: arrangeState.align, canDistribute: arrangeState.distribute, target: arrangeState.target }} onArrange={group.arrange}
+      addLayer={{ uploading: files.uploading, onPick: files.pick, onAddText: actions.addText, onAddLayer: actions.addLayer, onOpenMedia: () => setLeftTab('media'), onPlaceAsset: asset => files.placeAssets([asset], 'layers') }}/>
     <InspectorPanel key={summary ? 'selection' : displayedLayer?.id ?? 'composition'} project={displayedProject} projectRef={session.projectRef} layer={displayedLayer} summary={summary} rightTab={rightTab} uploading={files.uploading}
       settings={{ project, onChangeProject: change, onChangeDuration: duration => change(resizeDuration(project, duration), { allow: ['timing'] }), onChangeFps: fps => change({ ...project, fps }) }}
       cards={{ onMove: actions.moveImage, onRemove: actions.removeImage, onAddAsset: (asset, target) => files.placeAssets([asset], target) }}

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Cube, DotsNine, ImageSquare, Images, MusicNotes, Plus, Shapes, SquaresFour, Sparkle, TextT, UploadSimple, X } from '@phosphor-icons/react';
+import { ArrowLeft, DotsNine, Images, Plus, Shapes, SlidersHorizontal, SquaresFour, Sparkle, TextT, UploadSimple, X } from '@phosphor-icons/react';
 import { PROJECT_LIMITS, carouselImages } from '../../project.js';
 import { MODEL_SHAPES } from '../../model-shapes.js';
 import { IconButton, Modal } from '../controls.jsx';
 import { CarouselCreationDialog } from './CarouselCreationDialog.jsx';
 import { MODEL_IMPORT_ACCEPT } from '../model-import.js';
+import { RadialLayerMenu } from './RadialLayerMenu.jsx';
 
 const visualFiles = '.png,.jpg,.jpeg,.webp,.gif,.avif,.svg,.mp4,.webm';
 const imageFiles = '.png,.jpg,.jpeg,.webp,.avif,.svg';
@@ -25,10 +26,8 @@ function ShapeChoices({ onChoose }) {
   </button>)}</div>;
 }
 
-// Adding: import files by kind, reuse an upload from Media, or create a layer (including a
-// built-in 3D sculpture). Replacing a source or adding carousel cards: upload a file or pick
-// one in Media; models can also switch to a built-in sculpture.
-export function AddLayerDialog({ project, initialTarget = 'layers', uploading, onClose, onPick, onAddText, onAddLayer, onOpenMedia, onPlaceAsset }) {
+// Both entry points share the same actions; source replacement keeps its file filters.
+export function AddLayerDialog({ project, initialTarget = 'layers', origin, uploading, onClose, onPick, onAddText, onAddLayer, onOpenMedia, onPlaceAsset }) {
   const [creatingCarousel, setCreatingCarousel] = useState(false);
   const [choosingShape, setChoosingShape] = useState(false);
   const cards = initialTarget.startsWith('cards:');
@@ -49,23 +48,24 @@ export function AddLayerDialog({ project, initialTarget = 'layers', uploading, o
   let body;
   if (adding) {
     const disabled = uploading || full;
+    const options = [
+      { id: 'import', Icon: UploadSimple, label: 'Import', description: 'Image, video, audio or 3D model', disabled, onClick: () => choose(allFiles, true) },
+      { id: 'media', Icon: SquaresFour, label: 'Media', description: 'Reuse a file already in the workspace', disabled: full, onClick: media },
+      { id: 'text', Icon: TextT, label: 'Text', description: 'A headline or caption', disabled, onClick: () => create('text') },
+      { id: 'carousel', Icon: Images, label: 'Carousel', description: 'Animated cards from images or video', disabled, onClick: () => setCreatingCarousel(true) },
+      { id: 'dataflow', Icon: DotsNine, label: 'Data flow', description: 'Procedural fibers and pulses', disabled, onClick: () => create('dataflow') },
+      { id: 'effect', Icon: SlidersHorizontal, label: 'Adjustment', description: 'Effects on the layers below', disabled, onClick: () => create('effect') },
+      { id: 'sculpture', Icon: Shapes, label: 'Sculpture', description: 'Choose a built-in 3D sculpture', disabled, onClick: () => setChoosingShape(true) },
+      { id: 'logo', Icon: Sparkle, label: 'Studio mark', description: 'The studio logo', disabled, onClick: () => create('logo') }
+    ];
+    const blockedReason = full ? `Layer limit reached (${PROJECT_LIMITS.maxLayers}). Remove a layer to add another.` : uploading ? 'Import in progress. Media is still available.' : '';
+    if (origin) return <RadialLayerMenu origin={origin} options={options} blockedReason={blockedReason} onClose={onClose}/>;
     body = <>
-      <h3 className="add-layer-group">Import</h3>
-      <div className="add-layer-options">
-        <Option Icon={ImageSquare} label="Image or video" description="PNG, JPG, WebP, AVIF, SVG, GIF, MP4, WebM" disabled={disabled} onClick={() => choose(visualFiles, true)}/>
-        <Option Icon={MusicNotes} label="Audio" description="MP3, WAV, M4A or OGG soundtrack" disabled={disabled} onClick={() => choose(audioFiles, true)}/>
-        <Option Icon={Cube} label="3D model" description="GLB, or OBJ with its MTL and textures" disabled={disabled} onClick={() => choose(MODEL_IMPORT_ACCEPT, true)}/>
-        <Option Icon={SquaresFour} label="From Media" description="Reuse a file already in the workspace" disabled={full} onClick={media}/>
-      </div>
+      {blockedReason && <p className="helper" role="status">{blockedReason}</p>}
+      <h3 className="add-layer-group">Import & reuse</h3>
+      <div className="add-layer-options">{options.slice(0, 2).map(option => <Option key={option.id} {...option}/>)}</div>
       <h3 className="add-layer-group">Create</h3>
-      <div className="add-layer-options">
-        <Option Icon={TextT} label="Text" description="A headline or caption" disabled={disabled} onClick={() => create('text')}/>
-        <Option Icon={Images} label="Carousel" description="Animated cards from images or video" disabled={disabled} onClick={() => setCreatingCarousel(true)}/>
-        <Option Icon={DotsNine} label="Data flow" description="Procedural fibers and pulses · transparent overlay" disabled={disabled} onClick={() => create('dataflow')}/>
-        <Option Icon={DotsNine} label="Adjustment" description="Effects on the layers below" disabled={disabled} onClick={() => create('effect')}/>
-        <Option Icon={Sparkle} label="Studio mark" description="The studio logo" disabled={disabled} onClick={() => create('logo')}/>
-        <Option Icon={Shapes} label="Sculpture" description="A built-in 3D sculpture" disabled={disabled} onClick={() => setChoosingShape(true)}/>
-      </div>
+      <div className="add-layer-options">{options.slice(2).map(option => <Option key={option.id} {...option}/>)}</div>
     </>;
   } else {
     const blocked = !existing || existing.locked || (cards && carouselImages(project, existing).length >= PROJECT_LIMITS.maxImages);

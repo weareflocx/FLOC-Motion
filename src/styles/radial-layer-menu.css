@@ -1,0 +1,125 @@
+dialog.modal-backdrop:has(.radial-layer-menu) {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+dialog.modal-backdrop:has(.radial-layer-menu)::backdrop {
+  background: transparent;
+}
+
+.radial-layer-dismiss {
+  position: fixed;
+  inset: 0;
+}
+
+.radial-layer-menu {
+  --radial-size: min(280px, calc(100vw - 40px), calc(100dvh - 40px));
+  position: absolute;
+  width: var(--radial-size);
+  height: var(--radial-size);
+  left: clamp(calc(20px + var(--radial-size) / 2), var(--origin-x), calc(100% - 20px - var(--radial-size) / 2));
+  top: clamp(calc(20px + var(--radial-size) / 2), var(--origin-y), calc(100% - 20px - var(--radial-size) / 2));
+  transform: translate(-50%, -50%);
+}
+
+
+.radial-layer-close {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.radial-layer-option {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent);
+}
+
+.radial-layer-option:active:not(:disabled),
+.radial-layer-close:active:not(:disabled) {
+  transform: translate(-50%, -50%);
+}
+
+.radial-layer-content {
+  display: block;
+  pointer-events: none;
+  animation: radial-layer-enter 120ms ease-out both;
+  animation-delay: var(--entry-delay);
+}
+
+.radial-layer-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid #474747;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.radial-layer-label {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.radial-layer-option:is(:hover, :focus-visible) .radial-layer-label {
+  display: block;
+}
+
+.radial-layer-option:not(:disabled):is(:hover, :focus-visible) .radial-layer-icon {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.radial-layer-option:active .radial-layer-icon {
+  transform: scale(.96);
+}
+
+@keyframes radial-layer-enter {
+  from {
+    opacity: 0;
+    transform: translate(calc(var(--radial-size) * var(--entry-x)), calc(var(--radial-size) * var(--entry-y))) scale(.6);
+  }
+  60% {
+    opacity: 1;
+    transform: translate(calc(var(--radial-size) * var(--bend-x)), calc(var(--radial-size) * var(--bend-y))) scale(.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radial-layer-content { animation: none; }
+}
+
