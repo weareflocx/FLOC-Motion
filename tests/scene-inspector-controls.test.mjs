@@ -11,6 +11,7 @@ import * as dataFlowStyle from '../src/data-flow-style.js';
 import { MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from '../src/model-shapes.js';
 import { MOTION_VARIANTS } from '../src/carousel-motion.js';
 import { DEFAULT_LAYOUT } from '../src/layout.js';
+import * as elementMotion from '../src/element-motion.js';
 
 const files = [
   '../src/editor/controls.jsx',
@@ -19,6 +20,7 @@ const files = [
   '../src/editor/components/ProjectControls.jsx',
   '../src/editor/components/ModelControls.jsx',
   '../src/editor/components/DataFlowControls.jsx',
+  '../src/editor/components/ElementMotionControls.jsx',
   '../src/editor/components/InspectorPanel.jsx'
 ];
 const compiled = (await Promise.all(files.map(async file => {
@@ -40,6 +42,7 @@ function inspector(initial, selected = null, rightTab = 'composition') {
   const projectRef = { current: project };
   const changes = [];
   const context = {
+    ...elementMotion,
     ...projectApi, ...sceneSettings, ...modelStyle, ...modelMetadata, ...dataFlowStyle, MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC, MOTION_VARIANTS, DEFAULT_LAYOUT,
     // Preserve the real validation boundary across the harness's VM realm.
     patchScene: (value, patch) => projectApi.patchScene(value, plain(patch)),
@@ -50,7 +53,7 @@ function inspector(initial, selected = null, rightTab = 'composition') {
     Images: 'icon',
     EffectControls: ({ children }) => children
   };
-  for (const name of ['FontControls', 'PresetBrowser', 'MotionControls', 'LayerFadeControls', 'TemplateFieldControls', 'BackgroundControls', 'TextRevealControls', 'TypographyControls', 'SelectionSummary', 'LayerHeader', 'CardList', 'ReplaceCardDialog', 'ModelMotionControls', 'FormatVersionsControls', 'LayoutControls']) context[name] = () => null;
+  for (const name of ['FontControls', 'PresetBrowser', 'MotionControls', 'LayerFadeControls', 'TemplateFieldControls', 'BackgroundControls', 'TextEntryControls', 'TextExitControls', 'TypographyControls', 'SelectionSummary', 'LayerHeader', 'CardList', 'ReplaceCardDialog', 'ModelMotionControls', 'FormatVersionsControls', 'LayoutControls']) context[name] = () => null;
   vm.createContext(context);
   vm.runInContext(compiled + '\nthis.inspector = InspectorPanel;', context);
   function nodes(node, blocked = false, section = null) {

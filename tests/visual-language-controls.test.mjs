@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { transform } from 'esbuild';
 import { PROCEDURAL_BACKGROUNDS, proceduralDefaults } from '../src/backgrounds.js';
 import { PATTERN_SCALE } from '../src/project-limits.js';
-import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from '../src/text-style.js';
+import { DEFAULT_TEXT_STYLE } from '../src/text-style.js';
 import { textureLayout, TEXTURE_LAYOUT_LIMITS } from '../src/texture-layout.js';
 import { blankProject, patchLayer } from '../src/project.js';
 import { evaluateChoreography } from '../src/choreography.js';
@@ -26,13 +26,13 @@ function controls(component, initial) {
   const changes = [], uploads = [], effects = [];
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
-    UploadSimple() {}, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults, textureLayout, TEXTURE_LAYOUT_LIMITS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE, TEXT_REVEALS,
+    UploadSimple() {}, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults, textureLayout, TEXTURE_LAYOUT_LIMITS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE,
     useState: value => [value, () => {}],
     useRef: value => ({ current: value }), useEffect: effect => effects.push(effect),
     createContext: value => ({ value }), useContext: context => context.value, useSyncExternalStore: (subscribe, snapshot) => snapshot()
   };
   vm.createContext(context);
-  vm.runInContext(primitives + backgrounds + typography + '\nthis.background = BackgroundControls; this.typography = TypographyControls; this.reveal = TextRevealControls; this.preview = BackgroundPreview;', context);
+  vm.runInContext(primitives + backgrounds + typography + '\nthis.background = BackgroundControls; this.typography = TypographyControls; this.preview = BackgroundPreview;', context);
   function nodes(node) {
     if (!node || typeof node !== 'object') return [];
     if (typeof node.type === 'function' && node.type.name !== 'BackgroundPreview') {
@@ -158,11 +158,10 @@ test('direction and focus follow the pattern registry, and the loop toggles alon
   assert.deepEqual({ patternDirection, patternFocusX, patternFocusY, patternLoop, pattern }, { patternDirection: 90, patternFocusX: 20, patternFocusY: 80, patternLoop: true, pattern: 'rings' });
 });
 
-test('typography preserves precise spacing, and the reveal keeps its duration when disabled', () => {
+test('typography preserves precise spacing and alignment', () => {
   const h = controls('typography', textLayer);
   assert.equal(h.input('Tracking (1/1000 em)').props.value, '-35');
   assert.equal(h.input('Tracking (1/1000 em)').props.inputMode, 'numeric');
-  assert.equal(h.input('Text reveal'), undefined, 'the reveal lives on Motion');
   h.editInput('Tracking (1/1000 em)', '25');
   assert.equal(h.layer().letterSpacing, 0.025);
   const changes = h.changes.length;
@@ -171,15 +170,5 @@ test('typography preserves precise spacing, and the reveal keeps its duration wh
   h.button('center').props.onClick();
   assert.equal(h.layer().textAlign, 'center');
   assert.equal(h.button('center').props['aria-pressed'], true);
-  const r = controls('reveal', h.layer());
-  assert.equal(r.input('Reveal duration'), undefined);
-  r.input('Text reveal').props.onChange({ target: { value: 'up' } });
-  assert.equal(r.input('Reveal duration').props.value, '600');
-  r.editInput('Reveal duration', '1250');
-  r.input('Text reveal').props.onChange({ target: { value: 'none' } });
-  assert.equal(r.input('Reveal duration'), undefined);
-  r.input('Text reveal').props.onChange({ target: { value: 'right' } });
-  assert.equal(r.input('Reveal duration').props.value, '1250');
-  assert.equal(r.layer().letterSpacing, 0.025);
-  assert.equal(r.layer().text, textLayer.text);
+  assert.equal(h.layer().text, textLayer.text);
 });

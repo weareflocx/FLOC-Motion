@@ -22,7 +22,7 @@ test('safe-area layout constrains Flat text without moving or rejecting Spatial 
           name: 'Safe text', space, x: 0, y: 30, width: oversized ? 100 : 35,
           text: 'MMMM', size: oversized ? 180 : 72, roll: oversized ? 45 : 0,
           tilt: oversized ? 65 : 0, yaw: oversized ? 55 : 0, z: oversized ? -50 : 0,
-          start: 0, end: 12, fadeIn: 0, fadeOut: 0, rise: false, choreography: [] };
+          start: 0, end: 12, fadeIn: 0, fadeOut: 0, choreography: [] };
         if (space === 'missing') delete text.space;
         p.layers = [text];
         const project = validateProject(p);

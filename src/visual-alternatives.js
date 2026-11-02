@@ -9,7 +9,7 @@ const record = value => value && typeof value === 'object' && !Array.isArray(val
 const COMMON_VISUAL_FIELDS = ['opacity', 'fadeIn', 'fadeOut'];
 const VISUAL_FIELDS = Object.freeze({
   background: new Set(['color', 'mode', 'fit', 'pattern', 'patternColor', 'patternScale', 'patternIntensity', 'patternSpeed', 'patternSeed', 'patternVignette', 'patternGrain', 'patternLoop', 'patternDirection', 'patternFocusX', 'patternFocusY', 'patternAccent', 'patternAccentAmount']),
-  text: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size', 'color', 'font', 'weight', 'width', 'rise', 'lineHeight', 'letterSpacing', 'textAlign', 'reveal', 'revealDuration']),
+  text: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size', 'color', 'font', 'weight', 'width', 'lineHeight', 'letterSpacing', 'textAlign', 'entry', 'exit']),
   logo: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   media: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size']),
   model: new Set([...COMMON_VISUAL_FIELDS, 'x', 'y', 'size', 'tilt', 'yaw', 'roll']),
@@ -100,10 +100,10 @@ function curatedPatch(layer, direction) {
       ? { mode: 'procedural', color: BRAND.colors.black, pattern: 'rays', patternColor: BRAND.colors.red, patternScale: 0.85, patternIntensity: 0.62, patternSpeed: 0.32, patternSeed: (layer.patternSeed + 23) % 65536 }
       : { mode: 'procedural', color: BRAND.colors.black, pattern: 'flow', patternColor: BRAND.colors.blue, patternScale: 0.6, patternIntensity: 0.7, patternSpeed: -0.45, patternSeed: (layer.patternSeed + 37) % 65536 };
   if (layer.type === 'text') return direction === 'Editorial'
-    ? { size: shifted(layer.size, -4, 12, 180), font: 'geist', weight: 400, lineHeight: 1.05, letterSpacing: -0.02, textAlign: 'left', reveal: 'up', revealDuration: 0.5 }
+    ? { size: shifted(layer.size, -4, 12, 180), font: 'geist', weight: 400, lineHeight: 1.05, letterSpacing: -0.02, textAlign: 'left', entry: { motion: 'reveal', direction: 'up', amount: 4, duration: 0.5, character: 'smooth' } }
     : direction === 'Bold'
-      ? { size: shifted(layer.size, 8, 12, 180), font: 'druk-wide', weight: 900, lineHeight: 0.82, letterSpacing: -0.055, textAlign: 'left', reveal: 'right', revealDuration: 0.35 }
-      : { size: shifted(layer.size, -8, 12, 180), font: 'geist-mono', weight: 700, lineHeight: 1.18, letterSpacing: 0.045, textAlign: 'center', reveal: 'left', revealDuration: 0.8 };
+      ? { size: shifted(layer.size, 8, 12, 180), font: 'druk-wide', weight: 900, lineHeight: 0.82, letterSpacing: -0.055, textAlign: 'left', entry: { motion: 'reveal', direction: 'right', amount: 4, duration: 0.35, character: 'weighted' } }
+      : { size: shifted(layer.size, -8, 12, 180), font: 'geist-mono', weight: 700, lineHeight: 1.18, letterSpacing: 0.045, textAlign: 'center', entry: { motion: 'reveal', direction: 'left', amount: 0, duration: 0.8, character: 'linear' } };
   if (layer.type === 'carousel') return direction === 'Editorial'
     ? { size: shifted(layer.size, -0.08, 0.5, 2.5), effects: withLook(layer, [{ type: 'monochrome', enabled: true, amount: 0.2 }]), cornerRadius: 3, gap: 0.2 }
     : direction === 'Bold'

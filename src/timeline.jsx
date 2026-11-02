@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { EyeSlash, LockSimple, DiamondsFour, FilmStrip } from '@phosphor-icons/react';
-import { editClip, editFade, timeAtPointer } from './editor-controls.js';
+import { editClip, editFade, editTextTiming, textTimingLengths, timeAtPointer } from './editor-controls.js';
 import { fitFades } from './project.js';
+import { TEXT_MOTION_PRESETS, textMotionPreset } from './text-motion.js';
 import { moveState, supportsChoreography } from './choreography.js';
 import { LAYER_COLORS } from './editor/layer-colors.js';
 import { LAYER_KINDS } from './editor/layer-kinds.js';
@@ -10,6 +11,13 @@ import { AudioWaveform, AudioWaveformStatus, useAudioWaveforms } from './editor/
 import './timeline-choreography.css';
 
 const isFade = kind => kind === 'fadeIn' || kind === 'fadeOut';
+// Text fade handles edit the whole entry or exit: its fade and movement scale together.
+const SIDE = { fadeIn: ['entry', 'Entry'], fadeOut: ['exit', 'Exit'] };
+const withDurations = (l, range) => ({ ...l, fadeIn: range.fadeIn, fadeOut: range.fadeOut, entry: { ...l.entry, duration: range.entryDuration ?? l.entry.duration }, exit: { ...l.exit, duration: range.exitDuration ?? l.exit.duration } });
+const presetName = (layer, kind) => {
+  const id = textMotionPreset(layer, SIDE[kind][0]);
+  return id === 'mirror' ? 'Mirrored' : TEXT_MOTION_PRESETS.find(preset => preset.id === id).name;
+};
 
 export function TimelineTracks({ project, selected, clock, time, icons, mode = 'timing', controlsLayerId = null, rulerControls, onOpenControls, onSelect, onSelectState = onSelect, onSeek, onCommit }) {
   const ruler = useRef(null); const tracks = useRef(null);
@@ -40,9 +48,16 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
     gesture.current = null; setDraft(null);
     if (g.target.hasPointerCapture(g.pointerId)) g.target.releasePointerCapture(g.pointerId);
   }, [selected, mode, project]);
-  const timing = l => ({ start: l.start, end: l.end, ...(l.type === 'music' ? { offset: l.offset } : {}), fadeIn: l.fadeIn, fadeOut: l.fadeOut });
-  const edit = (l, kind, delta) => ({ ...timing(l), ...(isFade(kind) ? editFade(l, kind, delta, project.fps) : editClip(l, kind, delta, project.duration, project.fps, waveforms[l.src]?.data?.duration)) });
-  const changes = (l, kind, next) => isFade(kind) ? next[kind] !== l[kind] && { [kind]: next[kind] } : (next.start !== l.start || next.end !== l.end || (l.type === 'music' && next.offset !== l.offset)) && { start: next.start, end: next.end, ...(l.type === 'music' && kind === 'start' ? { offset: next.offset } : {}) };
+  const timing = l => ({ start: l.start, end: l.end, ...(l.type === 'music' ? { offset: l.offset } : {}), fadeIn: l.fadeIn, fadeOut: l.fadeOut, ...(l.type === 'text' ? { entryDuration: l.entry.duration, exitDuration: l.exit.duration } : {}) });
+  const fade = (l, kind, delta) => l.type === 'text' ? editTextTiming(l, kind, delta, project.fps) : editFade(l, kind, delta, project.fps);
+  const edit = (l, kind, delta) => ({ ...timing(l), ...(isFade(kind) ? fade(l, kind, delta) : editClip(l, kind, delta, project.duration, project.fps, waveforms[l.src]?.data?.duration)) });
+  function fadeChanges(l, kind, next) {
+    if (l.type !== 'text') return next[kind] !== l[kind] && { [kind]: next[kind] };
+    const side = SIDE[kind][0], duration = next[`${side}Duration`];
+    const patch = { ...(next[kind] !== l[kind] && { [kind]: next[kind] }), ...(duration !== l[side].duration && { [side]: { duration } }) };
+    return Object.keys(patch).length > 0 && patch;
+  }
+  const changes = (l, kind, next) => isFade(kind) ? fadeChanges(l, kind, next) : (next.start !== l.start || next.end !== l.end || (l.type === 'music' && next.offset !== l.offset)) && { start: next.start, end: next.end, ...(l.type === 'music' && kind === 'start' ? { offset: next.offset } : {}) };
   useEffect(() => {
     const g = gesture.current;
     if (!g || g.kind === 'state' || g.delta === undefined) return;
@@ -154,7 +169,15 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
     e.preventDefault();
     onSeek(Math.max(0, Math.min(project.duration - 1 / project.fps, e.key === 'Home' ? 0 : e.key === 'End' ? project.duration - 1 / project.fps : clock.get().time + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / project.fps)));
   }
-  const status = d => `${project.layers.find(l => l.id === d.id)?.name}: ${d.kind === 'state' ? `state at ${(d.start + d.choreography.find(state => state.id === d.stateId).time).toFixed(2)}s` : isFade(d.kind) ? `fade ${d.kind === 'fadeIn' ? 'in' : 'out'} ${d[d.kind].toFixed(2)}s` : `${d.start.toFixed(2)}s — ${d.end.toFixed(2)}s`}`;
+  // Text handles name the side's preset and its length (the longer of fade and movement).
+  const fadeText = (l, range, kind, length) => l.type === 'text' ? `${SIDE[kind][1]} ${presetName(withDurations(l, range), kind)} ${length.toFixed(2)}s` : `Fade ${kind === 'fadeIn' ? 'in' : 'out'} ${length.toFixed(2)}s`;
+  const status = d => {
+    const l = project.layers.find(item => item.id === d.id);
+    const detail = d.kind === 'state' ? `state at ${(d.start + d.choreography.find(state => state.id === d.stateId).time).toFixed(2)}s`
+      : isFade(d.kind) ? fadeText(l, d, d.kind, l.type === 'text' ? textTimingLengths(withDurations(l, d), d.end - d.start)[d.kind] : d[d.kind]).replace(/^\w+/, word => word.toLowerCase())
+      : `${d.start.toFixed(2)}s — ${d.end.toFixed(2)}s`;
+    return `${l?.name}: ${detail}`;
+  };
   const rulerStep = project.duration <= 3 ? 0.5 : project.duration <= 6 ? 1 : project.duration <= 15 ? 2 : 5;
   const ticks = Array.from({ length: Math.ceil(project.duration / rulerStep * 5) }, (_, i) => i * rulerStep / 5);
   return <>
@@ -167,8 +190,10 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
     </div></div>
     <div className="track-list">{project.layers.map(l => {
       const Icon = l.type === 'media' && /\.(mp4|webm)$/i.test(l.src) ? FilmStrip : icons[l.type]; const range = draft?.id === l.id ? draft : l; const span = range.end - range.start;
-      // Trimming previews the fitted fades that validation will store.
-      const fades = l.fadeIn !== undefined && fitFades(range.fadeIn, range.fadeOut, span);
+      // Trimming previews the fitted fades (and text movements) that validation will store.
+      const fades = l.fadeIn !== undefined && (l.type === 'text' ? textTimingLengths(withDurations(l, range), span) : fitFades(range.fadeIn, range.fadeOut, span));
+      const handleLabel = kind => fadeText(l, range, kind, fades[kind]);
+      const handleName = kind => l.type === 'text' ? `${SIDE[kind][1]} of ${l.name}: ${handleLabel(kind).replace(/^\w+ /, '')}` : `${kind === 'fadeIn' ? 'Fade in' : 'Fade out'} of ${l.name}: ${fades[kind].toFixed(2)}s`;
       const draggingClip = draft?.id === l.id && draft.kind !== 'state';
       const dragAt = draggingClip && (isFade(draft.kind) ? draft.kind === 'fadeIn' ? range.start + fades.fadeIn : range.end - fades.fadeOut : draft.kind === 'end' ? range.end : range.start);
       const share = value => `${value / span * 100}%`;
@@ -193,15 +218,15 @@ export function TimelineTracks({ project, selected, clock, time, icons, mode = '
             {l.type === 'music' && waveforms[l.src]?.data && <AudioWaveform summary={waveforms[l.src].data} range={{ ...l, ...range }} width={laneWidth * span / project.duration}/>}
             {l.type === 'music' && <AudioWaveformStatus src={l.src} state={waveforms[l.src]} onRetry={retryWaveform}/>}
             <button className="clip-handle start" aria-label={`Trim start of ${l.name}`} title={`Trim start · ${range.start.toFixed(2)}s`} {...pointerProps(l, 'start')}/>
-            {fades && <><svg className="clip-fade in" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeIn) }}><path className="fade-shade" d="M0 0H100C65 0 35 100 0 100Z"/><path className="fade-line" d="M0 100C35 100 65 0 100 0"/></svg><button className="fade-handle in" style={{ '--fade-at': share(fades.fadeIn) }} aria-label={`Fade in of ${l.name}: ${fades.fadeIn.toFixed(2)}s`} title={`Fade in ${fades.fadeIn.toFixed(2)}s`} {...pointerProps(l, 'fadeIn')}/></>}
+            {fades && <><svg className="clip-fade in" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeIn) }}><path className="fade-shade" d="M0 0H100C65 0 35 100 0 100Z"/><path className="fade-line" d="M0 100C35 100 65 0 100 0"/></svg><button className="fade-handle in" style={{ '--fade-at': share(fades.fadeIn) }} aria-label={handleName('fadeIn')} title={handleLabel('fadeIn')} {...pointerProps(l, 'fadeIn')}/></>}
             <button className="clip-body" aria-label={`Move ${l.name} clip`} {...pointerProps(l, 'move')}>
               <Icon size={14} className="clip-type-icon" aria-hidden="true"/><span className="clip-label">{l.type === 'text' ? l.text : l.name}</span><span className="clip-duration" aria-hidden="true">{span.toFixed(2)}s</span>
             </button>
-            {fades && <><svg className="clip-fade out" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeOut) }}><path className="fade-shade" d="M0 0C35 0 65 100 100 100V0Z"/><path className="fade-line" d="M0 0C35 0 65 100 100 100"/></svg><button className="fade-handle out" style={{ '--fade-at': share(fades.fadeOut) }} aria-label={`Fade out of ${l.name}: ${fades.fadeOut.toFixed(2)}s`} title={`Fade out ${fades.fadeOut.toFixed(2)}s`} {...pointerProps(l, 'fadeOut')}/></>}
+            {fades && <><svg className="clip-fade out" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: share(fades.fadeOut) }}><path className="fade-shade" d="M0 0C35 0 65 100 100 100V0Z"/><path className="fade-line" d="M0 0C35 0 65 100 100 100"/></svg><button className="fade-handle out" style={{ '--fade-at': share(fades.fadeOut) }} aria-label={handleName('fadeOut')} title={handleLabel('fadeOut')} {...pointerProps(l, 'fadeOut')}/></>}
             <button className="clip-handle end" aria-label={`Trim end of ${l.name}`} title={`Trim end · ${range.end.toFixed(2)}s`} {...pointerProps(l, 'end')}/>
           </div>
           {draggingClip && <span className="clip-drag-feedback" aria-hidden="true" style={{ left: `clamp(4px, calc(${dragAt / project.duration * 100}% - 56px), max(4px, calc(100% - 180px)))` }}>
-            {isFade(draft.kind) ? `Fade ${draft.kind === 'fadeIn' ? 'in' : 'out'} ${fades[draft.kind].toFixed(2)}s` : `${draft.kind === 'end' ? `End ${range.end.toFixed(2)}` : `Start ${range.start.toFixed(2)}`}s · Duration ${span.toFixed(2)}s`}
+            {isFade(draft.kind) ? handleLabel(draft.kind) : `${draft.kind === 'end' ? `End ${range.end.toFixed(2)}` : `Start ${range.start.toFixed(2)}`}s · Duration ${span.toFixed(2)}s`}
           </span>}
           {states.map((state, index) => {
             const at = range.start + state.time;

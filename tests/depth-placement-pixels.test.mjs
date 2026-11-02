@@ -37,7 +37,7 @@ test('scene depth info reports each Wheel card and plane, and each next stop pla
       const names = Object.keys(colors);
       p.images = names.map((name, index) => ({ id: name, name, src: [...local.keys()][index] }));
       p.layers.push({ ...demoProject().layers.find(layer => layer.type === 'carousel'), id: 'wheel', space: 'spatial', template: 'wheel', motionVariant: 'ring', x: 50, y: 50, z: 0, size: 0.6, radius: 2, gap: 0.2, cardAspect: 1, cardCount: 4, speed: 30, tilt: 60, yaw: 0, roll: 0, curve: 0, cornerRadius: 0, fadeIn: 0, fadeOut: 0 });
-      p.layers.push({ id: 'title', type: 'text', name: 'Center text', space: 'spatial', visible: true, locked: false, start: 0, end: 12, text: 'MMMMM\\nMMMMM\\nMMMMM\\nMMMMM\\nMMMMM', font: 'geist', weight: 700, color: '#000000', x: 5, y: 6, z: 0, tilt: 0, yaw: 0, roll: 0, width: 90, size: 150, fadeIn: 0, fadeOut: 0, rise: false });
+      p.layers.push({ id: 'title', type: 'text', name: 'Center text', space: 'spatial', visible: true, locked: false, start: 0, end: 12, text: 'MMMMM\\nMMMMM\\nMMMMM\\nMMMMM\\nMMMMM', font: 'geist', weight: 700, color: '#000000', x: 5, y: 6, z: 0, tilt: 0, yaw: 0, roll: 0, width: 90, size: 150, fadeIn: 0, fadeOut: 0 });
       project = validateProject(p);
       root.innerHTML = stageMarkup(transport(project));
       engine = await createScene(root, transport(project), { onMediaError: error => errors.push(error.message) });

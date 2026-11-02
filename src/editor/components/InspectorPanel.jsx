@@ -9,7 +9,7 @@ import { LayerFadeControls } from './LayerFadeControls.jsx';
 import { EffectControls } from './EffectControls.jsx';
 import { TemplateFieldControls } from './TemplateFieldControls.jsx';
 import { BackgroundControls } from './BackgroundControls.jsx';
-import { TextRevealControls, TypographyControls } from './TypographyControls.jsx';
+import { TypographyControls } from './TypographyControls.jsx';
 import { OrientationControl } from '../OrientationControl.jsx';
 import { Color, Field, NumberField, Range, Section, SectionScope } from '../controls.jsx';
 import { SelectionSummary } from './SelectionSummary.jsx';
@@ -20,6 +20,8 @@ import { LayerHeader } from './LayerHeader.jsx';
 import { CardList } from './CardList.jsx';
 import { SpatialControls } from './SpatialControls.jsx';
 import { ReplaceCardDialog } from './ReplaceCardDialog.jsx';
+import { ElementMotionControls } from './ElementMotionControls.jsx';
+import { TextEntryControls, TextExitControls } from './TextMotionControls.jsx';
 
 const CARD_RATIOS = [[9 / 16, '9:16'], [0.8, '4:5'], [1 / 1.14, '7:8'], [1, '1:1'], [4 / 3, '4:3'], [16 / 9, '16:9']];
 const FIT_OPTIONS = [['height', 'Each image · same height'], ['width', 'Each image · same width']];
@@ -125,12 +127,18 @@ function Design({ project, layer, images, uploading, cards, onPatch, onPick, onR
   </>;
 }
 
-function Motion({ layer, images, onPatch }) {
+// Text moves in (Entry), while on screen (Continuous) and out (Exit); other layers keep
+// their whole-element motion and plain fades. `onPreviewMotion(layerId, side, presetId)`
+// previews a text preset on the canvas; a null preset ends the preview.
+function Motion({ layer, images, onPatch, onPreviewMotion }) {
   const plays = playsSource(layer);
-  const own = ['carousel', 'text', 'model', 'dataflow'].includes(layer.type) || plays;
+  const own = ['carousel', 'model', 'dataflow'].includes(layer.type) || plays;
+  const text = layer.type === 'text';
   return <>
+    {text && <TextEntryControls layer={layer} onPatch={onPatch} onPreview={onPreviewMotion}/>}
+    <ElementMotionControls layer={layer} onPatch={onPatch}/>
+    {text && <TextExitControls layer={layer} onPatch={onPatch} onPreview={onPreviewMotion}/>}
     {layer.type === 'carousel' && <MotionControls layer={layer} count={layer.cardCount || images.length} onPatch={onPatch}/>}
-    {layer.type === 'text' && <TextRevealControls layer={layer} onPatch={onPatch}/>}
     {layer.type === 'model' && <ModelControls layer={layer} onPatch={onPatch} rightTab="animation"/>}
     {layer.type === 'dataflow' && <DataFlowControls layer={layer} onPatch={onPatch} rightTab="animation"/>}
     {plays && <Section title="Playback" defaultOpen detail={`From ${Math.round(layer.offset * 1000)} ms${layer.loop ? ' · Loop' : ''}`}>
@@ -138,7 +146,7 @@ function Motion({ layer, images, onPatch }) {
       {layer.type === 'music' && <Range label="Fade in / out" value={layer.fade} min={0} max={5} step={0.1} suffix="s" onChange={value => onPatch(layer.id, { fade: value })}/>}
       <label className="check-field"><input type="checkbox" checked={layer.loop} onChange={event => onPatch(layer.id, { loop: event.target.checked })}/>Loop</label>
     </Section>}
-    <LayerFadeControls layer={layer} defaultOpen={!own} onPatch={onPatch}/>
+    {!text && <LayerFadeControls layer={layer} defaultOpen={!own} onPatch={onPatch}/>}
     {KEYFRAMED.includes(layer.type) && <p className="helper">Keyframe position, size, rotation and opacity in the timeline.</p>}
     {layer.type === 'background' && <p className="helper">Video playback and pattern speed are under Design.</p>}
   </>;
@@ -149,7 +157,7 @@ function Motion({ layer, images, onPatch }) {
 // shows a common header, then Design (how it looks) and Motion (how it changes over time).
 // `cards` edits a carousel's card list: onMove(layerId, from, to), onRemove(layerId, index)
 // and onAddAsset(asset, target) for library items dropped on it.
-export function InspectorPanel({ project, projectRef, layer, summary, settings, rightTab, uploading, cards, onSetRightTab, onPatch, onPick, onRemoveText }) {
+export function InspectorPanel({ project, projectRef, layer, summary, settings, rightTab, uploading, cards, onSetRightTab, onPatch, onPick, onRemoveText, onPreviewMotion = () => {} }) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [replacingCard, setReplacingCard] = useState(null);
   const libraryButton = useRef(null);
@@ -167,7 +175,7 @@ export function InspectorPanel({ project, projectRef, layer, summary, settings, 
       {layer.type === 'carousel' && <div className="property-section"><button ref={libraryButton} className="library-launcher" onClick={() => setLibraryOpen(true)} aria-haspopup="dialog" aria-label="Change carousel"><span className="library-launcher-label"><Images size={20} aria-hidden="true"/><span><small>Template</small><strong>{currentTemplate?.name}</strong></span></span><span className="library-launcher-action">Change</span></button></div>}
       {rightTab === 'composition'
         ? <Design project={project} layer={layer} images={images} uploading={uploading} cards={cards} onPatch={onPatch} onPick={onPick} onRemoveText={onRemoveText} onReplaceCard={setReplacingCard}/>
-        : <Motion layer={layer} images={images} onPatch={onPatch}/>}
+        : <Motion layer={layer} images={images} onPatch={onPatch} onPreviewMotion={onPreviewMotion}/>}
     </fieldset>
     {libraryOpen && !layer.locked && layer.type === 'carousel' && <PresetBrowser key={layer.id} layer={layer} onApply={patch => onPatch(layer.id, patch)} onClose={closeLibrary}/>}
     {replacingCard !== null && layer.type === 'carousel' && <ReplaceCardDialog key={replacingCard} project={project} projectRef={projectRef} layerId={layer.id} cardId={replacingCard} onPatch={onPatch} onClose={() => setReplacingCard(null)}/>}

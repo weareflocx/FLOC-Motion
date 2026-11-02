@@ -1,6 +1,6 @@
 {
   "captureWidth": 360,
-  "browser": "Chrome/154.0.8037.98",
+  "browser": "Chrome/156.0.8078.76",
   "baselineTolerance": {
     "channel": 16,
     "ratio": 0.002
@@ -11,7 +11,7 @@
   },
   "fixtures": {
     "carousels-circular": {
-      "hash": "f688b0125aad33b6",
+      "hash": "ee3588e07ce5c591",
       "format": "landscape",
       "frames": [
         "carousels-circular-0.50s.png",
@@ -19,7 +19,7 @@
       ]
     },
     "carousels-horizontal-flip-showcase": {
-      "hash": "944f280b9112090d",
+      "hash": "d5b78bfafe597260",
       "format": "landscape",
       "frames": [
         "carousels-horizontal-flip-showcase-0.50s.png",
@@ -27,7 +27,7 @@
       ]
     },
     "carousels-zoom-through-sweep-reveal": {
-      "hash": "a3f1461b79618f2a",
+      "hash": "ce11029038505f1d",
       "format": "landscape",
       "frames": [
         "carousels-zoom-through-sweep-reveal-0.50s.png",
@@ -35,7 +35,7 @@
       ]
     },
     "carousels-stack-shuffle-sphere-spinner": {
-      "hash": "ed7b108b4aeaff1d",
+      "hash": "1a3ad96575895c9b",
       "format": "landscape",
       "frames": [
         "carousels-stack-shuffle-sphere-spinner-0.50s.png",
@@ -43,7 +43,7 @@
       ]
     },
     "carousels-stack-stickers-circular": {
-      "hash": "3c1582b14c87ae79",
+      "hash": "87e96bc272f0c3a4",
       "format": "landscape",
       "frames": [
         "carousels-stack-stickers-circular-0.50s.png",
@@ -51,7 +51,7 @@
       ]
     },
     "carousels-window-push-wheel": {
-      "hash": "f3282a9cc49db4e8",
+      "hash": "42145358fdedd4a0",
       "format": "landscape",
       "frames": [
         "carousels-window-push-wheel-0.50s.png",
@@ -59,7 +59,7 @@
       ]
     },
     "backgrounds-fonts": {
-      "hash": "a691790ab7d7043f",
+      "hash": "8b2ec705427cf539",
       "format": "portrait34",
       "frames": [
         "backgrounds-fonts-0.50s.png",
@@ -67,7 +67,7 @@
       ]
     },
     "textures-settle": {
-      "hash": "fa33c5e80feb2a3a",
+      "hash": "229c33dc4b05db73",
       "format": "landscape",
       "frames": [
         "textures-settle-0.50s.png",
@@ -75,7 +75,7 @@
       ]
     },
     "textures-magnet": {
-      "hash": "31cd545b8156eeee",
+      "hash": "03bf24bbc9bc757f",
       "format": "landscape",
       "frames": [
         "textures-magnet-0.50s.png",
@@ -83,7 +83,7 @@
       ]
     },
     "textures-warp": {
-      "hash": "fcd3f3b47427aa28",
+      "hash": "3da0a5ee3a28619e",
       "format": "landscape",
       "frames": [
         "textures-warp-0.50s.png",
@@ -91,7 +91,7 @@
       ]
     },
     "textures-pillars": {
-      "hash": "894a2bd90a7880f6",
+      "hash": "1cf559c408ffbf60",
       "format": "landscape",
       "frames": [
         "textures-pillars-0.50s.png",
@@ -99,7 +99,7 @@
       ]
     },
     "textures-pinch": {
-      "hash": "b891db1b12e2603b",
+      "hash": "b90fe7f50ed523b5",
       "format": "landscape",
       "frames": [
         "textures-pinch-0.50s.png",
@@ -107,7 +107,7 @@
       ]
     },
     "textures-sphere": {
-      "hash": "a96697bbaab26c55",
+      "hash": "02f492d585b1d603",
       "format": "landscape",
       "frames": [
         "textures-sphere-0.50s.png",
@@ -115,7 +115,7 @@
       ]
     },
     "textures-twist": {
-      "hash": "a59fe756fe223851",
+      "hash": "4f493bac2ee18b38",
       "format": "landscape",
       "frames": [
         "textures-twist-0.50s.png",
@@ -123,7 +123,7 @@
       ]
     },
     "textures-watch": {
-      "hash": "1473600aaac89d81",
+      "hash": "64e16934ff2f8203",
       "format": "landscape",
       "frames": [
         "textures-watch-0.50s.png",
@@ -131,7 +131,7 @@
       ]
     },
     "effects": {
-      "hash": "31d0e37f8205edfd",
+      "hash": "fdc8cff947cb0055",
       "format": "square",
       "frames": [
         "effects-0.50s.png",
@@ -140,7 +140,7 @@
       ]
     },
     "card-fit-height": {
-      "hash": "1ef15feee6eb0544",
+      "hash": "9bdf15c2d2a9b6fb",
       "format": "landscape",
       "frames": [
         "card-fit-height-0.50s.png",
@@ -148,7 +148,7 @@
       ]
     },
     "card-fit-width": {
-      "hash": "bf7ce5e446c0d622",
+      "hash": "44a956f727e7023b",
       "format": "landscape",
       "frames": [
         "card-fit-width-0.50s.png",

@@ -66,19 +66,19 @@ test('layer timing and audio seek are independently deterministic', () => {
   const music = { start: 2, offset: 3, loop: true }; assert.equal(audioTime(music, 4, 5), 3); assert.equal(audioTime(music, 3, 5), 4);
   assert.equal(audioTime({ ...music, loop: false }, 8, 5), 5);
 });
-test('legacy text entrances migrate to fades and rise without mutating the input', () => {
+test('legacy text entrances migrate to fades and rising movement without mutating the input', () => {
   const raw = { ...demoProject(), version: 1 }; const legacy = { ...raw.layers[2], id: 'legacy-rise' };
-  for (const l of [raw.layers[2], raw.layers[3], legacy]) { delete l.fadeIn; delete l.fadeOut; delete l.rise; }
+  for (const l of [raw.layers[2], raw.layers[3], legacy]) { delete l.fadeIn; delete l.fadeOut; }
   raw.layers[2].animation = 'fade'; raw.layers[3].animation = 'none'; legacy.animation = 'rise'; raw.layers.push(legacy);
   const before = structuredClone(raw); const p = validateProject(raw);
-  const fades = id => { const l = p.layers.find(l => l.id === id); return [l.fadeIn, l.fadeOut, l.rise]; };
+  const fades = id => { const l = p.layers.find(l => l.id === id); return [l.fadeIn, l.fadeOut, l.entry.motion, l.exit.mirror]; };
   assert.deepEqual(raw, before);
-  assert.deepEqual(fades('headline'), [0.45, 0.25, false]); assert.deepEqual(fades('signature'), [0, 0, false]); assert.deepEqual(fades('legacy-rise'), [0.45, 0.25, true]);
-  assert(p.layers.every(l => !Object.hasOwn(l, 'animation')));
+  assert.deepEqual(fades('headline'), [0.45, 0.25, 'none', true]); assert.deepEqual(fades('signature'), [0, 0, 'none', true]); assert.deepEqual(fades('legacy-rise'), [0.45, 0.25, 'rise', true]);
+  assert(p.layers.every(l => !Object.hasOwn(l, 'animation') && !Object.hasOwn(l, 'rise')));
   assert.equal(layerAlpha(p.layers[2], 0.225), 0.5); assert.equal(layerAlpha(p.layers[2], 11.875), 0.5);
   const invalid = structuredClone(before); invalid.layers[2].animation = 'spin'; assert.throws(() => validateProject(invalid), /Unknown text style/);
-  const bare = demoProject(); for (const key of ['fadeIn', 'fadeOut', 'rise']) delete bare.layers[2][key];
-  const text = validateProject(bare).layers[2]; assert.deepEqual([text.fadeIn, text.fadeOut, text.rise], [0, 0, false]);
+  const bare = demoProject(); for (const key of ['fadeIn', 'fadeOut']) delete bare.layers[2][key];
+  const text = validateProject(bare).layers[2]; assert.deepEqual([text.fadeIn, text.fadeOut, text.entry.motion], [0, 0, 'none']);
 });
 test('fades belong to text, logo and carousel layers only', () => {
   const raw = demoProject(); for (const l of raw.layers) { delete l.fadeIn; delete l.fadeOut; }
@@ -106,10 +106,11 @@ test('fades fit inside the layer on every edit and re-validation is idempotent',
   assert(c.fadeIn + c.fadeOut <= c.end - c.start + 1e-9); assert.deepEqual(validateProject(odd), odd); assert.deepEqual(validateProject(validateProject(long)), validateProject(long));
   assert.deepEqual(fitFades(1, 3, 2), { fadeIn: 0.5, fadeOut: 1.5 }); assert.deepEqual(fitFades(0, 0, 2), { fadeIn: 0, fadeOut: 0 });
 });
-test('invalid fades and rise values fail with actionable messages', () => {
+test('invalid fades and text movement fail with actionable messages', () => {
   for (const fadeIn of [-0.1, NaN, '1', 31]) assert.throws(() => patchLayer(demoProject(), 'logo', { fadeIn }), /Fade in must be between 0 and 30/);
   assert.throws(() => patchLayer(demoProject(), 'carousel', { fadeOut: Infinity }), /Fade out must be between 0 and 30/);
-  assert.throws(() => patchLayer(demoProject(), 'headline', { rise: 'yes' }), /rise must be true or false/);
+  assert.throws(() => patchLayer(demoProject(), 'headline', { entry: { motion: 'slide', amount: 26 } }), /distance must be between 0 and 25/);
+  assert.throws(() => patchLayer(demoProject(), 'logo', { entry: { motion: 'rise' } }), /Unknown layer property/);
 });
 test('generated composition escapes user markup and does not execute text', () => {
   const p = patchLayer(demoProject(), 'headline', { text: '<img src=x onerror="alert(1)"> & hello' });
@@ -121,7 +122,7 @@ test('WebMCP uses shared validation, persists mutations and gates rendering', as
   const call = (name, args = {}) => tools.find(t => t.name === name).execute(args);
   await call('floc_update_layer', { id: 'carousel', patch: { effects: [{ type: 'wave', amount: 0.7 }] } }); assert.equal(p.layers[1].effects[0].type, 'wave'); assert.equal(saves, 1);
   await assert.rejects(call('floc_update_layer', { id: 'carousel', patch: { effects: [{ type: 'unknown' }] } })); assert.equal(saves, 1);
-  await call('floc_add_text', { text: 'One more layer.' }); assert.equal(p.layers.length, 7); assert.deepEqual([p.layers[6].fadeIn, p.layers[6].fadeOut, p.layers[6].rise], [0.45, 0.25, false]);
+  await call('floc_add_text', { text: 'One more layer.' }); assert.equal(p.layers.length, 7); assert.deepEqual([p.layers[6].fadeIn, p.layers[6].fadeOut, p.layers[6].entry.motion, p.layers[6].exit.mirror], [0.45, 0.25, 'none', true]);
   await call('floc_update_layer', { id: 'logo', patch: { fadeIn: 1, fadeOut: 2 } }); assert.deepEqual([p.layers[4].fadeIn, p.layers[4].fadeOut], [1, 2]);
   const result = JSON.parse(await call('floc_request_export')); assert.equal(result.state, 'awaiting_user_confirmation'); assert.equal(requested, 1);
   assert.equal(tools.find(t => t.name === 'floc_get_project').annotations.readOnlyHint, true);

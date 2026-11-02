@@ -214,15 +214,14 @@ test('changing timing preserves relative choreography, fitted fades, and recover
   assert.deepEqual(h.layer().choreography, before.choreography);
 });
 
-test('fade properties retain numeric editing and Rise during fades in the element inspector', () => {
-  const h = controls();
+test('non-text fade properties retain numeric editing in the element inspector', () => {
+  const h = controls({ type: 'logo' });
   const fadeNodes = () => h.nodes(h.fades());
   fadeNodes().find(node => node.props.label === 'Fade in').props.onChange(.7);
   fadeNodes().find(node => node.props.label === 'Fade out').props.onChange(.4);
-  fadeNodes().find(node => node.props.type === 'checkbox').props.onChange({ target: { checked: true } });
+  assert.equal(fadeNodes().some(node => node.props.type === 'checkbox'), false, 'no text-only movement toggle remains');
   assert.equal(h.layer().fadeIn, .7);
   assert.equal(h.layer().fadeOut, .4);
-  assert.equal(h.layer().rise, true);
   assert.equal(controls({ type: 'music' }).fades(), null);
 });
 

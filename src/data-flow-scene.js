@@ -4,6 +4,7 @@ import { createDataFlowLayout, dataFlowTime, dataFlowPosition, dataFlowParticleP
 import { evaluateChoreography } from './choreography.js';
 import { sceneDimensions, scenePosition, projectedObjectBounds } from './scene-camera.js';
 import { createScenePass, SCENE_PASS, SCENE_PASS_PARS, SCENE_PASS_FRAGMENT, setSceneMaterialPass } from './scene-pass.js';
+import { applyElementTransform } from './element-motion-render.js';
 
 const CENTER = (DATA_FLOW_VISIBLE_MIN + DATA_FLOW_VISIBLE_MAX) / 2;
 const EXTENT = DATA_FLOW_VISIBLE_MAX - DATA_FLOW_VISIBLE_MIN;
@@ -98,7 +99,7 @@ export function createDataFlowScene(canvas, layer, { compositionWidth = canvas.w
   canvas.getContext('2d', { willReadFrequently: renderMode });
   let style = normalizeDataFlowStyle(layer.flowStyle), layout, lineGeometry, pulseGeometry, lineStart, lineEnd, pulsePosition;
   let firstSample = 0, segmentCount = 0, width = compositionWidth, height = compositionHeight;
-  let sampled = layer, lastDraft, spatialScale = 1, spatialRadius = 1, disposed = false;
+  let sampled = layer, lastDraft, spatialScale = 1, spatialRadius = 1, elementScale = 1, disposed = false;
   const scene = new THREE.Scene(), root = new THREE.Group(), content = new THREE.Group();
   scene.add(root); root.add(content);
   const camera = new THREE.PerspectiveCamera(style.perspective, width / height, .1, 2500);
@@ -189,7 +190,7 @@ export function createDataFlowScene(canvas, layer, { compositionWidth = canvas.w
     if (rendering.lost) { if (renderMode) throw new Error('The shared graphics context was lost while rendering Data flow.'); return; }
     rendering.draw(scene, camera, canvas);
   }
-  function prepareSpatial(format) {
+  function prepareSpatial(format, outputCamera, elementMotion) {
     const value = lastDraft ? { ...sampled, ...lastDraft } : sampled, frame = sceneDimensions(format);
     const side = frame.width * value.size / 100;
     spatialScale = side / EXTENT;
@@ -198,6 +199,9 @@ export function createDataFlowScene(canvas, layer, { compositionWidth = canvas.w
     scenePosition(format, value.x, value.y, value.z, root.position);
     root.position.x += side / 2; root.position.y -= frame.height * value.size / 200;
     root.rotation.set(THREE.MathUtils.degToRad(value.tilt ?? 0), THREE.MathUtils.degToRad(value.yaw ?? 0), THREE.MathUtils.degToRad(value.roll ?? 0));
+    elementScale = elementMotion?.active ? elementMotion.scale : 1;
+    applyElementTransform(root, elementMotion, Math.min(frame.width, frame.height));
+    spatialRadius *= elementScale;
     scene.updateMatrixWorld(true); return root;
   }
   function setPass(value, opacity = 1, id = 0, options = {}) {
@@ -218,7 +222,7 @@ export function createDataFlowScene(canvas, layer, { compositionWidth = canvas.w
     renderSpatial(outputCamera, value, opacity = 1, id = 0, options = {}) {
       if (disposed || value === SCENE_PASS.opaque || value === SCENE_PASS.opaqueDepth) return;
       rendering.renderer.getViewport(viewport);
-      configurePixels(viewport.z, viewport.w, viewport.z / 1080 * (lastDraft?.size ?? sampled.size) / 100);
+      configurePixels(viewport.z, viewport.w, viewport.z / 1080 * (lastDraft?.size ?? sampled.size) / 100 * elementScale);
       setPass(value, opacity, id, options);
       rendering.renderer.toneMapping = THREE.NoToneMapping; rendering.renderer.toneMappingExposure = 1;
       rendering.renderer.render(scene, outputCamera);

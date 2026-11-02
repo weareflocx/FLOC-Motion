@@ -47,7 +47,7 @@ test('one shared scene depth-tests photos, editable text and actual model geomet
       const p=blankProject('Wheel with central type');
       p.images=[{id:'green',name:'Green',src:paths.green},{id:'yellow',name:'Yellow',src:paths.yellow}];
       p.layers.push({...demoProject().layers.find(layer=>layer.type==='carousel'),id:'wheel',template:'wheel',x:50,y:50,size:2.5,radius:1,cardAspect:1,cardCount:4,speed:0,tilt:45,yaw:0,roll:0,curve:0,fadeIn:0,fadeOut:0});
-      p.layers.push({id:'title',type:'text',name:'Center text',visible:true,locked:false,start:0,end:12,text:'OOO\\nOOO',font:'geist',weight:700,color:'#000000',x:25,y:37,width:50,size:140,fadeIn:0,fadeOut:0,rise:false});
+      p.layers.push({id:'title',type:'text',name:'Center text',visible:true,locked:false,start:0,end:12,text:'OOO\\nOOO',font:'geist',weight:700,color:'#000000',x:25,y:37,width:50,size:140,fadeIn:0,fadeOut:0});
       return validateProject(p);
     }
     function black(value) {let count=0,first=null;for(let y=125;y<245;y++)for(let x=80;x<280;x++){const i=(y*360+x)*4;if(value[i]<20&&value[i+1]<20&&value[i+2]<20&&value[i+3]>200){count++;first??={x,y};}}return{count,first};}

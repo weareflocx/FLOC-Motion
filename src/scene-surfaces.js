@@ -43,6 +43,7 @@ export function createSceneSurface(rendering) {
   const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; root.add(mesh); scene.add(root);
   let color, mask, surface, projected = false, disposed = false;
   let elementGeometry, elementMesh, elementTransform, pixelScaleX, pixelScaleY, frameWidth, frameHeight;
+  const outerTransform = new THREE.Matrix4();
   function upload(value, previous) {
     // Capture surfaces are scratch buffers, including alternating beauty/mask
     // output. Own a stable bitmap, and recreate immutable GPU storage on resize.
@@ -61,7 +62,7 @@ export function createSceneSurface(rendering) {
     scene, root, mesh, material,
     get currentSurface() { return surface; },
     setCoverage(value) { mask = upload(value.canvas, mask); material.uniforms.flocMask.value = mask; },
-    set(value, { format, layer, index = 0, projected: screen = false, depth = null, picking = null, fallbackDepth = 1, coverage = null } = {}) {
+    set(value, { format, layer, index = 0, projected: screen = false, depth = null, picking = null, fallbackDepth = 1, coverage = null, transform = null } = {}) {
       if (!value) { root.visible = false; return; }
       root.visible = true; surface = value; projected = screen;
       color = upload(value.canvas, color); material.uniforms.flocMap.value = color;
@@ -75,6 +76,8 @@ export function createSceneSurface(rendering) {
       frameWidth = frame.width; frameHeight = frame.height;
       material.uniforms.flocDepthRect.value.set(value.x / nativeWidth, 1 - (value.y + value.height) / nativeHeight, value.width / nativeWidth, value.height / nativeHeight);
       root.rotation.set(0, 0, 0); root.position.set(0, 0, 0); mesh.position.set(0, 0, 0);
+      root.scale.setScalar(1);
+      outerTransform.identity();
       if (screen) {
         mesh.scale.set(value.width / nativeWidth * 2, value.height / nativeHeight * 2, 1);
         mesh.position.set((value.x + value.width / 2) / nativeWidth * 2 - 1, 1 - (value.y + value.height / 2) / nativeHeight * 2, 0);
@@ -84,6 +87,7 @@ export function createSceneSurface(rendering) {
           (.5 - (value.y + value.height / 2) / nativeHeight) * frame.height,
           ((layer.z ?? 0) + index * .002) / 100 * SCENE_VIEW_HEIGHT);
         if (layer.space === 'spatial' && ['text', 'logo', 'media'].includes(layer.type)) root.rotation.set(THREE.MathUtils.degToRad(layer.tilt ?? 0), THREE.MathUtils.degToRad(layer.yaw ?? 0), 0);
+        if (transform) { outerTransform.copy(transform); root.applyMatrix4(outerTransform); }
       }
       scene.updateMatrixWorld(true);
     },
@@ -117,6 +121,7 @@ export function createSceneSurface(rendering) {
         -m.b * pixelScaleY, -m.d * pixelScaleY, 0, frameHeight / 2 - y * pixelScaleY,
         0, 0, 1, root.position.z,
         0, 0, 0, 1);
+      elementMesh.matrix.premultiply(outerTransform);
       elementMesh.matrixWorldNeedsUpdate = true;
       elementGeometry.boundingBox.min.set(bounds.x * width, bounds.y * height, 0);
       elementGeometry.boundingBox.max.set((bounds.x + bounds.width) * width, (bounds.y + bounds.height) * height, 0);

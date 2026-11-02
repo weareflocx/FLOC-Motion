@@ -336,18 +336,19 @@ test('legacy v1 fixtures migrate to the output the pre-migration validator produ
   }
 });
 
-test('legacy text entrances become fades and rise only in the v1 step', async () => {
+test('legacy text entrances become fades in the v1 step and rising movement in v18', async () => {
   const project = validateProject(await fixture('v1-legacy-text'));
   const text = id => project.layers.find(l => l.id === id);
-  assert.deepEqual(['fadeIn', 'fadeOut', 'rise'].map(key => text('fade')[key]), [0.45, 0.25, false]);
-  assert.deepEqual(['fadeIn', 'fadeOut', 'rise'].map(key => text('none')[key]), [0, 0, false]);
-  assert.deepEqual(['fadeIn', 'fadeOut', 'rise'].map(key => text('explicit')[key]), [1, 0.25, false]);
-  assert(project.layers.every(l => !Object.hasOwn(l, 'animation')));
+  assert.deepEqual(['fadeIn', 'fadeOut'].map(key => text('fade')[key]).concat(text('fade').entry.motion), [0.45, 0.25, 'none']);
+  assert.deepEqual(['fadeIn', 'fadeOut'].map(key => text('none')[key]).concat(text('none').entry.motion), [0, 0, 'none']);
+  assert.deepEqual(['fadeIn', 'fadeOut'].map(key => text('explicit')[key]).concat(text('explicit').entry.motion), [1, 0.25, 'none']);
+  assert(project.layers.every(l => !Object.hasOwn(l, 'animation') && !Object.hasOwn(l, 'rise')));
   const rise = text('rise');
-  assert(rise.rise && Math.abs(rise.fadeIn + rise.fadeOut - 0.5) < 1e-9, 'legacy ramps still fit short layers');
+  assert(rise.entry.motion === 'rise' && rise.exit.mirror && Math.abs(rise.fadeIn + rise.fadeOut - 0.5) < 1e-9, 'legacy ramps still fit short layers');
+  assert.deepEqual([rise.entry.duration, rise.exit.duration], [rise.fadeIn, rise.fadeOut], 'Rise moved over each fade');
   // A current-version file never carries the legacy field; it is dropped, not converted.
   const current = validateProject({ ...demoProject(), layers: demoProject().layers.map(l => l.id === 'headline' ? { ...l, fadeIn: 0, animation: 'rise' } : l) });
-  assert.deepEqual([current.layers[2].fadeIn, current.layers[2].rise, Object.hasOwn(current.layers[2], 'animation')], [0, false, false]);
+  assert.deepEqual([current.layers[2].fadeIn, current.layers[2].entry.motion, Object.hasOwn(current.layers[2], 'animation')], [0, 'none', false]);
   const invalid = await fixture('v1-legacy-text'); invalid.layers[0].animation = 'spin';
   assert.throws(() => validateProject(invalid), /Unknown text style/);
 });

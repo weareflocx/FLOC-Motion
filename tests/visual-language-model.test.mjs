@@ -35,26 +35,28 @@ test('style validation rejects unsafe, invalid and out-of-range edits through ca
     { patternLoop: 'yes' }, { patternDirection: 361 }, { patternDirection: -1 }, { patternFocusX: -1 }, { patternFocusY: 101 }, { patternAccent: 'blue' }, { patternAccentAmount: 1.1 }];
   for (const patch of backgrounds) assert.throws(() => patchLayer(demoProject(), 'background', patch));
   assert.equal(layer(patchLayer(demoProject(), 'background', { patternScale: 0.1 }), 'background').patternScale, 0.1);
-  for (const patch of [{ lineHeight: 0.49 }, { letterSpacing: NaN }, { letterSpacing: 0.51 }, { textAlign: 'justify' }, { reveal: 'runtime-code' }, { revealDuration: 5.1 }]) assert.throws(() => patchLayer(demoProject(), 'headline', patch));
-  assert.throws(() => patchLayer(demoProject(), 'logo', { reveal: 'up' }), /Unknown layer property/);
+  for (const patch of [{ lineHeight: 0.49 }, { letterSpacing: NaN }, { letterSpacing: 0.51 }, { textAlign: 'justify' }, { entry: { motion: 'runtime-code' } }, { entry: { duration: 30.1 } }, { reveal: 'up' }]) assert.throws(() => patchLayer(demoProject(), 'headline', patch));
+  assert.throws(() => patchLayer(demoProject(), 'logo', { entry: { motion: 'reveal' } }), /Unknown layer property/);
   assert.throws(() => patchLayer(demoProject(), 'headline', { pattern: 'waves' }), /Unknown layer property/);
   const p = patchLayer(demoProject(), 'headline', { locked: true });
   assert.throws(() => patchLayer(p, 'headline', { letterSpacing: 0 }), /Unlock/);
-  const reveal = patchLayer(demoProject(), 'headline', { reveal: 'up', revealDuration: 3, end: 2 });
-  assert.equal(layer(reveal, 'headline').revealDuration, 2);
-  assert.equal(layer(resizeDuration(reveal, 1), 'headline').revealDuration, 1);
+  // Entry and exit movement share the clip like fades and refit when it shortens.
+  const timed = patchLayer(demoProject(), 'headline', { entry: { motion: 'reveal', duration: 3 }, exit: { mirror: false, motion: 'slide', duration: 1 }, end: 2 });
+  assert.deepEqual([layer(timed, 'headline').entry.duration, layer(timed, 'headline').exit.duration], [1.5, 0.5]);
+  const shorter = layer(resizeDuration(timed, 1), 'headline');
+  assert.deepEqual([shorter.entry.duration, shorter.exit.duration], [0.75, 0.25]);
 });
 
 test('linked formats retain local type settings and share reveal and procedural settings', () => {
   let p = linkFormats(demoProject());
   p = patchLayer(p, 'headline', { lineHeight: 1.1, letterSpacing: 0.02, textAlign: 'right' });
   p = switchFormat(p, 'portrait');
-  p = patchLayer(p, 'headline', { lineHeight: 1.5, letterSpacing: -0.1, textAlign: 'center', reveal: 'right', revealDuration: 1.2 });
+  p = patchLayer(p, 'headline', { lineHeight: 1.5, letterSpacing: -0.1, textAlign: 'center', entry: { motion: 'reveal', direction: 'right', duration: 1.2 } });
   p = patchLayer(p, 'background', { mode: 'procedural', pattern: 'waves', patternSeed: 19 });
   p = switchFormat(p, 'square');
   assert.deepEqual(['lineHeight', 'letterSpacing', 'textAlign'].map(key => layer(p, 'headline')[key]), [1.1, 0.02, 'right']);
-  assert.equal(layer(p, 'headline').reveal, 'right');
-  assert.equal(layer(p, 'headline').revealDuration, 1.2);
+  assert.equal(layer(p, 'headline').entry.direction, 'right');
+  assert.equal(layer(p, 'headline').entry.duration, 1.2);
   assert.equal(layer(p, 'background').patternSeed, 19);
   const saved = JSON.parse(JSON.stringify(p));
   p = switchFormat(validateProject(saved), 'portrait');
@@ -69,9 +71,9 @@ test('agent tools discover and edit installed styles without starting a render',
   const call = (name, args = {}) => tools.find(item => item.name === name).execute(args);
   const effects = JSON.parse(await call('floc_list_effects'));
   assert.deepEqual(effects.backgrounds, PROCEDURAL_BACKGROUNDS);
-  assert(effects.textReveals.some(item => item.id === 'up'));
+  assert.deepEqual(effects.textMotion.presets.map(item => item.id), ['none', 'fade', 'rise', 'slide', 'reveal', 'scale']);
   await call('floc_update_layer', { id: 'background', patch: { mode: 'procedural', pattern: 'grain', patternSeed: 3 } });
-  await call('floc_update_layer', { id: 'headline', patch: { lineHeight: 1.4, letterSpacing: 0.03, reveal: 'up' } });
+  await call('floc_update_layer', { id: 'headline', patch: { lineHeight: 1.4, letterSpacing: 0.03, entry: { motion: 'reveal' } } });
   assert.equal(layer(p, 'headline').lineHeight, 1.4);
   assert.equal(layer(p, 'background').patternSeed, 3);
   await assert.rejects(call('floc_update_layer', { id: 'background', patch: { pattern: 'runtime-glsl' } }));

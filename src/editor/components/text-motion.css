@@ -1,0 +1,47 @@
+.text-motion-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 12px;
+  background: #242424;
+  border-radius: 6px;
+}
+
+.text-motion-presets button {
+  padding: 8px 0;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #8d8d8d;
+}
+
+.text-motion-presets button:hover,
+.text-motion-presets button:focus-visible {
+  color: #e7e7e7;
+}
+
+.text-motion-presets button.selected {
+  background: #414141;
+  color: #e7e7e7;
+}
+
+.segmented button:has(.text-motion-curve) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+}
+
+.text-motion-curve {
+  width: 26px;
+  height: 16px;
+  overflow: visible;
+}
+
+.text-motion-curve path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}

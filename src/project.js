@@ -7,7 +7,8 @@ import { choreographyFields, optionalChoreographyFields, evaluateChoreography, s
 import { isEasing } from './easing.js';
 import { CONTENT_PROPERTIES, normalizeContentField } from './template-content.js';
 import { DEFAULT_PROCEDURAL_BACKGROUND, PROCEDURAL_BACKGROUNDS, proceduralDefaults } from './backgrounds.js';
-import { DEFAULT_TEXT_STYLE, TEXT_REVEALS } from './text-style.js';
+import { DEFAULT_TEXT_STYLE } from './text-style.js';
+import { fitTextMotion, normalizeTextMotion } from './text-motion.js';
 import { EFFECT_LAYER_TYPES, validateEffects } from './effects.js';
 import { FORMAT_LOCAL_FIELDS, assertLinkedFormatInput, captureFormatSnapshot, applyFormatSnapshot, assistedFormatSnapshot, normalizeLinkedFormats } from './linked-formats.js';
 import { CURRENT_PROJECT_VERSION, migrateProject } from './project-migrations.js';
@@ -16,6 +17,7 @@ import { normalizeModelStyle, applyModelPreset, applyLightingPreset } from './mo
 import { isModelShape, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from './model-shapes.js';
 import { normalizeDataFlowStyle } from './data-flow-style.js';
 import { SPATIAL_LAYER_TYPES, LAYER_SPACES, SCENE_DEPTH_RANGE, normalizeScene, assertPlainSceneRecord } from './scene-settings.js';
+import { normalizeElementMotion, supportsElementMotion } from './element-motion.js';
 import { TEXTURE_LAYOUT_DEFAULTS, TEXTURE_LAYOUT_LIMITS, TEXTURE_LAYOUTS, TEXTURE_DISTRIBUTIONS } from './texture-layout.js';
 export { PROJECT_LIMITS } from './project-limits.js';
 export const FORMATS = { square: [1080, 1080], portrait: [1080, 1920], landscape: [1920, 1080], portrait34: [1080, 1440], landscape43: [1440, 1080] };
@@ -41,8 +43,8 @@ export function demoProject() {
     layers: [
       { id: 'background', type: 'background', name: 'Background', visible: true, start: 0, end: 12, color: BRAND.colors.black, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true },
       { id: 'carousel', type: 'carousel', name: 'Carousel', visible: true, start: 0, end: 12, template: 'circular', speed: 18, cardCount: 0, cardAspect: 1 / 1.14, radius: 0, loopDuration: 0, motion: { ...DEFAULT_MOTION }, motionVariant: 'default', fade: 0, transitionTurn: 360, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', tilt: -12, yaw: 0, roll: -26, size: 1.35, gap: 0.28, curve: 0.8, x: 50, y: 54, stretch: 0, fadeIn: 0, fadeOut: 0 },
-      { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 48, color: BRAND.colors.white, font: 'druk-wide', weight: 900, width: 80, fadeIn: 0.45, fadeOut: 0.25, rise: false },
-      { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, font: 'geist-mono', weight: 500, width: 22, fadeIn: 0, fadeOut: 0, rise: false },
+      { id: 'headline', type: 'text', name: 'Headline', visible: true, start: 0, end: 12, text: 'WEEKLY\nDESIGN\nRECAP', x: 6, y: 6, size: 48, color: BRAND.colors.white, font: 'druk-wide', weight: 900, width: 80, fadeIn: 0.45, fadeOut: 0.25 },
+      { id: 'signature', type: 'text', name: 'Signature', visible: true, start: 0, end: 12, text: 'ALWAYS ON*', x: 77, y: 92, size: 21, color: BRAND.colors.white, font: 'geist-mono', weight: 500, width: 22, fadeIn: 0, fadeOut: 0 },
       { id: 'logo', type: 'logo', name: 'Studio mark', visible: true, start: 0, end: 12, src: BRAND.assets.symbolWhite, x: 87, y: 6, size: 7, fadeIn: 0, fadeOut: 0 },
       { id: 'music', type: 'music', name: 'Music', visible: true, start: 0, end: 12, src: '', volume: 0.6, offset: 0, fade: 0.5, loop: false }
     ] };
@@ -89,7 +91,7 @@ export function validAsset(src, allowEmpty = true) {
 const PROJECT_KEYS = new Set(['version', 'name', 'format', 'duration', 'fps', 'scene', 'layout', 'images', 'layers', 'linkedFormats']);
 const IMAGE_KEYS = new Set(['id', 'src', 'name']);
 const LAYER_KEYS = Object.fromEntries(Object.entries({
-  text: ['text', 'x', 'y', 'size', 'width', 'color', 'font', 'weight', 'roll', 'rise', ...Object.keys(DEFAULT_TEXT_STYLE)],
+  text: ['text', 'x', 'y', 'size', 'width', 'color', 'font', 'weight', 'roll', 'entry', 'exit', ...Object.keys(DEFAULT_TEXT_STYLE)],
   logo: ['src', 'x', 'y', 'size', 'roll'],
   media: ['src', 'x', 'y', 'size', 'roll', 'offset', 'loop'],
   model: ['src', 'x', 'y', 'size', 'yaw', 'tilt', 'roll', 'offset', 'loop', 'modelStyle'],
@@ -101,7 +103,7 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   music: ['src', 'volume', 'offset', 'fade', 'loop'],
   effect: []
 }).map(([type, keys]) => [type, new Set(['id', 'type', 'name', 'visible', 'locked', 'start', 'end', 'effects', 'effectScope', 'opacity', 'choreography', 'contentField',
-  ...(SPATIAL_LAYER_TYPES.includes(type) ? ['space', 'z', 'tilt', 'yaw', 'roll'] : []), ...(FADE_LAYERS.includes(type) ? ['fadeIn', 'fadeOut'] : []), ...keys])]));
+  ...(SPATIAL_LAYER_TYPES.includes(type) ? ['space', 'z', 'tilt', 'yaw', 'roll', 'elementMotion'] : []), ...(FADE_LAYERS.includes(type) ? ['fadeIn', 'fadeOut'] : []), ...keys])]));
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const keepKeys = (value, keys) => { if (record(value)) for (const key of Object.keys(value)) if (!keys.has(key)) delete value[key]; };
 function closeShape(p) {
@@ -125,6 +127,14 @@ export function validateProject(input) {
   if (Object.hasOwn(input, 'linkedFormats')) assertLinkedFormatInput(input.linkedFormats);
   for (const layer of Array.isArray(input.layers) ? input.layers : []) {
     assertPlainSceneRecord(layer, 'layer');
+    if (Object.hasOwn(layer, 'elementMotion')) {
+      if (!supportsElementMotion(layer)) fail('Only positioned visual layers accept element motion.');
+      normalizeElementMotion(layer.elementMotion);
+    }
+    for (const side of ['entry', 'exit']) if (Object.hasOwn(layer, side)) {
+      if (layer.type !== 'text') fail('Only text layers accept entry and exit movement.');
+      assertPlainSceneRecord(layer[side], `text ${side}`);
+    }
     if (layer.type === 'dataflow') {
       if (Object.hasOwn(layer, 'src')) fail('Data flow layers do not accept a source.');
       normalizeDataFlowStyle(layer.flowStyle);
@@ -178,6 +188,7 @@ export function validateProject(input) {
     if (typeof l.locked !== 'boolean') fail('Layer lock must be a boolean.');
     if (typeof l.visible !== 'boolean') fail('Layer visibility must be a boolean.');
     finite(l.start, 0, p.duration, 'Layer start'); finite(l.end, l.start + 0.01, p.duration, 'Layer end');
+    if (Object.hasOwn(l, 'elementMotion')) l.elementMotion = normalizeElementMotion(l.elementMotion);
     if (l.effects !== undefined) {
       if (!EFFECT_LAYER_TYPES.includes(l.type)) fail('Only visual layers accept effects.');
       validateEffects(l.effects);
@@ -204,10 +215,9 @@ export function validateProject(input) {
       l.font ??= 'geist';
       for (const [field, value] of Object.entries(DEFAULT_TEXT_STYLE)) if (l[field] === undefined) l[field] = value;
       finite(l.lineHeight, 0.5, 3, 'Line height'); finite(l.letterSpacing, -0.15, 0.5, 'Letter spacing');
-      if (!['left', 'center', 'right'].includes(l.textAlign) || !TEXT_REVEALS.some(({ id }) => id === l.reveal)) fail('Unknown text alignment or reveal.');
-      finite(l.revealDuration, 0, 5, 'Reveal duration'); l.revealDuration = Math.min(l.revealDuration, l.end - l.start);
+      if (!['left', 'center', 'right'].includes(l.textAlign)) fail('Unknown text alignment.');
       if (!textFontValid(l.font, l.weight)) fail('Unknown text style.');
-      l.rise ??= false; if (typeof l.rise !== 'boolean') fail('Text rise must be true or false.');
+      Object.assign(l, fitTextMotion(normalizeTextMotion('entry', l.entry), normalizeTextMotion('exit', l.exit), l.end - l.start));
     } else if (l.type === 'carousel') {
       if (l.images !== undefined) validateImages(l.images);
       if (!TEMPLATES.some(t => t.id === l.template)) fail('Unknown carousel.');
@@ -355,7 +365,11 @@ const canonicalJson = value => Array.isArray(value) ? `[${value.map(canonicalJso
 function lockedView(project, layer, allow) {
   const { locked, visible, ...view } = layer;
   if (layer.type === 'carousel') view.images = carouselImages(project, layer);
-  if (allow.includes('timing')) for (const field of ['start', 'end', 'fadeIn', 'fadeOut', 'revealDuration']) delete view[field];
+  if (allow.includes('timing')) {
+    for (const field of ['start', 'end', 'fadeIn', 'fadeOut']) delete view[field];
+    // Shortening a clip refits text movement durations, not their style.
+    for (const side of ['entry', 'exit']) if (view[side]) view[side] = { ...view[side], duration: undefined };
+  }
   if (allow.includes('content') && layer.contentField && Object.hasOwn(CONTENT_PROPERTIES, layer.type)) delete view[CONTENT_PROPERTIES[layer.type]];
   if (allow.includes('format')) {
     for (const field of FORMAT_LOCAL_FIELDS[layer.type] ?? []) if (field !== 'choreography') delete view[field];
@@ -427,6 +441,15 @@ export function patchLayer(project, id, patch) {
     if (l.type === 'background' && Object.hasOwn(patch, 'pattern') && patch.pattern !== l.pattern && !Object.hasOwn(patch, 'textureLayout')
       && PROCEDURAL_BACKGROUNDS.some(({ id, source }) => id === patch.pattern && source)
       && !PROCEDURAL_BACKGROUNDS.some(({ id, source }) => id === l.pattern && source)) next.textureLayout = 'adaptive';
+    if (Object.hasOwn(patch, 'elementMotion')) {
+      normalizeElementMotion(patch.elementMotion);
+      const previous = normalizeElementMotion(l.elementMotion);
+      next.elementMotion = Object.fromEntries(Object.keys(previous).map(type => [type, { ...previous[type], ...patch.elementMotion[type] }]));
+    }
+    for (const side of ['entry', 'exit']) if (Object.hasOwn(patch, side)) {
+      if (l.type !== 'text') fail('Unknown layer property.');
+      next[side] = normalizeTextMotion(side, { ...normalizeTextMotion(side, l[side]), ...assertPlainSceneRecord(patch[side], `text ${side}`) });
+    }
     if (l.type === 'model' && Object.hasOwn(patch, 'src') && patch.src !== l.src) next.modelStyle = { ...normalizeModelStyle(next.modelStyle), animationClip: 0 };
     // Capture the pre-edit rhythm for legacy in-memory projects as well as saved ones.
     if (l.type === 'carousel' && !Object.hasOwn(patch, 'motionBaseline') && (changedFamily || !l.motionBaseline)) next.motionBaseline = motionBaseline(changedFamily ? next : l);

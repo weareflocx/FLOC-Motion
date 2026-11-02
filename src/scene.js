@@ -8,7 +8,8 @@ import { FORMATS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages
 import { constrainPlacement, fitsSafeArea, rotatedTextBounds, safeArea } from './layout.js';
 import { animatedFields, evaluateChoreography } from './choreography.js';
 import { drawProceduralBackground } from './backgrounds.js';
-import { textTypography, textRevealClip } from './text-style.js';
+import { textTypography } from './text-style.js';
+import { textMotionAt, textMotionStyle } from './text-motion.js';
 import { createEffects } from './effects.js';
 import { createResourceCache } from './scene-resources.js';
 import { sceneUpdatePlan } from './scene-update.js';
@@ -17,6 +18,8 @@ import { createSceneRenderer } from './scene-renderer.js';
 import { createSceneCameras, sceneDimensions, projectedObjectBounds, SCENE_VIEW_HEIGHT } from './scene-camera.js';
 import { createScenePass, SCENE_PASS, SCENE_PASS_PARS, SCENE_PASS_FRAGMENT, setSceneMaterialPass } from './scene-pass.js';
 import { createSceneWorld } from './scene-world.js';
+import { elementMotionAt } from './element-motion.js';
+import { hasElementTransform } from './element-motion-render.js';
 
 export function stageMarkup(p, path = src => src, { videoFrames = {} } = {}) {
   const [w, h] = FORMATS[p.format];
@@ -41,7 +44,7 @@ export function stageMarkup(p, path = src => src, { videoFrames = {} } = {}) {
     if (l.type === 'carousel') return `<canvas id="carousel-${esc(l.id)}" class="clip" ${timing} ${common}inset:0;width:${w}px;height:${h}px" width="${w}" height="${h}"></canvas>`;
     if (l.type === 'text') {
       const typography = textTypography(l);
-      return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:${typography.lineHeight};letter-spacing:${typography.letterSpacing};text-align:${typography.textAlign};clip-path:${textRevealClip(l, 0)};font-family:${esc(fontStack(l.font))};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
+      return `<div ${common}left:${l.x}%;top:${l.y}%;width:${l.width}%;font-size:${l.size * w / 1080}px;line-height:${typography.lineHeight};letter-spacing:${typography.letterSpacing};text-align:${typography.textAlign};font-family:${esc(fontStack(l.font))};font-weight:${l.weight};white-space:pre-wrap;overflow-wrap:anywhere;color:${l.color}">${esc(l.text)}</div>`;
     }
     if (l.type === 'logo' && l.src) return `<img alt="Studio mark" src="${esc(path(l.src))}" ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;height:auto">`;
     if (l.type === 'model') return `<canvas id="model-${esc(l.id)}" class="clip" ${timing} ${common}left:${l.x}%;top:${l.y}%;width:${l.size}%;aspect-ratio:1" width="${w}" height="${w}"></canvas>`;
@@ -123,6 +126,8 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   canvas.width = width; canvas.height = height;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(layer.perspective ?? 38, width / height, 0.1, 100);
+  const carouselMotion = {}, carouselProjection = new THREE.Matrix4();
+  let transformedProjection = false;
   function updateCamera() {
     camera.position.z = 8 * Math.tan(THREE.MathUtils.degToRad(19)) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     if (layer.template === 'wheel') {
@@ -173,7 +178,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
   const placementBounds = new Map();
   const cardBox = new THREE.Box3();
   // Last animated typography and color written to each text node.
-  const textStyles = new Map();
+  const textStyles = new Map(), textMotion = {};
   // Last animated base color written to each solid or media background fill.
   const backgroundFills = new Map();
   const scenePass = createScenePass();
@@ -224,7 +229,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
           textStyles.set(el, `${typography}:${pos.color}`);
         }
       }
-      let position = pos, rise = l.type === 'text' && l.rise ? (1 - layerAlpha({ ...l, opacity: 1, choreography: [] }, time)) * 24 : 0;
+      let position = pos;
       // Raw legacy callers can omit space; only explicit Spatial text bypasses Flat layout.
       if (p.layout?.enabled && l.type === 'text' && l.space !== 'spatial') {
         if (frame.width && frame.height) {
@@ -237,13 +242,15 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
           if (renderMode && layerAlpha(l, time) > 0 && !fitsSafeArea(bounds, p.layout)) throw new Error(`${l.name} exceeds the safe area. Reduce its width or size before exporting.`);
           const constrained = constrainPlacement(pos.x + bounds.x, pos.y + bounds.y, bounds.width, bounds.height, p.layout);
           position = { x: constrained.x - bounds.x, y: constrained.y - bounds.y };
-          const area = safeArea(p.layout);
-          rise = Math.min(rise, Math.max(0, (area.y + area.height - constrained.y - bounds.height) * height / 100));
         }
       }
       el.style.left = `${position.x}%`; el.style.top = `${position.y}%`;
-      el.style.transform = `${rise ? `translateY(${rise}px) ` : ''}${['text', 'logo', 'media'].includes(l.type) ? `rotate(${pos.roll ?? 0}deg)` : ''}`;
-      if (l.type === 'text') el.style.clipPath = textRevealClip(l, time);
+      // Entry/exit travel follows the text's own axes and may leave the safe area;
+      // only the resting pose is constrained above.
+      const sample = l.type === 'text' ? textMotionAt(l, time, textMotion) : null;
+      const motion = sample && textMotionStyle(sample, sample.reveal ? el.offsetWidth : 0, sample.reveal ? el.offsetHeight : 0, Math.min(width, height));
+      el.style.transform = `${['text', 'logo', 'media'].includes(l.type) ? `rotate(${pos.roll ?? 0}deg) ` : ''}${motion?.transform ?? ''}`.trim();
+      if (motion) el.style.clipPath = motion.clipPath;
     }
   }
   // A `size` × `size / aspect` card; a wrapped ring bends it around its radius.
@@ -418,9 +425,31 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     const sampled = { ...evaluateChoreography(layer, time), ...orientation };
     const cards = shapeCards(sampled);
     group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
+    group.scale.setScalar(1);
     const viewHeight = layer.space === 'spatial' ? sceneDimensions(p.format).height : 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
     const placed = placementFor(layer.id);
     const position = placed ? { ...sampled, ...placed } : sampled;
+    if (layer.space !== 'spatial') {
+      elementMotionAt(layer, time, carouselMotion);
+      const transformed = hasElementTransform(carouselMotion);
+      if (transformedProjection || transformed) camera.updateProjectionMatrix();
+      if (transformed) {
+        // Post-project the entire carousel image before clipping/rasterization:
+        // uniform pulse preserves card perspective and reveals moved-in cards.
+        const angle = THREE.MathUtils.degToRad(carouselMotion.rotation);
+        const c = Math.cos(angle) * carouselMotion.scale, s = Math.sin(angle) * carouselMotion.scale;
+        const x = position.x / 50 - 1, y = 1 - position.y / 50, shortSide = Math.min(width, height);
+        const xy = -s * height / width, yx = s * width / height;
+        carouselProjection.set(
+          c, xy, 0, x + carouselMotion.offsetX / 50 * shortSide / width - c * x - xy * y,
+          yx, c, 0, y - carouselMotion.offsetY / 50 * shortSide / height - yx * x - c * y,
+          0, 0, 1, 0,
+          0, 0, 0, 1);
+        camera.projectionMatrix.premultiply(carouselProjection);
+        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+      }
+      transformedProjection = transformed;
+    }
     group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, layer.space === 'spatial' ? (position.z ?? 0) / 100 * viewHeight : 0);
     // Planar carousels size their largest card as a fraction of the canvas.
     const planar = ['zoom-through', 'sweep-reveal'].includes(layer.template);

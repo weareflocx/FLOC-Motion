@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { transform } from 'esbuild';
-import { editClip, editFade, timeAtPointer } from '../src/editor-controls.js';
+import { editClip, editFade, editTextTiming, textTimingLengths, timeAtPointer } from '../src/editor-controls.js';
+import { DEFAULT_TEXT_ENTRY, DEFAULT_TEXT_EXIT, TEXT_MOTION_PRESETS, textMotionPreset } from '../src/text-motion.js';
 import { fitFades } from '../src/project.js';
 import { moveState, supportsChoreography } from '../src/choreography.js';
 import { LAYER_COLORS } from '../src/editor/layer-colors.js';
@@ -12,16 +13,16 @@ import { LAYER_KINDS } from '../src/editor/layer-kinds.js';
 const source = fs.readFileSync(new URL('../src/timeline.jsx', import.meta.url), 'utf8');
 const compiled = (await transform(source.replace(/^import .*;\n/gm, '').replace('export function', 'function'), { loader: 'jsx' })).code;
 
-function timeline({ locked = false, time = 3, mode = 'choreography', width = 800, music = false, sourceDuration = 6, offset = 1, loop = false } = {}) {
+function timeline({ locked = false, time = 3, mode = 'choreography', width = 800, music = false, sourceDuration = 6, offset = 1, loop = false, text = {} } = {}) {
   const slots = [], patches = [], seeks = [], selections = [];
   let cursor = 0;
-  const layer = { id: 'title', type: 'text', name: 'Title', text: 'Hello', visible: true, locked, start: 2, end: 6, fadeIn: .2, fadeOut: .2,
-    choreography: [{ id: 'a', time: 0 }, { id: 'b', time: 1 }, { id: 'c', time: 3 }].map(state => ({ ...state, easing: 'smooth', values: { x: 5, y: 5, size: 40, opacity: 1 } })) };
+  const layer = { id: 'title', type: 'text', name: 'Title', text: 'Hello', visible: true, locked, start: 2, end: 6, fadeIn: .2, fadeOut: .2, entry: { ...DEFAULT_TEXT_ENTRY }, exit: { ...DEFAULT_TEXT_EXIT },
+    choreography: [{ id: 'a', time: 0 }, { id: 'b', time: 1 }, { id: 'c', time: 3 }].map(state => ({ ...state, easing: 'smooth', values: { x: 5, y: 5, size: 40, opacity: 1 } })), ...text };
   if (music) Object.assign(layer, { type: 'music', name: 'Audio', src: '/assets/5c6e62a1-59b0-4b79-a752-a943d49cd13d.wav', offset, loop, choreography: [], fadeIn: undefined, fadeOut: undefined });
   const summaries = {};
   const setSourceDuration = duration => { if (Number.isFinite(duration)) summaries[layer.src] = { status: 'ready', data: { duration, peaks: [0, .1, .8, .2, 0, .3] } }; else delete summaries[layer.src]; };
   if (music) setSourceDuration(sourceDuration);
-  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, AudioWaveform() {}, AudioWaveformStatus() {}, useAudioWaveforms: () => ({ summaries, retry() {} }), editClip, editFade, timeAtPointer, fitFades, moveState, supportsChoreography, LAYER_COLORS, LAYER_KINDS,
+  const context = { React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) }, EyeSlash() {}, LockSimple() {}, DiamondsFour() {}, TimelineTimingControls() {}, AudioWaveform() {}, AudioWaveformStatus() {}, useAudioWaveforms: () => ({ summaries, retry() {} }), editClip, editFade, editTextTiming, textTimingLengths, timeAtPointer, fitFades, moveState, supportsChoreography, LAYER_COLORS, LAYER_KINDS, TEXT_MOTION_PRESETS, textMotionPreset,
     useEffect() {},
     useRef(value) { const i = cursor++; return slots[i] ??= { current: value }; },
     useState(value) { const i = cursor++; slots[i] ??= { value: value === 0 ? width : value }; return [slots[i].value, next => { slots[i].value = next; }]; } };
@@ -181,11 +182,11 @@ test('state marks follow clip movement drafts and disappear beyond a trimmed spa
 
 test('clip drag feedback follows fitted fade values and clears without saving on cancellation', () => {
   const h = timeline({ mode: 'timing' });
-  const fade = h.find(p => p['aria-label'] === 'Fade in of Title: 0.20s');
+  const fade = h.find(p => p['aria-label'] === 'Entry of Title: Fade 0.20s');
   fade.props.onPointerDown(h.event());
   fade.props.onPointerMove(h.event({ clientX: 400 }));
   let feedback = h.find(p => p.className === 'clip-drag-feedback');
-  assert.equal(feedback.children[0], 'Fade in 1.20s');
+  assert.equal(feedback.children[0], 'Entry Fade 1.20s');
   assert.equal(h.patches.length, 0);
   fade.props.onPointerCancel(h.event());
   assert.equal(h.find(p => p.className === 'clip-drag-feedback'), undefined);
@@ -202,6 +203,18 @@ test('clip drag feedback follows fitted fade values and clears without saving on
   assert.equal(h.patches[0].id, 'title');
   assert.equal(h.patches[0].patch.start, 2);
   assert.equal(h.patches[0].patch.end, 5);
+});
+
+test('text entry and exit handles name their preset and scale fade and movement together', () => {
+  const h = timeline({ mode: 'timing', text: { fadeIn: 0, fadeOut: .2, entry: { ...DEFAULT_TEXT_ENTRY, motion: 'reveal', duration: .5 } } });
+  const entry = h.find(p => p['aria-label'] === 'Entry of Title: Reveal 0.50s');
+  assert.equal(entry.props.title, 'Entry Reveal 0.50s');
+  assert(h.find(p => p['aria-label'] === 'Exit of Title: Mirrored 0.40s'), 'a mirrored exit lasts its movement');
+  entry.props.onPointerDown(h.event());
+  entry.props.onPointerMove(h.event({ clientX: 400 }));
+  assert.equal(h.find(p => p.className === 'clip-drag-feedback').children[0], 'Entry Reveal 1.50s');
+  entry.props.onPointerUp(h.event({ clientX: 400 }));
+  assert.deepEqual(JSON.parse(JSON.stringify(h.patches)), [{ id: 'title', patch: { entry: { duration: 1.5 } } }], 'an unfaded Reveal keeps no fade');
 });
 
 

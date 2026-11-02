@@ -44,7 +44,7 @@ test('Flat refractive presentations preserve lower pixels, alpha and upper-layer
       const base = blankProject(); base.format = format;
       const background = { ...base.layers[0], mode: 'procedural', pattern: 'checkerboard', patternColor: '#000000', patternIntensity: 1, patternSpeed: 0, patternScale: 1 };
       const text = { id: 'title', type: 'text', name: 'Behind', visible: true, locked: false, start: 0, end: 12,
-        text: 'REFRACTION\\n0123456789', x: 4, y: 34, width: 92, size: 128, color: '#000000', weight: 700, font: 'geist', fadeIn: 0, fadeOut: 0, rise: false };
+        text: 'REFRACTION\\n0123456789', x: 4, y: 34, width: 92, size: 128, color: '#000000', weight: 700, font: 'geist', fadeIn: 0, fadeOut: 0 };
       const lens = { ...fileLayer({ src: MODEL, name: 'Lens' }, 12, 'lens'), x: 20, y: 20, size: 60, modelStyle: { ...style, ...modelStyle } };
       base.layers = [...(transparent ? [] : [background]), text, lens];
       if (carousel) {

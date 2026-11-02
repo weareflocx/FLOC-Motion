@@ -100,7 +100,6 @@ function textureFixtures() {
     return { id: `textures-${id}`, times: [.5, 1.7], project };
   });
 }
-
 // The stack carousel proves an animated warp before a CSS blur. Halftone,
 // duotone and chromatic split also run on text: every visual layer shares the
 // same ordered effect implementation.

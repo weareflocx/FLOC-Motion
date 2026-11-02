@@ -15,6 +15,7 @@ import { MORPHING_SPHERE_SRC, LIQUID_RIBBONS_SRC, MAGICAL_OCTAHEDRON_SRC } from 
 import { createMorphingSphere } from './model-morph.js';
 import { createLiquidRibbons } from './model-liquid.js';
 import { createMagicalOctahedron } from './model-octahedron.js';
+import { applyElementTransform, hasElementTransform } from './element-motion-render.js';
 
 // Fixed framing is the pre-v11 camera: 38° from 4.5 units, model scaled to two units.
 const FIXED_DISTANCE = 4.5, FIXED_HALF_FOV = THREE.MathUtils.degToRad(19);
@@ -259,7 +260,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     renderRefraction();
     return refractionOutput;
   }
-  function prepareSpatial(format, outputCamera) {
+  function prepareSpatial(format, outputCamera, elementMotion) {
     if (!spatial) return null;
     const value = lastDraft ? { ...sampled, ...lastDraft } : sampled;
     const side = sceneDimensions(format).width * value.size / 100;
@@ -268,8 +269,14 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     spatialScale = style.zoom * (style.framing === 'fit' ? side * FIT_MARGIN / (2 * radius) : side / (2 * FIXED_DISTANCE * Math.tan(FIXED_HALF_FOV)));
     spatialRadius = radius * spatialScale;
     placementRoot.scale.setScalar(spatialScale);
+    placementRoot.quaternion.identity();
     scenePosition(format, value.x, value.y, value.z, placementRoot.position);
     placementRoot.position.x += side / 2; placementRoot.position.y -= side / 2;
+    if (hasElementTransform(elementMotion)) {
+      const frame = sceneDimensions(format);
+      applyElementTransform(placementRoot, elementMotion, Math.min(frame.width, frame.height));
+      spatialScale *= elementMotion.scale; spatialRadius *= elementMotion.scale;
+    }
     rig.position.copy(placementRoot.position);
     for (const light of [key, fill, rim]) light.target.position.copy(placementRoot.position);
     if (style.motionSpace === 'screen') {

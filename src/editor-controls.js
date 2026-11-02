@@ -80,6 +80,39 @@ export function editFade(layer, kind, delta, fps) {
   return { fadeIn: layer.fadeIn, fadeOut: layer.fadeOut, [kind]: clamp(layer[kind] + quantized, 0, Math.max(0, layer.end - layer.start - other)) };
 }
 
+// A text side lasts as long as its fade or its movement, whichever is longer. A
+// mirrored exit moves when the entry does, over the exit's own duration.
+const textMoves = (layer, side) => {
+  const spec = side === 'entry' || layer.exit?.mirror ? layer.entry : layer.exit;
+  return Boolean(spec && spec.motion !== 'none');
+};
+export function textSideLength(layer, side) {
+  const fade = side === 'entry' ? layer.fadeIn : layer.fadeOut;
+  return Math.max(fade, textMoves(layer, side) ? layer[side].duration : 0);
+}
+
+// Side lengths fitted to a (possibly trimmed) span, as validation fits fades and movements.
+export function textTimingLengths(layer, span = layer.end - layer.start) {
+  const fadeIn = textSideLength(layer, 'entry'), fadeOut = textSideLength(layer, 'exit');
+  const scale = fadeIn + fadeOut > span ? Math.max(0, span) / (fadeIn + fadeOut) : 1;
+  return { fadeIn: fadeIn * scale, fadeOut: fadeOut * scale };
+}
+
+// Dragging a text layer's entry (`fadeIn`) or exit (`fadeOut`) handle scales that side's
+// fade and movement together; both sides still share the layer's span.
+export function editTextTiming(layer, kind, delta, fps) {
+  if (!['fadeIn', 'fadeOut'].includes(kind)) throw new Error('Unknown fade action.');
+  const side = kind === 'fadeIn' ? 'entry' : 'exit', other = side === 'entry' ? 'exit' : 'entry';
+  const quantized = Math.round(delta * fps) / fps * (kind === 'fadeIn' ? 1 : -1);
+  const length = textSideLength(layer, side);
+  const next = clamp(length + quantized, 0, Math.max(0, layer.end - layer.start - textSideLength(layer, other)));
+  const scaled = value => length > 0 ? value * next / length : next;
+  const result = { fadeIn: layer.fadeIn, fadeOut: layer.fadeOut, entryDuration: layer.entry.duration, exitDuration: layer.exit.duration };
+  result[kind] = scaled(layer[kind]);
+  if (textMoves(layer, side)) result[`${side}Duration`] = Math.min(30, scaled(layer[side].duration));
+  return result;
+}
+
 export function timeAtPointer(clientX, rect, duration, fps) {
   return clamp(Math.round((clientX - rect.left) / rect.width * duration * fps) / fps, 0, duration - 1 / fps);
 }

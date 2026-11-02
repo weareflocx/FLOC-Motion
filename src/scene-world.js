@@ -6,6 +6,8 @@ import { SCENE_PASS } from './scene-pass.js';
 import { createSceneSurface } from './scene-surfaces.js';
 import { modelCanvasGeometry } from './model-canvas.js';
 import { SPATIAL_LAYER_TYPES } from './scene-settings.js';
+import { elementMotionAt } from './element-motion.js';
+import { applyElementTransform, elementTransformMatrix, hasElementTransform } from './element-motion-render.js';
 
 const GRAPHIC_TYPES = ['text', 'logo', 'media'];
 const ORDER_DEPTH_PERCENT = .002;
@@ -40,7 +42,8 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
   function sourceSurface(value) { return { canvas: value, ...fullBounds() }; }
   function makeLeaf(layer, index) {
     const node = { id: layer.id, index, layer, value: layer, alpha: 0, element: element(layer.id), model: models.get(layer.id), flow: dataFlows.get(layer.id), carousel: carousels.get(layer.id), surface: createSceneSurface(rendering),
-      colorCanvas: canvas(), maskCanvas: canvas(), cropCanvas: canvas(), maskCropCanvas: canvas(), sortPoint: new THREE.Vector3(), projected: false, refFrame: 0, fxBounds: null, raster: false };
+      colorCanvas: canvas(), maskCanvas: canvas(), cropCanvas: canvas(), maskCropCanvas: canvas(), sortPoint: new THREE.Vector3(), motionCenter: new THREE.Vector3(),
+      motionMatrix: new THREE.Matrix4(), sourceMatrix: new DOMMatrix(), motion: {}, transformed: false, projected: false, refFrame: 0, fxBounds: null, raster: false };
     leaves.set(layer.id, node); return node;
   }
   function build() {
@@ -79,6 +82,25 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     const context = resize(target, w, h); context.resetTransform(); context.clearRect(0, 0, w, h);
     context.drawImage(source, x, y, w, h, 0, 0, w, h); return target;
   }
+  function poseElementMotion(node) {
+    elementMotionAt(node.layer, time, node.motion);
+    node.transformed = hasElementTransform(node.motion);
+    if (!node.transformed || !node.raster) return;
+    const frame = sceneDimensions(current.format);
+    let x, y;
+    if (node.carousel) { x = node.value.x / 100 * nativeWidth; y = node.value.y / 100 * nativeHeight; }
+    else {
+      const style = getComputedStyle(node.element), w = parseFloat(style.width), h = parseFloat(style.height);
+      const origin = style.transformOrigin.split(/\s+/), ox = parseFloat(origin[0]), oy = parseFloat(origin[1]);
+      const m = node.sourceMatrix;
+      m.setMatrixValue(style.transform === 'none' ? 'matrix(1,0,0,1,0,0)' : style.transform);
+      x = (parseFloat(style.left) || 0) + ox + m.a * (w / 2 - ox) + m.c * (h / 2 - oy) + m.e;
+      y = (parseFloat(style.top) || 0) + oy + m.b * (w / 2 - ox) + m.d * (h / 2 - oy) + m.f;
+    }
+    node.motionCenter.set((x / nativeWidth - .5) * frame.width, (.5 - y / nativeHeight) * frame.height,
+      ((node.value.z ?? 0) + node.index * ORDER_DEPTH_PERCENT) / 100 * SCENE_VIEW_HEIGHT);
+    elementTransformMatrix(node.motion, Math.min(frame.width, frame.height), node.motionCenter, node.motionMatrix);
+  }
   function captureScale(node) {
     const w = node.element?.offsetWidth || nativeWidth, h = node.element?.offsetHeight || nativeHeight;
     let paddingX = 1, paddingY = 1;
@@ -88,6 +110,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     }
     let magnification = Math.max(1, cameras.output.zoom);
     if (cameras.output.isPerspectiveCamera && node.value.z > 0) magnification *= 8 / Math.max(1, 8 - node.value.z / 100 * SCENE_VIEW_HEIGHT);
+    if (node.transformed) magnification *= node.motion.scale;
     // Optical Warp expands only the axis perpendicular to its lens. Using
     // three diagonals here needlessly downsampled ordinary 1080p Flat sources.
     const wLimit = w * paddingX, hLimit = h * paddingY;
@@ -95,7 +118,8 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     return Math.min(width / nativeWidth * Math.min(8, magnification), rendering.maxSide / extent);
   }
   function uploadLeaf(node, value, options = {}) {
-    node.surface.set(value, { format: current.format, layer: node.value, index: node.index, ...options });
+    node.surface.set(value, { format: current.format, layer: node.value, index: node.index,
+      transform: node.transformed && !node.carousel && !options.projected ? node.motionMatrix : null, ...options });
     node.raster = true;
   }
   function renderLeaf(node, pass, options = {}) {
@@ -164,6 +188,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     const w = parseFloat(style.width), h = parseFloat(style.height);
     const frameSize = sceneDimensions(current.format), z = ((node.value.z ?? 0) + node.index * ORDER_DEPTH_PERCENT) / 100 * SCENE_VIEW_HEIGHT;
     planeMapping.makeScale(frameSize.width, frameSize.height, 1); planeMapping.setPosition(-frameSize.width / 2, -frameSize.height / 2, z);
+    if (node.transformed) planeMapping.premultiply(node.motionMatrix);
     viewProjection.multiplyMatrices(cameras.output.projectionMatrix, cameras.output.matrixWorldInverse);
     planeMatrix.multiplyMatrices(viewProjection, planeMapping);
     const result = node.model.drawRefraction(backdrop, { x: x / nativeWidth, y: y / nativeHeight, width: w / nativeWidth, height: h / nativeHeight }, time, draft(node.id), planeMatrix);
@@ -239,9 +264,14 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
         node.refractive = node.layer.type === 'model' && node.layer.modelStyle?.glass === 'refractive';
         node.hasEffects = node.layer.effects?.some(effect => effect.enabled) ?? false;
         node.projected = false; node.raster = !(node.layer.space === 'spatial' && (node.model || node.flow || node.carousel));
+        poseElementMotion(node);
+        if (node.carousel && node.layer.space === 'spatial') {
+          const size = sceneDimensions(current.format);
+          applyElementTransform(node.carousel.root, node.motion, Math.min(size.width, size.height));
+        }
         const native = node.model ?? node.flow;
         if (native && node.layer.space === 'spatial') {
-          native.prepareSpatial(current.format, cameras.output);
+          native.prepareSpatial(current.format, cameras.output, node.motion);
           node.fxBounds = projectedSphere(native);
           if (node.element) {
             node.element.dataset.flocFilterWidth = String(node.fxBounds.width); node.element.dataset.flocFilterHeight = String(node.fxBounds.height);
@@ -259,6 +289,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
           node.sortPoint.set((x / nativeWidth - .5) * size.width, (.5 - y / nativeHeight) * size.height,
             ((node.value.z ?? 0) + node.index * ORDER_DEPTH_PERCENT) / 100 * SCENE_VIEW_HEIGHT);
         }
+        if (node.transformed && node.raster) node.sortPoint.applyMatrix4(node.motionMatrix);
       }
     },
     draw() {
@@ -292,6 +323,10 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
       if (node.model) return node.surface.elementBounds(cameras.output, node.element, modelCanvasGeometry(node.element)?.bounds());
       if (node.flow) return node.surface.elementBounds(cameras.output, node.element, node.flow.sourceBounds());
       if (node.carousel && node.layer.space === 'spatial') return node.carousel.bounds(cameras.output);
+      if (node.carousel && node.layer.elementMotion) {
+        const bounds = node.carousel.bounds(node.carousel.camera);
+        return node.surface.elementBounds(cameras.output, node.element, bounds && { x: bounds.x / 100, y: bounds.y / 100, width: bounds.width / 100, height: bounds.height / 100 });
+      }
       return node.surface.bounds(cameras.output);
     },
     projectPointer(u, v, id) {

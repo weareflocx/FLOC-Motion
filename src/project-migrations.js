@@ -1,6 +1,6 @@
 // Saved projects keep the schema version they were written with. Each step
 // upgrades plain JSON from vN to vN+1; validation only describes the current shape.
-export const CURRENT_PROJECT_VERSION = 17;
+export const CURRENT_PROJECT_VERSION = 18;
 
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -326,15 +326,46 @@ function v14ToV15(project) {
   return project;
 }
 
-// v16 is a neutral compatibility step with no behavioral changes.
+// v16 adds optional whole-element motion. Absence remains neutral, preserving
+// every v15 pose and pixel; only the version advances so older editors reject
+// new movement instead of silently dropping it.
 function v15ToV16(project) { return project; }
 
 // v17 adds static texture distribution controls. The default Original layout
 // keeps the legacy field geometry and framing; validation supplies neutral values.
 function v16ToV17(project) { return project; }
 
+// v18 replaces text Rise and wipe Reveal with entry/exit movement, frozen here so a
+// v17 file always looks the same: Rise moved 24 px of a 1080 short side, linearly,
+// over each fade; a wipe uncovered a still text over its own duration. Opacity fades
+// are unchanged. Rise during a wipe keeps the wipe (and an upward lift for Wipe up).
+const V17_RISE = 24 / 1080 * 100;
+const V17_REVEALS = ['none', 'up', 'down', 'right', 'left'];
+const V17_ENTRY = { motion: 'none', direction: 'up', amount: 4, duration: .6, character: 'smooth' };
+const V17_EXIT = { motion: 'none', direction: 'up', amount: 4, duration: .4, character: 'smooth' };
+function v17ToV18(project) {
+  for (const layer of Array.isArray(project.layers) ? project.layers : []) {
+    if (!record(layer) || layer.type !== 'text') continue;
+    const { rise = false, reveal = 'none', revealDuration = .6 } = layer;
+    if (typeof rise !== 'boolean') fail('Text rise must be true or false.');
+    if (!V17_REVEALS.includes(reveal)) fail('Unknown text reveal.');
+    if (typeof revealDuration !== 'number' || !Number.isFinite(revealDuration) || revealDuration < 0 || revealDuration > 5) fail('Reveal duration must be between 0 and 5.');
+    const fade = value => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+    const fadeIn = fade(layer.fadeIn), fadeOut = fade(layer.fadeOut);
+    const span = typeof layer.end === 'number' && typeof layer.start === 'number' ? layer.end - layer.start : revealDuration;
+    let entry = { ...V17_ENTRY };
+    if (reveal !== 'none' && revealDuration > 0) entry = { motion: 'reveal', direction: reveal, amount: rise && fadeIn > 0 && reveal === 'up' ? V17_RISE : 0, duration: Math.max(0, Math.min(revealDuration, span)), character: 'linear' };
+    else if (rise && fadeIn > 0) entry = { motion: 'rise', direction: 'up', amount: V17_RISE, duration: fadeIn, character: 'linear' };
+    let exit = { mirror: entry.motion === 'none', ...V17_EXIT };
+    if (rise && fadeOut > 0) exit = entry.motion === 'rise' ? { ...V17_EXIT, mirror: true, duration: fadeOut } : { mirror: false, motion: 'slide', direction: 'down', amount: V17_RISE, duration: fadeOut, character: 'linear' };
+    layer.entry = entry; layer.exit = exit;
+    delete layer.rise; delete layer.reveal; delete layer.revealDuration;
+  }
+  return project;
+}
+
 // MIGRATIONS[n - 1] upgrades version n to n + 1. Steps receive a private copy.
-const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13, v13ToV14, v14ToV15, v15ToV16, v16ToV17];
+const MIGRATIONS = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7, v7ToV8, v8ToV9, v9ToV10, v10ToV11, v11ToV12, v12ToV13, v13ToV14, v14ToV15, v15ToV16, v16ToV17, v17ToV18];
 
 export function migrateProject(input) {
   if (!record(input)) fail('Invalid project.');
