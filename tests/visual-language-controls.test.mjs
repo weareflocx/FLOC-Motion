@@ -24,10 +24,20 @@ const [primitives, backgrounds, typography] = await Promise.all([
 function controls(component, initial) {
   let layer = structuredClone(initial);
   const changes = [], uploads = [], effects = [];
+  // Only the rendered component's own state persists between renders (its hooks run first,
+  // in a fixed order); nested primitives keep their initial state, as before.
+  const state = [];
+  let slot = null;
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) },
     UploadSimple() {}, PATTERN_SCALE, PROCEDURAL_BACKGROUNDS, proceduralDefaults, textureLayout, TEXTURE_LAYOUT_LIMITS, drawBackgroundPreview() {}, DEFAULT_TEXT_STYLE,
-    useState: value => [value, () => {}],
+    useState: value => {
+      if (slot === null) return [value, () => {}];
+      const index = slot++;
+      if (!(index in state)) state[index] = value;
+      return [state[index], next => { state[index] = next; }];
+    },
+    useId: () => 'controls',
     useRef: value => ({ current: value }), useEffect: effect => effects.push(effect),
     createContext: value => ({ value }), useContext: context => context.value, useSyncExternalStore: (subscribe, snapshot) => snapshot()
   };
@@ -40,13 +50,18 @@ function controls(component, initial) {
     }
     return [node, ...(node.children || []).flat(Infinity).flatMap(nodes)];
   }
-  const render = () => context[component]({ layer, uploading: false, onPatch(id, patch) { assert.equal(id, layer.id); changes.push({ ...patch }); layer = { ...layer, ...patch }; }, onPick(...args) { uploads.push(args); } });
+  const render = () => {
+    slot = 0;
+    try { return context[component]({ layer, uploading: false, onPatch(id, patch) { assert.equal(id, layer.id); changes.push({ ...patch }); layer = { ...layer, ...patch }; }, onPick(...args) { uploads.push(args); } }); }
+    finally { slot = null; }
+  };
   const find = predicate => nodes(render()).find(predicate);
   const text = node => (node.children || []).flat(Infinity).map(child => typeof child === 'object' ? text(child) : child ?? '').join('');
   const button = label => find(node => node.type === 'button' && (node.props['aria-label'] === label || text(node) === label));
+  const tab = label => find(node => node.props.role === 'tab' && text(node).startsWith(label));
   const input = label => find(node => ['input', 'select'].includes(node.type) && node.props['aria-label'] === label);
   const editInput = (label, value) => { const node = input(label); node.props.onChange({ target: { value } }); node.props.onBlur({ currentTarget: { value } }); };
-  return { editInput, context, effects, changes, uploads, layer: () => layer, find, button, input, render };
+  return { editInput, context, effects, changes, uploads, layer: () => layer, find, button, tab, input, render };
 }
 
 const background = { id: 'background', type: 'background', mode: 'image', color: '#080808', src: '/demo/poster-1.svg', fit: 'cover', offset: 0, loop: true };
@@ -96,6 +111,13 @@ test('pattern selection and bounded controls keep other background settings inta
 
 test('MIT texture selection stays visible on a white background and preserves authored colors and media', () => {
   const h = controls('background', { ...background, mode: 'procedural', color: '#ffffff', patternColor: '#ffffff', patternSeed: 42 });
+  assert.equal(h.tab('Patterns').props['aria-selected'], true);
+  assert.equal(h.button('Magnet background'), undefined);
+  // Browsing the other library shows its tiles without changing the background.
+  h.tab('Textures.dev').props.onClick();
+  assert.equal(h.tab('Textures.dev').props['aria-selected'], true);
+  assert.equal(h.button('Grid background'), undefined);
+  assert.deepEqual(h.changes, []);
   h.button('Magnet background').props.onClick();
   assert.equal(h.layer().pattern, 'magnet');
   assert.equal(h.layer().color, '#ffffff');
@@ -111,6 +133,8 @@ test('MIT texture selection stays visible on a white background and preserves au
   assert.equal(h.layer().patternColor, '#ff0000');
   assert.equal(h.layer().patternScale, 1.75);
   assert.equal(h.layer().patternFocusX, 20);
+  // A layer that already uses a texture opens on its library.
+  assert.equal(controls('background', h.layer()).tab('Textures.dev').props['aria-selected'], true);
 });
 
 test('choosing a texture preserves animated color interpolation, including the state limit', () => {
@@ -118,6 +142,7 @@ test('choosing a texture preserves animated color interpolation, including the s
     const states = Array.from({ length: count }, (_, i) => ({ id: `color-${i}`, time: i / 4, easing: 'linear', values: { patternColor: i % 2 ? '#ff0000' : '#ffffff' } }));
     const project = patchLayer(blankProject(), 'background', { mode: 'procedural', color: '#080808', patternColor: '#ffffff', choreography: states });
     const at = .125, layer = project.layers[0], h = controls('background', evaluateChoreography(layer, at));
+    h.tab('Textures.dev').props.onClick();
     h.button('Magnet background').props.onClick();
     const next = patchLayer(project, layer.id, choreographyPatch(layer, h.changes[0], at, project.fps));
     assert.deepEqual(next.layers[0].choreography, layer.choreography);

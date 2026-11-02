@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { UploadSimple } from '@phosphor-icons/react';
 import { PROCEDURAL_BACKGROUNDS, drawBackgroundPreview, proceduralDefaults } from '../../backgrounds.js';
 import { PATTERN_SCALE } from '../../project-limits.js';
@@ -7,6 +7,7 @@ import { Color, Field, NumberField, Range } from '../controls.jsx';
 import './visual-language.css';
 
 const SOURCES = [['color', 'Solid'], ['image', 'Image'], ['video', 'Video'], ['procedural', 'Procedural']];
+const PATTERN_GROUPS = [['patterns', 'Patterns', false], ['textures', 'Textures.dev · MIT', true]];
 
 function contrastingInk(settings) {
   if (settings.patternColor.toLowerCase() !== settings.color.toLowerCase()) return settings.patternColor;
@@ -32,6 +33,12 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick, aspect =
   const settings = { ...proceduralDefaults(layer), ...layer };
   const { controls = [], accent, source } = PROCEDURAL_BACKGROUNDS.find(pattern => pattern.id === settings.pattern) ?? {};
   const layout = source ? textureLayout(settings.pattern, settings, aspect) : null;
+  // The tab holding the selected pattern opens by default; browsing another tab never changes
+  // the selection, and selecting another background layer opens its own pattern's tab again.
+  const [browsing, setBrowsing] = useState({ layerId: null, group: null });
+  const tabsId = useId();
+  const groupId = browsing.layerId === layer.id ? browsing.group : source ? 'textures' : 'patterns';
+  const textures = groupId === 'textures';
   function selectPattern(pattern) {
     const patch = { pattern: pattern.id };
     if (pattern.source) {
@@ -54,14 +61,16 @@ export function BackgroundControls({ layer, uploading, onPatch, onPick, aspect =
       <Color label="Pattern color" value={settings.patternColor} onChange={patternColor => onPatch(layer.id, { patternColor })}/>
       <Color label="Accent color" value={settings.patternAccent} onChange={patternAccent => onPatch(layer.id, { patternAccent })}/>
       <Range label={accent === 'layer' ? 'Accent layer' : 'Accent'} value={settings.patternAccentAmount} min={0} max={1} step={0.05} onChange={patternAccentAmount => onPatch(layer.id, { patternAccentAmount })}/>
-      {[['Procedural patterns', false], ['Textures.dev · MIT', true]].map(([label, textures]) => <div key={label}>
-        <p className="helper">{label}</p>
-        <div className="procedural-background-list" role="group" aria-label={label}>
-          {PROCEDURAL_BACKGROUNDS.filter(pattern => Boolean(pattern.source) === textures).map(pattern => <button type="button" key={pattern.id} className={`procedural-background-option${settings.pattern === pattern.id ? ' selected' : ''}`} aria-label={`${pattern.name} background`} title={pattern.name} aria-pressed={settings.pattern === pattern.id} onClick={() => selectPattern(pattern)}>
-            <BackgroundPreview layer={settings} pattern={pattern} aspect={aspect}/><span>{pattern.name}</span>
-          </button>)}
-        </div>
-      </div>)}
+      <div className="tabs procedural-background-tabs" role="tablist" aria-label="Procedural pattern libraries">
+        {PATTERN_GROUPS.map(([id, label, group]) => <button type="button" key={id} role="tab" id={`${tabsId}-${id}`} aria-controls={`${tabsId}-panel`} aria-selected={groupId === id} className={groupId === id ? 'selected' : ''} onClick={() => setBrowsing({ layerId: layer.id, group: id })}>
+          {label}<span className="procedural-background-count">{PROCEDURAL_BACKGROUNDS.filter(pattern => Boolean(pattern.source) === group).length}</span>
+        </button>)}
+      </div>
+      <div className="procedural-background-list" role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${groupId}`}>
+        {PROCEDURAL_BACKGROUNDS.filter(pattern => Boolean(pattern.source) === textures).map(pattern => <button type="button" key={pattern.id} className={`procedural-background-option${settings.pattern === pattern.id ? ' selected' : ''}`} aria-label={`${pattern.name} background`} title={pattern.name} aria-pressed={settings.pattern === pattern.id} onClick={() => selectPattern(pattern)}>
+          <BackgroundPreview layer={settings} pattern={pattern} aspect={aspect}/><span>{pattern.name}</span>
+        </button>)}
+      </div>
       {source && <p className="helper">Automatic, seeded motion replaces the pointer so seeking and export match. <a href="/licenses/textures-dev.txt" target="_blank" rel="noreferrer">MIT credits</a></p>}
       {source && <>
         <Field label="Layout"><select aria-label="Texture layout" value={settings.textureLayout} onChange={event => onPatch(layer.id, { textureLayout: event.target.value })}>

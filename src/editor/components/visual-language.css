@@ -9,6 +9,22 @@
   font-size: 10px;
 }
 
+.procedural-background-tabs {
+  margin-top: 10px;
+}
+
+.procedural-background-tabs button {
+  min-width: 0;
+  padding: 6px 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.procedural-background-count {
+  color: #777;
+  font-variant-numeric: tabular-nums;
+}
+
 .procedural-background-list {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
