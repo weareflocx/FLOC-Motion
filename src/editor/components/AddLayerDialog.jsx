@@ -27,7 +27,7 @@ function ShapeChoices({ onChoose }) {
 }
 
 // Both entry points share the same actions; source replacement keeps its file filters.
-export function AddLayerDialog({ project, initialTarget = 'layers', origin, uploading, onClose, onPick, onAddText, onAddLayer, onOpenMedia, onPlaceAsset }) {
+export function AddLayerDialog({ project, initialTarget = 'layers', radial, uploading, onClose, onPick, onAddText, onAddLayer, onOpenMedia, onPlaceAsset }) {
   const [creatingCarousel, setCreatingCarousel] = useState(false);
   const [choosingShape, setChoosingShape] = useState(false);
   const cards = initialTarget.startsWith('cards:');
@@ -59,7 +59,7 @@ export function AddLayerDialog({ project, initialTarget = 'layers', origin, uplo
       { id: 'logo', Icon: Sparkle, label: 'Studio mark', description: 'The studio logo', disabled, onClick: () => create('logo') }
     ];
     const blockedReason = full ? `Layer limit reached (${PROJECT_LIMITS.maxLayers}). Remove a layer to add another.` : uploading ? 'Import in progress. Media is still available.' : '';
-    if (origin) return <RadialLayerMenu origin={origin} options={options} blockedReason={blockedReason} onClose={onClose}/>;
+    if (radial) return <RadialLayerMenu {...radial} options={options} blockedReason={blockedReason} onClose={onClose}/>;
     body = <>
       {blockedReason && <p className="helper" role="status">{blockedReason}</p>}
       <h3 className="add-layer-group">Import & reuse</h3>

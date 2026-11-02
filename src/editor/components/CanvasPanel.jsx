@@ -33,6 +33,10 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
   const [panning, setPanning] = useState(false);
   const [viewport, setViewport] = useState({ scale: 1, canPan: false });
   const [layerMenu, setLayerMenu] = useState(null);
+  const wrap = useRef();
+  const canvasArea = useCallback(() => wrap.current?.getBoundingClientRect(), []);
+  // Each opening gets a new id so a right-click elsewhere remounts the menu with a fresh entrance.
+  const openLayerMenu = point => setLayerMenu(current => ({ ...point, id: (current?.id ?? 0) + 1 }));
   const pendingEdit = useRef();
   const registerEdit = useCallback(commit => { pendingEdit.current = commit; onPendingEdit?.(commit); }, [onPendingEdit]);
   const updateViewport = useCallback(next => {
@@ -57,14 +61,14 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
   const depthHint = depthReady && (previewDepth !== null || depthActive) ? depthLabel(guide, depth) : null;
   const names = useMemo(() => Object.fromEntries(project.layers.map(layer => [layer.id, layer.name])), [project.layers]);
   return <section className="center-panel">
-    <div className="preview-wrap" onContextMenu={event => {
+    <div ref={wrap} className="preview-wrap" onContextMenu={event => {
       if (!addLayer || !event.target.closest('.stage-holder')) return;
       event.preventDefault();
       pendingEdit.current?.();
       const holder = event.target.closest('.stage-holder');
       holder.focus({ preventScroll: true });
       const box = holder.getBoundingClientRect();
-      setLayerMenu({ x: event.clientX || box.left + box.width / 2, y: event.clientY || box.top + box.height / 2 });
+      openLayerMenu({ x: event.clientX || box.left + box.width / 2, y: event.clientY || box.top + box.height / 2 });
     }}>
       <Stage nudge={nudge} selected={selected} selection={selection} onSelect={onSelect} onToggle={onToggle} onPatch={onPatch} onMoveGroup={onMoveGroup} onPreview={onPreview} onPendingEdit={registerEdit} onDepthInfo={reportDepth} onDepthGesture={flashDepth} onDropAsset={onDropAsset && ((asset, point) => { pendingEdit.current?.(); onDropAsset(asset, point); })} project={project} positionPreview={positionPreview} clock={clock} onError={onError} onReady={onReady} zoom={zoom} panning={panning && viewport.canPan} onViewport={updateViewport} onExitPan={() => setPanning(false)}/>
       {!ready && <div className="preview-loading">Preparing composition…</div>}
@@ -92,6 +96,6 @@ export function CanvasPanel({ nudge, onOpenNudge, project, carousel, history, fu
         <Timecode clock={clock} fps={project.fps} duration={project.duration}/>
       </div>
     </div>
-    {layerMenu && <AddLayerDialog project={project} origin={layerMenu} {...addLayer} onClose={() => setLayerMenu(null)}/>}
+    {layerMenu && <AddLayerDialog key={layerMenu.id} project={project} radial={{ origin: layerMenu, area: canvasArea, onReopen: openLayerMenu }} {...addLayer} onClose={() => setLayerMenu(null)}/>}
   </section>;
 }
