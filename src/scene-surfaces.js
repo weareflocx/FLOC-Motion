@@ -46,14 +46,13 @@ export function createSceneSurface(rendering) {
   const outerTransform = new THREE.Matrix4();
   function upload(value, previous) {
     // Capture surfaces are scratch buffers, including alternating beauty/mask
-    // output. Own a stable bitmap, and recreate immutable GPU storage on resize.
-    if (!previous || previous.image.width !== value.width || previous.image.height !== value.height) {
+    // output. initTexture uploads them now, so later scratch reuse never reaches
+    // the GPU copy; recreate immutable GPU storage only when the size changes.
+    if (!previous || previous.userData.width !== value.width || previous.userData.height !== value.height) {
       previous?.dispose();
-      const bitmap = document.createElement('canvas'); bitmap.width = value.width; bitmap.height = value.height;
-      previous = canvasTexture(bitmap);
-    }
-    const context = previous.image.getContext('2d');
-    context.resetTransform(); context.clearRect(0, 0, value.width, value.height); context.drawImage(value, 0, 0);
+      previous = canvasTexture(value);
+      previous.userData.width = value.width; previous.userData.height = value.height;
+    } else previous.image = value;
     previous.needsUpdate = true;
     rendering.renderer.initTexture(previous);
     return previous;
@@ -62,14 +61,16 @@ export function createSceneSurface(rendering) {
     scene, root, mesh, material,
     get currentSurface() { return surface; },
     setCoverage(value) { mask = upload(value.canvas, mask); material.uniforms.flocMask.value = mask; },
-    set(value, { format, layer, index = 0, projected: screen = false, depth = null, picking = null, fallbackDepth = 1, coverage = null, transform = null } = {}) {
+    // Group id map for the pick pass; every set() clears it until the next pick.
+    setPicking(texture) { material.uniforms.flocPickMap.value = texture; material.uniforms.flocHasPick.value = Boolean(texture); },
+    set(value, { format, layer, index = 0, projected: screen = false, depth = null, fallbackDepth = 1, coverage = null, transform = null } = {}) {
       if (!value) { root.visible = false; return; }
       root.visible = true; surface = value; projected = screen;
       color = upload(value.canvas, color); material.uniforms.flocMap.value = color;
       if (coverage) { mask = upload(coverage.canvas, mask); material.uniforms.flocMask.value = mask; }
       material.uniforms.flocProjected.value = screen;
       material.uniforms.flocDepthMap.value = depth; material.uniforms.flocHasDepth.value = Boolean(depth);
-      material.uniforms.flocPickMap.value = picking; material.uniforms.flocHasPick.value = Boolean(picking);
+      material.uniforms.flocPickMap.value = null; material.uniforms.flocHasPick.value = false;
       material.uniforms.flocFallbackDepth.value = fallbackDepth;
       const [nativeWidth, nativeHeight] = FORMATS[format], frame = sceneDimensions(format);
       pixelScaleX = frame.width / nativeWidth; pixelScaleY = frame.height / nativeHeight;

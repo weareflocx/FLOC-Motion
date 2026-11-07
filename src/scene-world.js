@@ -245,10 +245,19 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
       if (group.overlay?.alpha > 0) renderLeaf(group.overlay, SCENE_PASS.all, { background: true });
       rendering.copyTo(group.colorCanvas);
       const depth = rendering.dataTarget(`group-depth:${group.id}`, width, height, () => renderData(group.children, SCENE_PASS.packedDepth));
-      const picking = rendering.dataTarget(`group-pick:${group.id}`, width, height, () => renderData(group.children, SCENE_PASS.pick));
       capture.setResolution(width, height);
       const color = group.overlay ? group.colorCanvas : capture.captureAdjustment(group.effect.id, group.colorCanvas);
-      group.surface.set(sourceSurface(color), { format: current.format, layer: group.effect, index: group.index, projected: true, depth: depth.texture, picking: picking.texture, fallbackDepth: 1 });
+      group.surface.set(sourceSurface(color), { format: current.format, layer: group.effect, index: group.index, projected: true, depth: depth.texture, fallbackDepth: 1 });
+    }
+  }
+  // Group id maps feed only the pick pass, so they are rendered when the editor
+  // picks, never per frame or during export. Inner groups come first because an
+  // outer map renders their surfaces.
+  function preparePicking(nodes) {
+    for (const group of nodes.filter(node => node.children)) {
+      preparePicking(group.children);
+      const picking = rendering.dataTarget(`group-pick:${group.id}`, width, height, () => renderData(group.children, SCENE_PASS.pick));
+      group.surface.setPicking(picking.texture);
     }
   }
   return {
@@ -310,7 +319,7 @@ export function createSceneWorld(root, sourceRoot, project, { rendering, capture
     },
     pick(u, v) {
       if (disposed || rendering.lost || !Number.isFinite(u) || !Number.isFinite(v) || u < 0 || v < 0 || u > 1 || v > 1) return null;
-      if (pickDirty) { pickTarget = rendering.picking(width, height, () => renderData(graph, SCENE_PASS.pick)); pickDirty = false; }
+      if (pickDirty) { preparePicking(graph); pickTarget = rendering.picking(width, height, () => renderData(graph, SCENE_PASS.pick)); pickDirty = false; }
       rendering.renderer.readRenderTargetPixels(pickTarget, Math.min(width - 1, Math.floor(u * width)), Math.min(height - 1, Math.floor((1 - v) * height)), 1, 1, pickPixel);
       const id = pickPixel[0] + (pickPixel[1] << 8) + (pickPixel[2] << 16);
       return id ? current.layers[id - 1]?.id ?? null : null;
