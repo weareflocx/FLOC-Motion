@@ -112,7 +112,9 @@ export async function renderPreparedComposition(input, folder, options = {}, onP
   onProgress({ message: 'Rendering frames', progress: 0 });
   let logError;
   // Auto keeps PNG for alpha and avoids costly PNG extraction for opaque video.
-  await run(process.execPath, [bin, 'render', folder, '--output', captured, '--format', png ? 'png-sequence' : settings.format, '--fps', String(p.fps), '--workers', String(renderWorkers()), '--strict', '--sdr', '--quality', settings.quality, '--video-frame-format', 'auto'], { cwd: folder, signal, timeoutMs: renderTimeoutMs(p, settings), env: browserPath ? { HYPERFRAMES_BROWSER_PATH: browserPath } : {} }, text => {
+  // drawElement capture cannot reproduce WebGL and is only tried with one worker; pin
+  // screenshot capture so frames never depend on the machine's worker count.
+  await run(process.execPath, [bin, 'render', folder, '--output', captured, '--format', png ? 'png-sequence' : settings.format, '--fps', String(p.fps), '--workers', String(renderWorkers()), '--strict', '--sdr', ...encoderQuality(settings), '--video-frame-format', 'auto'], { cwd: folder, signal, timeoutMs: renderTimeoutMs(p, settings), env: { PRODUCER_EXPERIMENTAL_FAST_CAPTURE: 'false', ...(browserPath ? { HYPERFRAMES_BROWSER_PATH: browserPath } : {}) } }, text => {
     try { appendFileSync(path.join(folder, 'render.log'), text); } catch (error) { logError = error; }
     const match = text.match(/(\d+)(?:\s*\/\s*(\d+))?\s*(?:frames|%)/i);
     if (match) onProgress({ progress: Math.min(90, match[2] ? Number(match[1]) / Number(match[2]) * 90 : Number(match[1]) * 0.9) });
@@ -141,11 +143,11 @@ export async function renderPreparedComposition(input, folder, options = {}, onP
       graph.push(`[${index + first}:a]${filters.join(',')}[track${index}]`);
     }
     graph.push(`${tracks.map((_, i) => `[track${i}]`).join('')}amix=inputs=${tracks.length}:normalize=0[music]`);
-    const maps = png ? ['-map', '[music]'] : ['-map', '0:v', '-map', '[music]', '-c:v', 'copy'];
+    const maps = png ? ['-map', '[music]'] : ['-map', '0:v', '-map', '[music]', '-c:v', 'copy', ...(settings.format === 'mov' ? PRORES_COLOR : [])];
     const codec = settings.format === 'mp4' ? ['-c:a', 'aac', '-b:a', '320k'] : ['-c:a', 'pcm_s16le'];
     const target = png ? [audio] : ['-movflags', '+faststart', result];
     await run('ffmpeg', [...args, '-filter_complex', graph.join(';'), ...maps, ...codec, '-ar', '48000', '-t', String(p.duration), ...target], { signal });
-  } else if (settings.format === 'mp4') await copyFile(captured, result);
+  } else if (settings.format === 'mov') await run('ffmpeg', ['-y', '-i', captured, '-map', '0', '-c', 'copy', ...PRORES_COLOR, result], { signal });
   else if (!png) await rename(captured, result);
   if (png) {
     if (tracks.length) {
@@ -158,10 +160,20 @@ export async function renderPreparedComposition(input, folder, options = {}, onP
   }
   signal?.throwIfAborted();
   const verified = await verifyExport(p, result, settings);
-  // The archive or mixed MOV already holds these frames; keep large intermediates off disk.
-  if (settings.format !== 'mp4') await rm(captured, { recursive: true, force: true });
+  // The archive, the mixed file or the tagged MOV holds these frames; keep large intermediates off disk.
+  await rm(captured, { recursive: true, force: true });
   return verified;
 }
+// FLOC High keeps CRF 15 on the medium x264 preset: HyperFrames encodes after capture
+// with several workers, and its slow preset doubled that wait for an equal-PSNR result.
+function encoderQuality(settings) {
+  if (settings.format === 'mp4' && settings.quality === 'high') return ['--quality', 'standard', '--crf', '15'];
+  return ['--quality', settings.quality];
+}
+// HyperFrames converts RGB to ProRes with FFmpeg's default BT.601 matrix and writes no
+// color description. Tag that matrix with sRGB/BT.709 primaries in the frame headers
+// and the MOV colr atom (stream copy; pixels unchanged) so players decode the same color.
+const PRORES_COLOR = ['-bsf:v', 'prores_metadata=color_primaries=bt709:color_trc=bt709:colorspace=smpte170m', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'smpte170m'];
 const frameEntry = index => `frames/frame_${String(index + 1).padStart(6, '0')}.png`;
 const musicTracks = p => p.layers.filter(l => l.type === 'music' && l.src && l.visible);
 const ZIP64_LIMIT = 0xffffffff;
@@ -263,8 +275,8 @@ export async function verifyExport(input, filename, options = {}) {
   const video = info.streams.find(stream => stream.codec_type === 'video');
   const audio = info.streams.find(stream => stream.codec_type === 'audio');
   const [numerator, denominator] = (video?.avg_frame_rate || '0/1').split('/').map(Number);
-  // MOV is ProRes 4444 with an alpha plane; MP4 is H.264 4:2:0 with AAC when music is mixed.
-  const codec = settings.format === 'mov' ? video?.codec_name === 'prores' && /^4444/.test(video.profile) && /^yuva444p/.test(video.pix_fmt) : video?.codec_name === 'h264' && video.pix_fmt === 'yuv420p';
+  // MOV is ProRes 4444 with an alpha plane and its color description; MP4 is H.264 4:2:0 with AAC when music is mixed.
+  const codec = settings.format === 'mov' ? video?.codec_name === 'prores' && /^4444/.test(video.profile) && /^yuva444p/.test(video.pix_fmt) && video.color_space === 'smpte170m' && video.color_primaries === 'bt709' : video?.codec_name === 'h264' && video.pix_fmt === 'yuv420p';
   const music = musicTracks(p).length > 0;
   const soundtrack = !music || audio?.codec_name === (settings.format === 'mov' ? 'pcm_s16le' : 'aac');
   if (Number(info.format.duration) < p.duration - 0.15 || !video || video.width !== width || video.height !== height || numerator / denominator !== p.fps || !codec || !soundtrack || Number(video.nb_frames) !== expectedFrames) throw new Error('Export verification failed: duration, dimensions, frame rate, codec or soundtrack did not match.');

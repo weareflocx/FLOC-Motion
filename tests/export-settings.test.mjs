@@ -61,10 +61,12 @@ test('verification accepts ProRes 4444 MOV and RGBA PNG archives and rejects mis
   try {
     const p = validateProject(demoProject()); p.duration = 1; p.fps = 24; for (const layer of p.layers) { layer.start = 0; layer.end = 1; layer.fadeIn = 0; layer.fadeOut = 0; }
     const source = 'color=c=blue@0.5:s=1080x1080:r=24:d=1,format=rgba';
-    const mov = path.join(folder, 'video.mov'), mp4 = path.join(folder, 'video.mp4');
-    await run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', source, '-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', mov]);
+    const mov = path.join(folder, 'video.mov'), untagged = path.join(folder, 'untagged.mov'), mp4 = path.join(folder, 'video.mp4');
+    await run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', source, '-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', untagged]);
+    await run('ffmpeg', ['-v', 'error', '-i', untagged, '-c', 'copy', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'smpte170m', mov]);
     await run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', source, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', mp4]);
     assert.equal((await verifyExport(p, mov, { format: 'mov', transparent: true })).width, 1080);
+    await assert.rejects(verifyExport(p, untagged, { format: 'mov', transparent: true }), /verification failed/, 'ProRes without its BT.601 matrix description is ambiguous to players');
     await assert.rejects(verifyExport(p, mp4, { format: 'mov' }), /verification failed/);
     await assert.rejects(verifyExport(p, mov, { format: 'mp4' }), /verification failed/);
     const frames = path.join(folder, 'frames');
