@@ -261,7 +261,7 @@ export async function openGoldenSession({ lanes = defaultLanes, assetDirectory =
   return {
     // Resolves to { [fixture.id]: [{ time, exported, preview }] } with PNG buffers.
     async captureAll(fixtures) {
-      // prepareComposition rebuilds the shared engine bundle, so preparation is serial.
+      // prepareComposition may rebuild the shared engine bundle, so preparation is serial.
       let chain = Promise.resolve();
       const prepared = fixtures.map(fixture => chain = chain.catch(() => {}).then(() => prepareComposition(fixture.project, path.join(work, fixture.id), fixture.settings)));
       const jobs = [
