@@ -47,7 +47,7 @@ function App({ user, onSignOut }) {
   const { setSelected, setSelection, selected } = selection;
   const files = useProjectFiles({ projectRef, change, importDraft: session.importDraft, patch, setError, setSelected, setLeftTab: view.setLeftTab });
   const actions = useCompositionActions({ project, projectRef, selected, setSelected, setSelection, setLeftTab: view.setLeftTab, change, report: setError });
-  const group = useSelectionActions({ project, projectRef, clock, time, setPlaying, selection, actions });
+  const group = useSelectionActions({ project, projectRef, clock, time, setPlaying, positionPreview: view.positionPreview, previewPosition: view.previewPosition, selection, actions });
   useEditorShortcuts({ blocked: !loaded || !view.ready || canvasEditing || Boolean(view.positionPreview), projectRef, selected, selection: selection.selection, setPlaying,
     removeLayer: actions.removeText, removeLayers: actions.removeLayers, onSelectAll: group.selectAll, onCollapseSelection: group.collapseSelection, onOpenPalette: dialogs.openPalette });
   const exploreReady = project.layers.some(layer => layer.visible && !layer.locked && layer.type !== 'music');

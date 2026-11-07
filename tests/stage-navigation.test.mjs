@@ -34,7 +34,7 @@ function workspace() {
     useCanvasInteraction: () => ({ ring: null, handlers: {} }),
     FORMATS, DEFAULT_LAYOUT, canvasViewport, registerStageScene,
     measureLayerBounds: () => [], selectionBounds: () => null,
-    PlacementGuides() {}, ASSET_DRAG_TYPE: 'application/floc-asset',
+    PlacementGuides() {}, DistributionHandles() {}, ASSET_DRAG_TYPE: 'application/floc-asset',
     createResourceCache: () => ({}),
     createPreviewSession(callbacks) {
       creations++;

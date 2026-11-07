@@ -34,6 +34,13 @@ export function transformableLayers(project, ids, time) {
     .map(layer => evaluateChoreography(layer, time));
 }
 
+// Selected layers a distribution leaves in place, with the reason shown to the user.
+export function excludedLayers(project, ids, time) {
+  return ids.map(id => project.layers.find(layer => layer.id === id))
+    .filter(layer => layer && POSITIONABLE_TYPES.includes(layer.type) && (layer.locked || !onCanvas(layer, time)))
+    .map(layer => ({ id: layer.id, name: layer.name, reason: layer.locked ? 'locked' : !layer.visible ? 'hidden' : 'not at the playhead' }));
+}
+
 export function selectAllIds(project, time) {
   return project.layers.filter(layer => POSITIONABLE_TYPES.includes(layer.type) && !layer.locked && onCanvas(layer, time)).map(layer => layer.id);
 }

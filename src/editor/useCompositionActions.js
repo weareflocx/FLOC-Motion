@@ -5,11 +5,45 @@ import { effectLayer } from '../effects.js';
 import { dataFlowLayer } from '../data-flow-style.js';
 import { safeArea } from '../layout.js';
 import { evaluateChoreography } from '../choreography.js';
-import { ALIGN_MODES, alignDeltas, applyPositions, arrangedPositions, distributeDeltas, selectionBounds } from './arrange.js';
+import { ALIGN_MODES, alignDeltas, applyArrangement, applyPositions, arrangedPositions, distributeDeltas, placeLayer, selectionBounds } from './arrange.js';
 import { layerPosition, measureLayerBounds, projectedShift } from './layer-bounds.js';
-import { POSITIONABLE_TYPES, groupFlagValue, singleSelection, transformableLayers } from './selection.js';
+import { POSITIONABLE_TYPES, excludedLayers, groupFlagValue, singleSelection, transformableLayers } from './selection.js';
+import { distributionTargets } from './distribute.js';
 
 const lockedNotice = (verb, layers) => `${verb} skipped ${layers.length === 1 ? `the locked layer “${layers[0].name}”` : `${layers.length} locked layers`}. Unlock ${layers.length === 1 ? 'it' : 'them'} to include ${layers.length === 1 ? 'it' : 'them'}.`;
+
+// Distribution turns layers in screen space (clockwise positive). CSS-rotated layers
+// store that directly; Three.js layers store roll counterclockwise.
+const screenRoll = (type, roll) => ['carousel', 'model', 'dataflow'].includes(type) ? -roll : roll;
+// Measures the movable members once at `time`; previews reuse this snapshot so a
+// previewed pose never feeds back into the measurement.
+export function distributionSnapshot(project, ids, time, root) {
+  const layers = transformableLayers(project, ids, time);
+  if (layers.length < 2) return { error: 'Distribute needs two or more unlocked layers on the canvas.' };
+  const rects = measureLayerBounds(root, layers);
+  if (rects.length !== layers.length) return { error: 'Show the selected layers on the canvas to distribute them.' };
+  return { project, time, excluded: excludedLayers(project, ids, time), members: layers.map((layer, i) => ({ id: layer.id, type: layer.type, start: layerPosition(root, layer), roll: screenRoll(layer.type, layer.roll ?? 0), rect: rects[i] })) };
+}
+
+// Targets → screen displacement → authored X/Y on each layer's depth plane (Spatial
+// layers follow the projection). `preview` is a group placement for the stage.
+export function distributionPlan(snapshot, settings, root) {
+  const { project, members } = snapshot;
+  const result = distributionTargets(members.map(member => ({ ...member.rect, roll: member.roll })), settings, { format: project.format, layout: project.layout });
+  const limited = [];
+  const moves = result.targets.flatMap(target => {
+    const { id, type, start, rect } = members.find(member => member.id === target.id);
+    const cx = rect.x + rect.width / 2, cy = rect.y + rect.height / 2;
+    const shift = projectedShift(root, id, cx, cy, target.cx - cx, target.cy - cy);
+    if (!shift) return [];
+    const placed = placeLayer(type, start, shift.x, shift.y);
+    // Each layer type keeps its position inside its own range (a carousel's center stays within 10–90%).
+    if (Math.abs(placed.x - start.x - shift.x) > 1e-3 || Math.abs(placed.y - start.y - shift.y) > 1e-3) limited.push(project.layers.find(layer => layer.id === id));
+    return [{ id, ...placed, ...(target.roll === undefined ? {} : { roll: screenRoll(type, target.roll) }) }];
+  });
+  const preview = { layers: Object.fromEntries(moves.map(({ id, ...pose }) => [id, pose])), distribution: { layout: result.layout, center: result.center, radius: result.radius, angle: result.handleAngle } };
+  return { ...result, moves, preview, limited, excluded: snapshot.excluded };
+}
 
 export function useCompositionActions({ project, projectRef, selected, setSelected, setSelection = ids => setSelected(ids.at(-1) ?? null), setLeftTab, change, report }) {
   const addText = useCallback(() => {
@@ -142,5 +176,17 @@ export function useCompositionActions({ project, projectRef, selected, setSelect
     return positions.length ? positionLayers(positions, time) : current;
   }, [positionLayers, projectRef, report]);
 
-  return { addLayer, addText, moveImage, moveLayer, dropLayer, copyLayer, removeImage, removeText, removeLayers, duplicateLayers, setLayersFlag, positionLayers, arrangeLayers };
+  // Line, grid, circle or arc placement of two or more movable layers. Without
+  // `commit` it only returns the plan (for a canvas preview); with it the plan is one
+  // undoable change. Pass the preview's `snapshot` so Apply commits what was shown.
+  const distributeLayers = useCallback((settings, ids, time, root, { commit = false, snapshot } = {}) => {
+    const measured = snapshot ?? distributionSnapshot(projectRef.current, ids, time, root);
+    if (measured.error) { report?.(measured.error); return null; }
+    const plan = distributionPlan(measured, settings, root);
+    if (!commit) return { ...plan, snapshot: measured };
+    try { return { ...plan, snapshot: measured, project: change(applyArrangement(projectRef.current, plan.moves, measured.time)) }; }
+    catch (error) { report?.(error.message); return null; }
+  }, [change, projectRef, report]);
+
+  return { addLayer, addText, moveImage, moveLayer, dropLayer, copyLayer, removeImage, removeText, removeLayers, duplicateLayers, setLayersFlag, positionLayers, arrangeLayers, distributeLayers };
 }

@@ -63,3 +63,40 @@
   top: 50%;
   transform: translate(-50%,-50%);
 }
+
+/* Distribution preview handles share the guides' composition-pixel space. */
+.distribution-handles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 101;
+}
+
+.distribution-ring {
+  fill: none;
+  stroke: #ffffff80;
+}
+
+.distribution-handle {
+  fill: #171717;
+  stroke: #fff;
+  pointer-events: all;
+  cursor: move;
+  touch-action: none;
+}
+
+.distribution-handle.radius {
+  fill: #fff;
+  cursor: ew-resize;
+}
+
+.distribution-handle:focus {
+  outline: none;
+}
+
+.distribution-handle:focus-visible {
+  fill: #ffffffb3;
+}

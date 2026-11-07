@@ -2,11 +2,13 @@ import { useCallback, useMemo } from 'react';
 import { PROJECT_LIMITS } from '../project.js';
 import { arrangeAvailability, selectAllIds } from './selection.js';
 import { alignTargetLabel } from './commands.js';
+import { useDistribution } from './useDistribution.js';
 
 // Selection-driven commands shared by the canvas, shortcuts, palette and the multi-selection summary.
 // Every action pauses playback so it applies to the frame on screen.
-export function useSelectionActions({ project, projectRef, clock, time, setPlaying, selection: { selection, selected, setSelection, setSelected, selectLayer }, actions }) {
-  const { positionLayers, arrangeLayers, setLayersFlag, duplicateLayers, removeLayers } = actions;
+export function useSelectionActions({ project, projectRef, clock, time, setPlaying, positionPreview, previewPosition, selection: { selection, selected, setSelection, setSelected, selectLayer }, actions }) {
+  const { positionLayers, arrangeLayers, distributeLayers, setLayersFlag, duplicateLayers, removeLayers } = actions;
+  const distribution = useDistribution({ project, projectRef, clock, time, selection, positionPreview, previewPosition, distributeLayers });
   const selectAll = useCallback(() => { setPlaying(false); setSelection(selectAllIds(projectRef.current, clock.get().time)); }, [projectRef, clock, setPlaying, setSelection]);
   const collapseSelection = useCallback(() => setSelected(selected), [selected, setSelected]);
   const selectCanvasLayer = useCallback(id => { setSelected(id); setPlaying(false); }, [setPlaying, setSelected]);
@@ -22,6 +24,6 @@ export function useSelectionActions({ project, projectRef, clock, time, setPlayi
     toggleLock: () => setLayersFlag(selection, 'locked'), toggleVisibility: () => setLayersFlag(selection, 'visible'),
     duplicate: () => duplicateLayers(selection), remove: () => { setPlaying(false); removeLayers(selection); }
   };
-  const summary = selection.length > 1 ? { layers: selectedLayers, canAlign: arrangeState.align, canDistribute: arrangeState.distribute, canDuplicate, onArrange: arrange, onToggleLock: groupActions.toggleLock, onToggleVisibility: groupActions.toggleVisibility, onDuplicate: groupActions.duplicate, onRemove: groupActions.remove } : null;
-  return { selectAll, collapseSelection, selectCanvasLayer, toggleCanvasLayer, moveGroup, arrange, selectedLayers, arrangeState, canDuplicate, canDelete: structuralSelection.length > 0, groupActions, summary };
+  const summary = selection.length > 1 ? { layers: selectedLayers, canAlign: arrangeState.align, canDistribute: arrangeState.distribute, canDuplicate, onArrange: arrange, distribution, onToggleLock: groupActions.toggleLock, onToggleVisibility: groupActions.toggleVisibility, onDuplicate: groupActions.duplicate, onRemove: groupActions.remove } : null;
+  return { selectAll, collapseSelection, selectCanvasLayer, toggleCanvasLayer, moveGroup, arrange, distribution, selectedLayers, arrangeState, canDuplicate, canDelete: structuralSelection.length > 0, groupActions, summary };
 }

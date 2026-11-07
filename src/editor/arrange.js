@@ -1,5 +1,7 @@
 import { patchLayer } from '../project.js';
+import { choreographyFields, evaluateChoreography } from '../choreography.js';
 import { choreographyPatch } from './choreography-edit.js';
+import { wrapRoll } from './distribute.js';
 
 // Stored position limits, matching the single-layer canvas gestures.
 const POSITION_RANGES = { text: [0, 95], logo: [-1000, 1000], media: [-1000, 1000], model: [-1000, 1000], dataflow: [-1000, 1000], carousel: [10, 90] };
@@ -83,5 +85,26 @@ export function applyPositions(project, positions, time) {
     const layer = next.layers.find(item => item.id === id);
     if (!layer || (layer.x === x && layer.y === y && !layer.choreography?.length)) return next;
     return patchLayer(next, id, choreographyPatch(layer, { x, y }, time, next.fps));
+  }, project);
+}
+
+// A one-time placement: each move `{ id, x, y, roll? }` is the pose wanted at `time`.
+// Keyframed layers shift their whole animation (base and every state) by the same
+// offset instead of gaining a state; all moves become one undoable change.
+export function applyArrangement(project, moves, time) {
+  return moves.reduce((next, { id, ...target }) => {
+    const layer = next.layers.find(item => item.id === id);
+    if (!layer) return next;
+    const turn = Number.isFinite(target.roll) && Object.hasOwn(choreographyFields(layer), 'roll');
+    if (!layer.choreography?.length) {
+      const patch = { x: target.x, y: target.y, ...(turn ? { roll: wrapRoll(target.roll) } : {}) };
+      return Object.entries(patch).every(([key, value]) => layer[key] === value) ? next : patchLayer(next, id, patch);
+    }
+    const pose = evaluateChoreography(layer, time), fields = choreographyFields(layer);
+    const deltas = { x: target.x - pose.x, y: target.y - pose.y, ...(turn ? { roll: wrapRoll(target.roll - (pose.roll ?? 0)) } : {}) };
+    const shift = (field, value) => field === 'roll' ? wrapRoll(value + deltas.roll) : rounded(clamp(value + deltas[field], ...fields[field]));
+    const moved = values => Object.fromEntries(Object.entries(values).map(([field, value]) => [field, Object.hasOwn(deltas, field) && Number.isFinite(value) ? shift(field, value) : value]));
+    if (Object.values(deltas).every(delta => Math.abs(delta) < 1e-9)) return next;
+    return patchLayer(next, id, { ...moved(Object.fromEntries(Object.keys(deltas).map(field => [field, layer[field] ?? 0]))), choreography: layer.choreography.map(state => ({ ...state, values: moved(state.values) })) });
   }, project);
 }

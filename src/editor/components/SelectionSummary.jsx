@@ -3,9 +3,10 @@ import { Copy, Eye, EyeSlash, LockSimple, LockSimpleOpen, Trash } from '@phospho
 import { groupFlagValue } from '../selection.js';
 import { Section } from '../controls.jsx';
 import { ArrangeControls } from './ArrangeControls.jsx';
+import { DistributeControls } from './DistributeControls.jsx';
 
 // Inspector for two or more selected layers: arrangement and group actions.
-export function SelectionSummary({ layers, canAlign, canDistribute, canDuplicate, onArrange, onToggleLock, onToggleVisibility, onDuplicate, onRemove }) {
+export function SelectionSummary({ layers, canAlign, canDistribute, canDuplicate, onArrange, distribution, onToggleLock, onToggleVisibility, onDuplicate, onRemove }) {
   const lock = groupFlagValue(layers, 'locked'), show = groupFlagValue(layers, 'visible');
   const locked = layers.filter(layer => layer.locked).length;
   return <aside className="right-panel panel selection-summary" aria-label="Selected layers">
@@ -14,8 +15,11 @@ export function SelectionSummary({ layers, canAlign, canDistribute, canDuplicate
     {locked > 0 && <p className="helper">{locked === 1 ? 'The locked layer keeps its place' : `${locked} locked layers keep their place`} and settings until unlocked.</p>}
     <Section title="Arrange" defaultOpen>
       <ArrangeControls className="selection-arrange" target="selection" canAlign={canAlign} canDistribute={canDistribute} onArrange={onArrange}/>
-      {!canDistribute && <p className="helper">Distribute needs three or more unlocked layers on the canvas.</p>}
+      {!canDistribute && <p className="helper">Equal spacing needs three or more unlocked layers on the canvas.</p>}
     </Section>
+    {distribution && <Section title="Distribute" detail={distribution.active ? `${distribution.settings.layout[0].toUpperCase()}${distribution.settings.layout.slice(1)} preview` : undefined}>
+      <DistributeControls distribution={distribution}/>
+    </Section>}
     <Section title="Selection">
       <div className="selection-actions">
         <button type="button" className="outline-button" onClick={onToggleVisibility}>{show ? <Eye size={15}/> : <EyeSlash size={15}/>}{show ? 'Show all' : 'Hide all'}</button>

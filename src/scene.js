@@ -422,12 +422,14 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     placeLayers(time);
     models.forEach(model => model.draw(time, placementFor(model.id) ?? undefined));
     dataFlows.forEach(flow => flow.draw(time, placementFor(flow.id) ?? undefined));
-    const sampled = { ...evaluateChoreography(layer, time), ...orientation };
+    const placed = placementFor(layer.id);
+    // A group placement (e.g. a distribution preview) may turn the carousel; a
+    // single-carousel orientation preview already carries the same roll.
+    const sampled = { ...evaluateChoreography(layer, time), ...orientation, ...(Number.isFinite(placed?.roll) ? { roll: placed.roll } : {}) };
     const cards = shapeCards(sampled);
     group.rotation.set(THREE.MathUtils.degToRad(sampled.tilt), THREE.MathUtils.degToRad(sampled.yaw ?? 0), THREE.MathUtils.degToRad(sampled.roll));
     group.scale.setScalar(1);
     const viewHeight = layer.space === 'spatial' ? sceneDimensions(p.format).height : 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
-    const placed = placementFor(layer.id);
     const position = placed ? { ...sampled, ...placed } : sampled;
     if (layer.space !== 'spatial') {
       elementMotionAt(layer, time, carouselMotion);
