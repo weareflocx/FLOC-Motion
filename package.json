@@ -24,7 +24,7 @@
     "@fontsource/geist": "latest",
     "@phosphor-icons/react": "latest",
     "gsap": "^3.14.2",
-    "hyperframes": "0.8.96",
+    "hyperframes": "0.9.19",
     "react": "latest",
     "react-dom": "latest",
     "three": "0.186.1",
