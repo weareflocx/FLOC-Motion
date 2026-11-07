@@ -39,7 +39,7 @@ test('GPU continuous normals agree with the actual CPU surfaces across signed se
    try{
     for(const speed of [1,-1]){
      liquid.setStyle(normalizeModelStyle({liquidDetail:32,liquidSpeed:speed}));liquid.update(1.7);let minimum=1;const geometry=ribbons.geometry;
-     for(let i=0;i<20;i++){const vertex=Math.floor((i+.37)*geometry.drawRange.count/20);point.fromBufferAttribute(geometry.attributes.position,vertex);expected.fromBufferAttribute(geometry.attributes.normal,vertex).normalize();minimum=Math.min(minimum,compare(liquidShader,point,expected));}
+     for(let i=0;i<20;i++){const corner=Math.floor((i+.37)*geometry.drawRange.count/20),vertex=geometry.index?geometry.index.getX(corner):corner;point.fromBufferAttribute(geometry.attributes.position,vertex);expected.fromBufferAttribute(geometry.attributes.normal,vertex).normalize();minimum=Math.min(minimum,compare(liquidShader,point,expected));}
      report.push({shape:'liquid',speed,minimumDot:minimum});
     }
    }finally{liquidShader.dispose();liquid.dispose();base.dispose();}

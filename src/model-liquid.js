@@ -280,11 +280,15 @@ function createEvaluator(style, phase) {
   };
 }
 
+// Welded samples are drawn once through an index, so each frame uploads only the
+// active vertex and index ranges instead of twelve copies per coarse triangle.
 function createRefinement(capacity) {
   const geometry = new THREE.BufferGeometry();
-  const positionArray = new Float32Array(capacity * 12 * 3), normalArray = new Float32Array(positionArray.length);
+  // At most six distinct samples per coarse triangle, before edge welding.
+  const positionArray = new Float32Array(capacity * 6 * 3), normalArray = new Float32Array(positionArray.length);
   geometry.setAttribute('position', new THREE.BufferAttribute(positionArray, 3).setUsage(THREE.DynamicDrawUsage));
   geometry.setAttribute('normal', new THREE.BufferAttribute(normalArray, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(capacity * 12), 1).setUsage(THREE.DynamicDrawUsage));
   geometry.boundingBox = new THREE.Box3();
   geometry.boundingSphere = new THREE.Sphere();
   let hashSize = 1;
@@ -292,16 +296,14 @@ function createRefinement(capacity) {
   const scratch = new Float32Array(3);
   return {
     geometry, positionArray, normalArray, capacity, count: 0,
-    // At most six distinct samples per coarse triangle, before edge welding.
     keys: new Float32Array(capacity * 6 * 3),
-    samples: new Float32Array(capacity * 6 * 6),
-    triangles: new Uint32Array(capacity * 6),
+    corners: new Uint32Array(6),
     hash: new Uint32Array(hashSize), scratch, bits: new Uint32Array(scratch.buffer), value: new Float64Array(5)
   };
 }
 
 function refineSurface(entry, refined, style, phase, bound) {
-  const { keys, samples, triangles, hash, scratch, bits, value } = refined;
+  const { keys, positionArray, normalArray, corners, hash, scratch, bits, value } = refined;
   const mask = hash.length - 1;
   const evaluate = createEvaluator(style, phase), source = entry.cubes.positionArray;
   const cell = 2 * bound / entry.cubes.size, trust = cell * .35, maxStep = cell * .2;
@@ -318,7 +320,7 @@ function refineSurface(entry, refined, style, phase, bound) {
       slot = (slot + 1) & mask;
     }
     id = sampleCount++;
-    const k = id * 3, target = id * 6;
+    const k = id * 3;
     keys[k] = scratch[0]; keys[k + 1] = scratch[1]; keys[k + 2] = scratch[2];
     hash[slot] = id + 1;
     const ox = scratch[0] * bound, oy = scratch[1] * bound, oz = scratch[2] * bound;
@@ -348,35 +350,30 @@ function refineSurface(entry, refined, style, phase, bound) {
     }
     const length = Math.hypot(value[1], value[2], value[3]);
     if (!Number.isFinite(length) || length === 0) throw new Error('Liquid ribbons produced an invalid analytic normal.');
-    samples[target] = x; samples[target + 1] = y; samples[target + 2] = z;
-    samples[target + 3] = value[1] / length; samples[target + 4] = value[2] / length; samples[target + 5] = value[3] / length;
+    positionArray[k] = x; positionArray[k + 1] = y; positionArray[k + 2] = z;
+    normalArray[k] = value[1] / length; normalArray[k + 1] = value[2] / length; normalArray[k + 2] = value[3] / length;
     return id;
   }
   // Shared endpoints and midpoints have one projected value and one normal.
   // Welding precedes projection, so neighboring triangles cannot open cracks.
+  const index = refined.geometry.index, indices = index.array;
   let count = 0;
   for (let i = 0; i < entry.cubes.count * 3; i += 9) {
-    triangles[count++] = sample(source[i], source[i + 1], source[i + 2]);
-    triangles[count++] = sample(source[i + 3], source[i + 4], source[i + 5]);
-    triangles[count++] = sample(source[i + 6], source[i + 7], source[i + 8]);
-    triangles[count++] = sample((source[i] + source[i + 3]) * .5, (source[i + 1] + source[i + 4]) * .5, (source[i + 2] + source[i + 5]) * .5);
-    triangles[count++] = sample((source[i + 3] + source[i + 6]) * .5, (source[i + 4] + source[i + 7]) * .5, (source[i + 5] + source[i + 8]) * .5);
-    triangles[count++] = sample((source[i + 6] + source[i]) * .5, (source[i + 7] + source[i + 1]) * .5, (source[i + 8] + source[i + 2]) * .5);
+    corners[0] = sample(source[i], source[i + 1], source[i + 2]);
+    corners[1] = sample(source[i + 3], source[i + 4], source[i + 5]);
+    corners[2] = sample(source[i + 6], source[i + 7], source[i + 8]);
+    corners[3] = sample((source[i] + source[i + 3]) * .5, (source[i + 1] + source[i + 4]) * .5, (source[i + 2] + source[i + 5]) * .5);
+    corners[4] = sample((source[i + 3] + source[i + 6]) * .5, (source[i + 4] + source[i + 7]) * .5, (source[i + 5] + source[i + 8]) * .5);
+    corners[5] = sample((source[i + 6] + source[i]) * .5, (source[i + 7] + source[i + 1]) * .5, (source[i + 8] + source[i + 2]) * .5);
+    for (let j = 0; j < 12; j++) indices[count++] = corners[REFINEMENT_ORDER[j]];
   }
-  let output = 0;
-  for (let i = 0; i < count; i += 6) {
-    for (let j = 0; j < 12; j++) {
-      const sampleOffset = triangles[i + REFINEMENT_ORDER[j]] * 6;
-      for (let axis = 0; axis < 3; axis++, output++) {
-        refined.positionArray[output] = samples[sampleOffset + axis];
-        refined.normalArray[output] = samples[sampleOffset + axis + 3];
-      }
-    }
+  refined.count = sampleCount;
+  refined.geometry.setDrawRange(0, count);
+  for (const [attribute, length] of [[refined.geometry.attributes.position, sampleCount * 3], [refined.geometry.attributes.normal, sampleCount * 3], [index, count]]) {
+    attribute.clearUpdateRanges();
+    attribute.addUpdateRange(0, length);
+    attribute.needsUpdate = true;
   }
-  refined.count = output / 3;
-  refined.geometry.setDrawRange(0, refined.count);
-  refined.geometry.attributes.position.needsUpdate = true;
-  refined.geometry.attributes.normal.needsUpdate = true;
   finishGeometry(refined, phase, 1);
 }
 

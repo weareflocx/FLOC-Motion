@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { evaluateChoreography } from './choreography.js';
+import { layerAlpha } from './project.js';
 import { createResourceCache } from './scene-resources.js';
 import { normalizeModelStyle, automaticModelMotion, modelMotionReach, MODEL_STYLE_RANGES } from './model-style.js';
 import { registerModelMetadata } from './model-metadata.js';
@@ -224,6 +225,9 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
     drawnBounds = undefined;
   }
   function draw(time, draft) {
+    // A model outside its time range or hidden is never composited, so neither
+    // its deformation nor its render is needed; bounds keep the last drawn pose.
+    if (layerAlpha(layer, time) <= 0) return;
     lastTime = time; lastDraft = draft;
     pose(time, draft);
     materials.setScenePass(SCENE_PASS.source);

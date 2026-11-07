@@ -13,15 +13,30 @@ function fixture(t, overrides = {}, source = new THREE.BoxGeometry()) {
   t.after(() => { controller.dispose(); source.dispose(); material.dispose(); });
   return { mesh, controller, source, material };
 }
+// Draw-order vertices of the active range: refined output is indexed, published
+// coarse output is not; both read as consecutive triangle corners here.
+function drawn(geometry) {
+  if (!geometry.index) return geometry;
+  const count = geometry.drawRange.count, index = geometry.index.array, result = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal']) {
+    const source = geometry.attributes[name].array, array = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) array.set(source.subarray(index[i] * 3, index[i] * 3 + 3), i * 3);
+    result.setAttribute(name, new THREE.BufferAttribute(array, 3));
+  }
+  result.setDrawRange(0, count);
+  result.boundingBox = geometry.boundingBox; result.boundingSphere = geometry.boundingSphere;
+  return result;
+}
 function snapshot(geometry) {
-  const end = geometry.drawRange.count * 3;
+  const { attributes, drawRange } = drawn(geometry), end = drawRange.count * 3;
   return {
-    position: geometry.attributes.position.array.slice(0, end),
-    normal: geometry.attributes.normal.array.slice(0, end)
+    position: attributes.position.array.slice(0, end),
+    normal: attributes.normal.array.slice(0, end)
   };
 }
 const versions = geometry => ['position', 'normal'].map(key => geometry.attributes[key].version);
-function assertSurface(geometry, radius) {
+function assertSurface(source, radius) {
+  const geometry = drawn(source);
   assert.ok(Number.isFinite(geometry.boundingSphere.radius));
   const point = new THREE.Vector3(), normal = new THREE.Vector3();
   const activeBounds = new THREE.Box3();
@@ -215,7 +230,7 @@ test('projected vertices and refined triangle interiors better approximate the z
     }
     return { vertices: vertices / geometry.drawRange.count, interiors: interiors / (geometry.drawRange.count / 3), maxVertex };
   }
-  const before = residuals(coarse), after = residuals(mesh.geometry);
+  const before = residuals(coarse), after = residuals(drawn(mesh.geometry));
   assert.ok(after.vertices < before.vertices * .1, `vertex residual ${after.vertices} versus coarse ${before.vertices}`);
   assert.ok(after.interiors < before.interiors * .5, `triangle residual ${after.interiors} versus coarse ${before.interiors}`);
   assert.ok(after.maxVertex < before.maxVertex, 'projection does not merely redistribute the worst surface error');
@@ -242,9 +257,10 @@ test('analytic outward normals agree with independent finite differences through
   ]) {
     controller.setStyle(style); controller.update(elapsed);
     let checked = 0, probes = 0;
-    for (let i = 0; i < mesh.geometry.drawRange.count; i += 37) {
-      point.fromBufferAttribute(mesh.geometry.attributes.position, i);
-      normal.fromBufferAttribute(mesh.geometry.attributes.normal, i);
+    const geometry = drawn(mesh.geometry);
+    for (let i = 0; i < geometry.drawRange.count; i += 37) {
+      point.fromBufferAttribute(geometry.attributes.position, i);
+      normal.fromBufferAttribute(geometry.attributes.normal, i);
       derivative(style, elapsed, 1e-5, gradient);
       derivative(style, elapsed, 5e-6, finer);
       probes++;
@@ -263,7 +279,7 @@ test('neighboring coarse triangles share exactly the same projected edge midpoin
   controller.update(0);
   const coarse = createLiquidGeometry(settings());
   t.after(() => coarse.dispose());
-  const edges = new Map(), point = new THREE.Vector3();
+  const edges = new Map(), point = new THREE.Vector3(), refined = drawn(mesh.geometry);
   let shared = 0;
   for (let triangle = 0; triangle < coarse.drawRange.count / 3; triangle++) {
     const keys = [];
@@ -274,8 +290,8 @@ test('neighboring coarse triangles share exactly the same projected edge midpoin
     for (const [a, b, midpoint] of [[0, 1, 1], [1, 2, 5], [2, 0, 2]]) {
       const key = [keys[a], keys[b]].sort().join('|'), vertex = triangle * 12 + midpoint;
       const sample = [
-        ...point.fromBufferAttribute(mesh.geometry.attributes.position, vertex).toArray(),
-        ...point.fromBufferAttribute(mesh.geometry.attributes.normal, vertex).toArray()
+        ...point.fromBufferAttribute(refined.attributes.position, vertex).toArray(),
+        ...point.fromBufferAttribute(refined.attributes.normal, vertex).toArray()
       ];
       if (edges.has(key)) {
         assert.deepEqual(sample, edges.get(key), 'shared projected edges have no geometric or shading cracks');
@@ -324,7 +340,7 @@ test('zero warp keeps two distinct rounded bands with outward SDF normals and re
   const { mesh, controller, material } = fixture(t, style);
   material.side = THREE.DoubleSide;
   controller.update(0);
-  const geometry = mesh.geometry;
+  const geometry = drawn(mesh.geometry);
   const point = new THREE.Vector3(), normal = new THREE.Vector3();
   let inner = 0, outer = 0, checkedNormals = 0;
   for (let i = 0; i < geometry.drawRange.count; i++) {
@@ -355,14 +371,14 @@ test('zero warp keeps two distinct rounded bands with outward SDF normals and re
   controller.update(0);
   mesh.updateMatrixWorld(true);
   assert.ok(ray.intersectObject(mesh).length > 0, 'the same ray intersects the closed sheets');
-  assertSurface(geometry, Math.max(style.liquidRadius, style.liquidInnerRadius) + style.liquidThickness);
+  assertSurface(mesh.geometry, Math.max(style.liquidRadius, style.liquidInnerRadius) + style.liquidThickness);
 });
 
 test('thin sheets preserve their authored thickness instead of expanding to the grid cell', t => {
   const style = settings({ liquidWarp: 0, liquidRadius: 1.4, liquidInnerRadius: .7, liquidThickness: .04, liquidOpen: 1.2 });
   const { mesh, controller } = fixture(t, style);
   controller.update(0);
-  const geometry = mesh.geometry;
+  const geometry = drawn(mesh.geometry);
   let outerMin = Infinity, outerMax = 0;
   for (let i = 0; i < geometry.drawRange.count; i++) {
     const r = new THREE.Vector3().fromBufferAttribute(geometry.attributes.position, i).length();

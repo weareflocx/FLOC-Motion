@@ -51,7 +51,7 @@ test('shared model renderer produces real material, reflection, shader and deter
     // Material and motion checks use the pre-v11 camera, pre-v12 Euler motion and pre-v13 classic light; framing, axes and light are checked separately.
     async function mount(id, src, modelStyle = undefined, { size = 100, compositionWidth = 192, framing = 'fixed' } = {}) {
       scenes.get(id)?.dispose();
-      const layer = { id, name: id, src, start: 0, offset: 0, loop: true, size, tilt: 13, yaw: 22, roll: 0, modelStyle: { ...DEFAULT_MODEL_STYLE, ...CLASSIC_LIGHTING, motionSpace: 'euler', ...modelStyle, framing } };
+      const layer = { id, name: id, src, visible: true, start: 0, end: 1000, offset: 0, loop: true, size, tilt: 13, yaw: 22, roll: 0, modelStyle: { ...DEFAULT_MODEL_STYLE, ...CLASSIC_LIGHTING, motionSpace: 'euler', ...modelStyle, framing } };
       const instance = await createModelScene(canvas(id), layer, { compositionWidth, resources, renderMode: true, onError: error => errors.push(error.message) });
       layers.set(id, layer); scenes.set(id, instance); drawing = id; instance.draw(0); return instance;
     }
