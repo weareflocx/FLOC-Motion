@@ -6,10 +6,17 @@ import { demoProject, validateProject, layerAlpha, FORMATS, reorderLayer } from 
 // Minimal DOM adapter: assertions exercise composite ownership and timeline
 // behavior. Actual filter pixels are also checked in a real browser.
 class Node {
-  constructor(tag = 'div') { this.tagName = tag; this.childNodes = []; this.style = { filter: '' }; this.dataset = {}; this.attributes = {}; this.offsetWidth = 1080; this.offsetHeight = 1080; }
+  constructor(tag = 'div') {
+    this.tagName = tag; this.childNodes = []; this.style = { filter: '' }; this.dataset = {}; this.attributes = {}; this.offsetWidth = 1080; this.offsetHeight = 1080;
+    this.context = {
+      fillCount: 0, createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }), putImageData() {},
+      setTransform() {}, clearRect() {}, save() {}, restore() {}, scale() {}, translate() {}, createPattern() { return {}; },
+      fillRect: () => { this.context.fillCount++; }
+    };
+  }
   setAttribute(key, value) { this.attributes[key] = String(value); }
   hasAttribute(key) { return Object.hasOwn(this.attributes, key); }
-  getContext() { return { createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }), putImageData() {} }; }
+  getContext() { return this.context; }
   toDataURL() { return 'data:image/png;base64,fixture'; }
   append(...nodes) { for (const node of nodes) { node.remove(); node.parentElement = this; this.childNodes.push(node); } }
   prepend(node) { this.append(node); this.childNodes.splice(this.childNodes.indexOf(node), 1); this.childNodes.unshift(node); }
@@ -17,6 +24,10 @@ class Node {
   remove() { if (this.parentElement) this.parentElement.childNodes.splice(this.parentElement.childNodes.indexOf(this), 1); this.parentElement = null; }
   replaceWith(...nodes) { nodes.forEach(node => this.before(node)); this.remove(); }
   querySelectorAll() { return this.childNodes.flatMap(node => [...(node.dataset.flocLayer ? [node] : []), ...node.querySelectorAll()]); }
+  querySelector(selector) {
+    const id = selector.match(/data-floc-layer=\"([^\"]+)\"/)?.[1];
+    return this.querySelectorAll().find(node => node.dataset.flocLayer === id) ?? null;
+  }
 }
 function fixture(project) {
   const root = new Node();
@@ -113,5 +124,26 @@ test('animated noise slides one cached texture at 12 Hz, reverses exactly and le
     fixture(project);
     assert.equal(encoded, created);
   } finally { Node.prototype.toDataURL = toDataURL; }
+});
+
+test('disabled texture overlays leave their canvas transparent', async () => {
+  const originalCSS = globalThis.CSS;
+  globalThis.CSS = { escape: value => value };
+  try {
+    const demo = demoProject();
+    const layer = { ...effectLayer('overlay', demo.duration), effectScope: 'overlay', effects: [{ ...DEFAULT_NOISE, enabled: false }] };
+    const project = validateProject({ ...demo, layers: [...demo.layers, layer] });
+    const disabled = fixture(project);
+    await disabled.effects.seek(1);
+    assert.equal(disabled.nodes.overlay.context.fillCount, 0);
+    disabled.effects.dispose();
+
+    const enabled = fixture(validateProject({ ...project, layers: project.layers.map(item => item.id === layer.id ? { ...item, effects: [{ ...item.effects[0], enabled: true }] } : item) }));
+    await enabled.effects.seek(1);
+    assert.equal(enabled.nodes.overlay.context.fillCount, 1);
+    enabled.effects.dispose();
+  } finally {
+    if (originalCSS === undefined) delete globalThis.CSS; else globalThis.CSS = originalCSS;
+  }
 });
 

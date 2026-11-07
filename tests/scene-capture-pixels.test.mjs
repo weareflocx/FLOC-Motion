@@ -52,8 +52,19 @@ test('scene sources separate local geometry, Flat placement and projected source
     await effects.seek(0);
     const adjusted = capture.captureAdjustment('grade', source);
     const adjustedResult = { width: adjusted.width, pixel: [...adjusted.getContext('2d').getImageData(100, 100, 1, 1).data] };
-    effects.dispose(); capture.dispose();
-    return { localResult, opaque, flatResult, overrideResult, resizedResult, adjustedResult, mediaPixel, remaining: root.querySelectorAll('svg').length, afterDispose: capture.captureLayer('graphic') };
+    effects.dispose();
+
+    const graphic = root.querySelector('[data-floc-layer="graphic"]');
+    graphic.style.cssText = 'position:absolute;left:0;top:0;width:40px;height:20px;background:rgba(255,0,0,.5)';
+    const alphaResults = {};
+    for (const type of ['dithering', 'fluted-glass']) {
+      const layerEffect = window.createEffects(root, { format: 'square', layers: [{ id: 'graphic', type: 'media', effects: [window.newEffect(type)] }] }, { square: [200, 200] }, () => 1);
+      await layerEffect.seek(0);
+      alphaResults[type] = pixel(capture.captureLayer('graphic', { local: true }), 10, 10)[3];
+      layerEffect.dispose();
+    }
+    capture.dispose();
+    return { localResult, opaque, flatResult, overrideResult, resizedResult, adjustedResult, alphaResults, mediaPixel, remaining: root.querySelectorAll('svg').length, afterDispose: capture.captureLayer('graphic') };
   });
   assert.deepEqual(result.localResult.bounds, [0, 0, 40, 20]);
   assert.deepEqual(result.localResult.clear, [0, 0, 0, 0]);
@@ -68,6 +79,7 @@ test('scene sources separate local geometry, Flat placement and projected source
   const [r, g, b, a] = result.adjustedResult.pixel;
   assert.ok(Math.abs(r - g) <= 1 && Math.abs(g - b) <= 1 && r > 0);
   assert.equal(a, 128, 'Below adjustment reuses its current graph without changing premultiplied coverage');
+  assert.deepEqual(result.alphaResults, { dithering: 128, 'fluted-glass': 128 }, 'image effects preserve translucent video coverage');
   assert.deepEqual(result.mediaPixel, [0, 0, 255, 128], 'local source keeps media cover/object-position and child opacity without the root fade');
   assert.equal(result.remaining, 0); assert.equal(result.afterDispose, null);
 });

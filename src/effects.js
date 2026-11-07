@@ -225,10 +225,9 @@ function bayerMap(cell) {
   }));
 }
 
-// Builds the SVG filter for duotone, chromatic split, liquid wave, halftone,
-// dithering and fluted glass. Every filter ends by mixing its result with the
-// untouched input by `amount`, so the layer's alpha is preserved. `update`
-// applies animated values and the adjustment strength for one frame.
+// SVG color treatments operate on opaque RGB, then apply source coverage once.
+// Displacements move the source coverage with the sampled image. Both paths
+// share the same graph in preview and export.
 function svgEffect(element, effect, id, unit, imagesReady) {
   const filter = element('filter', { id, x: 0, y: 0, width: '100%', height: '100%', primitiveUnits: 'userSpaceOnUse', 'color-interpolation-filters': 'sRGB' });
   const add = (tag, attributes = {}, children = []) => {
@@ -238,6 +237,7 @@ function svgEffect(element, effect, id, unit, imagesReady) {
     return node;
   };
   const funcs = (type, values) => ['R', 'G', 'B'].map((channel, i) => element(`feFunc${channel}`, { type, ...values(i) }));
+  const opaqueColor = (input, result) => add('feComponentTransfer', { in: input, result }, [element('feFuncA', { type: 'linear', slope: 0, intercept: 1 })]);
   // Pixelates `input` into cells: one sample per cell, spread over the cell.
   const pixelate = (cell, input, result) => {
     const sample = Math.max(1, Math.min(6, Math.round(cell * 0.2)));
@@ -255,13 +255,15 @@ function svgEffect(element, effect, id, unit, imagesReady) {
     add('feComponentTransfer', { in: 'luma', result: 'duo' }, funcs('table', i => ({ tableValues: `${shadow[i]} ${highlight[i]}` })));
     mix = finish('duo');
   } else if (effect.type === 'chromatic') {
-    // Keeps one color channel and the alpha.
-    const channel = (row, result) => add('feColorMatrix', { in: 'SourceGraphic', type: 'matrix', values: [0, 1, 2].map(r => [0, 1, 2, 3, 4].map(c => +(r === row && c === row)).join(' ')).join(' ') + ' 0 0 0 1 0', result });
+    // Combine color channels without accumulating source-over alpha three
+    // times. The final mask retains the layer's original translucent silhouette.
+    const channel = (row, result) => add('feColorMatrix', { in: 'SourceGraphic', type: 'matrix', values: [0, 1, 2].map(r => [0, 1, 2, 3, 4].map(c => +(r === row && c === row)).join(' ')).join(' ') + ' 0 0 0 0 1', result });
     channel(0, 'red'); channel(1, 'green'); channel(2, 'blue');
     const red = add('feOffset', { in: 'red', dx: 0, dy: 0, result: 'redShift' });
     const blue = add('feOffset', { in: 'blue', dx: 0, dy: 0, result: 'blueShift' });
     add('feBlend', { in: 'redShift', in2: 'green', mode: 'screen', result: 'redGreen' });
     add('feBlend', { in: 'redGreen', in2: 'blueShift', mode: 'screen', result: 'split' });
+    add('feComposite', { in: 'split', in2: 'SourceAlpha', operator: 'in' });
     update = (value, strength, time) => {
       const shift = value.amount * strength * 12 * unit * (effect.animated ? 0.5 + 0.5 * Math.sin(Math.max(0, time) * 1.4) : 1);
       red.setAttribute('dx', shift); blue.setAttribute('dx', -shift);
@@ -282,7 +284,8 @@ function svgEffect(element, effect, id, unit, imagesReady) {
     // Dots keep each cell's color and grow with its brightness over dark gaps,
     // inside the layer's silhouette.
     const cell = halftoneCell(effect.size) * unit, reach = 0.406 * cell, edge = 0.4 / Math.max(reach, 0.5);
-    pixelate(cell, 'SourceGraphic', 'cells');
+    opaqueColor('SourceGraphic', 'colorSource');
+    pixelate(cell, 'colorSource', 'cells');
     add('feColorMatrix', { in: 'cells', type: 'matrix', values: `${LUMA} 0 0 0 1 0`, result: 'cellLuma' });
     add('feFlood', { 'flood-color': '#000000', result: 'black' });
     add('feComposite', { in: 'cellLuma', in2: 'black', operator: 'over', result: 'brightness' });
@@ -299,16 +302,24 @@ function svgEffect(element, effect, id, unit, imagesReady) {
     add('feComposite', { in: 'screen', in2: 'SourceAlpha', operator: 'in', result: 'halftone' });
     mix = finish('halftone');
   } else if (effect.type === 'dithering') {
-    // Ordered dithering of each channel to `steps` levels on pixelated cells.
+    // Ordered dithering uses the full source precision; decoder conversion is
+    // handled during video preparation rather than posterizing the effect input.
+    opaqueColor('SourceGraphic', 'colorSource');
     const cell = Math.max(1, 2 * Math.round((ditheringCell(effect.size) * unit - 1) / 2) + 1), map = bayerMap(cell), steps = effect.steps;
     imagesReady.push(map.ready);
-    if (cell > 1) pixelate(cell, 'SourceGraphic', 'cells');
+    if (cell > 1) pixelate(cell, 'colorSource', 'cells');
     add('feImage', { href: map.url, x: 0, y: 0, width: cell * 4, height: cell * 4, preserveAspectRatio: 'none', result: 'bayerTile' });
     add('feTile', { in: 'bayerTile', result: 'bayer' });
-    add('feComposite', { in: cell > 1 ? 'cells' : 'SourceGraphic', in2: 'bayer', operator: 'arithmetic', k1: 0, k2: 1, k3: 1 / steps, k4: -0.5 / steps, result: 'jittered' });
-    // floor(v × steps + 0.5) / steps, as a discrete table of steps + 1 levels.
-    add('feComponentTransfer', { in: 'jittered', result: 'centered' }, funcs('linear', () => ({ slope: steps / (steps + 1), intercept: 0.5 / (steps + 1) })));
-    add('feComponentTransfer', { in: 'centered', result: 'levels' }, funcs('discrete', () => ({ tableValues: Array.from({ length: steps + 1 }, (_, i) => i / steps).join(' ') })));
+    add('feComposite', { in: cell > 1 ? 'cells' : 'colorSource', in2: 'bayer', operator: 'arithmetic', k1: 0, k2: 1, k3: 1 / steps, k4: -0.5 / steps, result: 'jittered' });
+    // Feather only the quantization boundaries by four source levels. Hard
+    // thresholds turn a one-level decoder/rounding change into a whole color
+    // step and shimmer during playback; plateau colors stay quantized.
+    const table = Array.from({ length: 256 }, (_, i) => {
+      const value = i / 255 * steps, base = Math.floor(value);
+      const t = Math.max(0, Math.min(1, (value - base - .5) / (8 / 255 * steps) + .5));
+      return Math.min(1, (base + t * t * (3 - 2 * t)) / steps);
+    }).join(' ');
+    add('feComponentTransfer', { in: 'jittered', result: 'levels' }, [...funcs('table', () => ({ tableValues: table })), element('feFuncA', { type: 'linear', slope: 0, intercept: 1 })]);
     add('feComposite', { in: 'levels', in2: 'SourceAlpha', operator: 'in', result: 'dithered' });
     mix = finish('dithered');
   } else {
@@ -320,7 +331,8 @@ function svgEffect(element, effect, id, unit, imagesReady) {
     const displacement = add('feDisplacementMap', { in: 'SourceGraphic', in2: 'ramp', scale: 0, xChannelSelector: 'R', yChannelSelector: 'G', result: 'fluted' });
     add('feGaussianBlur', { in: 'fluted', stdDeviation: 0.35, result: 'smooth' });
     add('feColorMatrix', { in: 'ramp', type: 'matrix', values: '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 1 0', result: 'shade' });
-    const shading = add('feComposite', { in: 'smooth', in2: 'shade', operator: 'arithmetic', k1: 0, k2: 1, k3: 0, k4: 0, result: 'shaded' });
+    opaqueColor('smooth', 'smoothColor');
+    const shading = add('feComposite', { in: 'smoothColor', in2: 'shade', operator: 'arithmetic', k1: 0, k2: 1, k3: 0, k4: 0, result: 'shaded' });
     add('feComposite', { in: 'shaded', in2: 'smooth', operator: 'in' });
     update = (value, strength) => {
       const amount = value.amount * strength;
@@ -546,7 +558,7 @@ export function createEffects(root, project, formats, layerAlpha) {
       const canvas = root.querySelector(`[data-floc-layer="${CSS.escape(layer.id)}"]`);
       const context = canvas?.getContext('2d');
       if (!context) continue;
-      const layerEntries = entries.filter(entry => entry.layer.id === layer.id);
+      const layerEntries = entries.filter(entry => entry.layer.id === layer.id && entry.effect.enabled);
       const live = evaluateChoreography(layer, time).effects ?? [];
       const opacity = entry => entry.fades ? live[entry.index].opacity : 1;
       const key = `${canvas.width}:${canvas.height}:${layerEntries.map(entry => `${entry.key}:${opacity(entry)}`).join(':')}`;

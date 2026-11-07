@@ -34,6 +34,14 @@ function sourceWindow(project, consumers, duration) {
   return { firstFrame: first, count: end - first };
 }
 
+// Quantization amplifies even tiny JPEG/color-conversion errors. Keep lossless
+// source frames for a dithered layer or any Below adjustment that reaches it.
+function needsLosslessFrames(project, consumers) {
+  const dithering = layer => layer.effects?.some(effect => effect.enabled && effect.type === 'dithering');
+  return consumers.some(({ layer }) => dithering(layer) || project.layers.slice(project.layers.indexOf(layer) + 1)
+    .some(above => above.type === 'effect' && above.effectScope === 'below' && dithering(above)));
+}
+
 // Export derivatives never change saved sources or native preview playback.
 export async function extractVideoFrames(project, folder, run) {
   const manifest = {};
@@ -44,7 +52,8 @@ export async function extractVideoFrames(project, folder, run) {
     const duration = Number(video?.duration || metadata.format?.duration);
     if (!video || !Number.isFinite(duration) || duration <= 0) throw new Error(`Video has no finite duration: ${src}`);
     const alpha = /^(yuva|gbrap|rgba|bgra|argb|abgr)/.test(video.pix_fmt || '') || Number(video.tags?.alpha_mode) === 1;
-    const extension = alpha ? 'png' : 'jpg';
+    const lossless = alpha || needsLosslessFrames(project, consumers);
+    const extension = lossless ? 'png' : 'jpg';
     const directory = `video-frames/${index}`;
     const output = path.join(folder, directory);
     await rm(output, { recursive: true, force: true });
@@ -59,8 +68,11 @@ export async function extractVideoFrames(project, folder, run) {
     args.push('-ss', String(firstFrame / project.fps), '-noaccurate_seek', '-err_detect', 'explode', '-i', input, '-map', `0:${video.index}`, '-an');
     // A legitimate final image may precede the final CFR tick (e.g. 1 fps -> 30 fps).
     // Extend that image before resampling; decoding errors still fail via -xerror.
-    args.push('-vf', `tpad=stop_mode=clone:stop_duration=${duration + 1},fps=${project.fps}:start_time=0,setpts=PTS-STARTPTS`, '-frames:v', String(count), '-start_number', '0');
-    args.push(...(alpha ? ['-pix_fmt', 'rgba'] : ['-q:v', '2']), path.join(output, `%06d.${extension}`));
+    // Match Chromium's decoded chroma grid rather than introducing a second,
+    // interpolated color edge before image-space effects.
+    const color = lossless ? `,scale=flags=neighbor+accurate_rnd+full_chroma_int,format=${alpha ? 'rgba' : 'rgb24'}` : '';
+    args.push('-vf', `tpad=stop_mode=clone:stop_duration=${duration + 1},fps=${project.fps}:start_time=0,setpts=PTS-STARTPTS${color}`, '-frames:v', String(count), '-start_number', '0');
+    args.push(...(lossless ? ['-pix_fmt', alpha ? 'rgba' : 'rgb24'] : ['-q:v', '2']), path.join(output, `%06d.${extension}`));
     // Measured ~20 ms per 4K JPEG and ~150 ms per 4K alpha PNG; allow 500 ms per frame.
     await run('ffmpeg', args, { timeoutMs: Math.max(300000, count * 500) });
     const files = (await readdir(output)).filter(name => new RegExp(`^\\d{6}\\.${extension}$`).test(name)).sort();
