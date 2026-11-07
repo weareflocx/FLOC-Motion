@@ -331,6 +331,16 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       return image;
     } finally { handle.release(); }
   }
+  // Background and standalone video frames decode off the main thread from their file,
+  // one frame ahead, so decoding overlaps the current frame's scene work. Drawing an
+  // <img> instead decodes synchronously when the capture first rasterizes it.
+  function decodeVideoFrame(frames, index) {
+    const src = videoFrameSource(frames, index);
+    return fetch(src).then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.blob();
+    }).then(blob => createImageBitmap(blob)).catch(error => { throw new Error(`A prepared video frame could not be decoded: ${src}`, { cause: error }); });
+  }
   async function cardTexture(src) {
     if (cardMediaKind(src) === 'image') {
       const handle = resources.acquire(`image\n${src}`, () => imageLoader.loadAsync(src));
@@ -407,6 +417,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     context.dispose();
     models.forEach(model => model.dispose());
     dataFlows.forEach(flow => flow.dispose());
+    preparedVideos.forEach(video => video.ahead?.bitmap.then(bitmap => bitmap.close(), () => {}));
     mediaNodes.forEach(m => { pauseMedia(m); m.removeAttribute('src'); m.load(); });
     preparedVideos.forEach(({ node }) => { node.width = 0; node.height = 0; });
     preparedVideos.length = 0;
@@ -546,14 +557,21 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       const l = p.layers.find(l => l.id === video.id);
       const index = videoFrameIndex(video.frames, audioTime(l, time, video.frames.duration));
       if (video.index === index) return;
-      const image = await loadVideoFrame(video.frames, index);
-      if (disposed || epoch !== seekEpoch) return;
-      // Decoded pixels own the dimensions: FFmpeg may have autorotated the stream.
-      if (video.node.width !== image.naturalWidth) video.node.width = image.naturalWidth;
-      if (video.node.height !== image.naturalHeight) video.node.height = image.naturalHeight;
-      video.context.clearRect(0, 0, video.node.width, video.node.height);
-      video.context.drawImage(image, 0, 0);
-      video.index = index;
+      const pending = video.ahead?.index === index ? video.ahead.bitmap : decodeVideoFrame(video.frames, index);
+      if (video.ahead && video.ahead.index !== index) video.ahead.bitmap.then(bitmap => bitmap.close(), () => {});
+      const next = (index + 1) % video.frames.count;
+      video.ahead = next === index ? null : { index: next, bitmap: decodeVideoFrame(video.frames, next) };
+      video.ahead?.bitmap.catch(() => {});
+      const bitmap = await pending;
+      try {
+        if (disposed || epoch !== seekEpoch) return;
+        // Decoded pixels own the dimensions: FFmpeg may have autorotated the stream.
+        if (video.node.width !== bitmap.width) video.node.width = bitmap.width;
+        if (video.node.height !== bitmap.height) video.node.height = bitmap.height;
+        video.context.clearRect(0, 0, video.node.width, video.node.height);
+        video.context.drawImage(bitmap, 0, 0);
+        video.index = index;
+      } finally { bitmap.close(); }
     }));
     frames.push(...standalone);
     if (!frames.length) { draw(time, playing); return Promise.resolve(); }
