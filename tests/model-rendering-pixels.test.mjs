@@ -279,6 +279,14 @@ test('shared model renderer produces real material, reflection, shader and deter
             const before = frame('a', .4); style('a', { [key]: high });
             result.liquid.controls.push({ key, delta: difference(before, frame('a', .4)) });
           }
+          // Zero dispersion or spread must match the continuous limit of the spectral samples.
+          result.liquid.zeroLimit = [];
+          for (const patch of [{ dispersion: 0 }, { liquidIorSpread: 0 }, { dispersion: 0, liquidIorSpread: 0 }]) {
+            style('a', { ...liquid, ...patch }); const zero = frame('a', .4);
+            style('a', Object.fromEntries(Object.keys(patch).map(key => [key, 1e-6]))); const near = frame('a', .4);
+            let max = 0; for (let i = 0; i < zero.length; i++) max = Math.max(max, Math.abs(zero[i] - near[i]));
+            result.liquid.zeroLimit.push(max);
+          }
           style('a', { ...liquid, environmentIntensity: 0 }); const dark = frame('a', .4);
           let bright = 0; for (let i = 0; i < dark.length; i += 4) if (dark[i + 3] > 250 && Math.max(dark[i], dark[i + 1], dark[i + 2]) > 1) bright++;
           result.liquid.unlitBright = bright;
@@ -448,6 +456,28 @@ test('shared model renderer produces real material, reflection, shader and deter
       result.unbrushedWithoutUv = { delta: difference(flatPlain, flatBrushed).total, visible: opaque(flatBrushed) };
       result.holographicWithoutUv = holographicPixels('flatCube');
       result.quantumWithoutUv = quantumPixels('flatCube');
+      // Scenes selecting one environment keep their own rotation and intensity, survive a neighbor's
+      // disposal and a context restore, and its prefiltered target lives until the last user leaves.
+      const envStyle = { animationClip: -1, motion: 'none', environment: 'neon', base: 'custom', look: 'physical', glass: 'none', metalness: 1, roughness: .1 };
+      const envTexture = id => captures.get(id).scene.environment;
+      await mount('envB', src, { ...envStyle, environmentRotation: 120, environmentIntensity: 2 }); const aloneB = frame('envB', .4), firstTexture = envTexture('envB');
+      scenes.get('envB').dispose(); scenes.delete('envB');
+      await mount('envA', src, envStyle); const aloneA = frame('envA', .4);
+      await mount('envB', src, { ...envStyle, environmentRotation: 120, environmentIntensity: 2 });
+      const sharedTexture = envTexture('envA');
+      result.sharedEnvironment = { released: disposal.targets.includes(firstTexture.uuid), shared: sharedTexture === envTexture('envB'),
+        rotated: difference(aloneA, aloneB).total, isolated: difference(aloneA, frame('envA', .4)).total + difference(aloneB, frame('envB', .4)).total };
+      {
+        const renderer = captures.get('envA').renderer, extension = renderer.getContext().getExtension('WEBGL_lose_context');
+        const lost = new Promise(resolve => renderer.domElement.addEventListener('webglcontextlost', resolve, { once: true })); extension.loseContext(); await lost;
+        const restored = new Promise(resolve => renderer.domElement.addEventListener('webglcontextrestored', () => requestAnimationFrame(resolve), { once: true })); await new Promise(resolve => setTimeout(resolve, 100)); extension.restoreContext(); await restored;
+      }
+      const restoredTexture = envTexture('envA');
+      Object.assign(result.sharedEnvironment, { restoredShared: restoredTexture !== sharedTexture && restoredTexture === envTexture('envB') && disposal.targets.includes(sharedTexture.uuid),
+        restored: difference(aloneA, frame('envA', .4)).total + difference(aloneB, frame('envB', .4)).total });
+      scenes.get('envA').dispose(); scenes.delete('envA');
+      Object.assign(result.sharedEnvironment, { kept: !disposal.targets.includes(restoredTexture.uuid), neighbor: difference(aloneB, frame('envB', .4)).total });
+      scenes.get('envB').dispose(); scenes.delete('envB'); result.sharedEnvironment.lastReleased = disposal.targets.includes(restoredTexture.uuid);
       // More models than the browser's live-context limit share one renderer and all stay visible.
       const many = [];
       for (let i = 0; i < 20; i++) { await mount('many-' + i, src, undefined, { compositionWidth: 96 }); many.push(opaque(frame('many-' + i, .4))); }
@@ -502,6 +532,8 @@ test('shared model renderer produces real material, reflection, shader and deter
   assert.equal(result.actionGroupHeld, true); assert.equal(result.clipAdvancedDuringHold, true); assert.equal(result.timingClipIndependent, true);
   assert.deepEqual(result.metadata.clips.map(clip => clip.name), ['Turn', 'Stretch']); assert.equal(result.metadata.unlit, false); assert.equal(result.unlitMetadata, true); visible(result.unlitSurface, 'Adapted unlit surface');
   assert.equal(result.contextRestore, 0); assert.equal(result.environmentRecovered, true); assert.equal(result.ownedDisposed, true); assert.equal(result.sourceSurvives, true);
+  assert.deepEqual(result.sharedEnvironment, { released: true, shared: true, rotated: result.sharedEnvironment.rotated, isolated: 0, restoredShared: true, restored: 0, kept: true, neighbor: 0, lastReleased: true });
+  assert.ok(result.sharedEnvironment.rotated > 500, 'environment rotation and intensity stay per scene');
   assert.ok(result.uniformReplacementPixels > 1500, 'Replace produces an opaque chosen color instead of multiplying imported vertex colors/alpha');
   assert.equal(result.coloredRestoration, 0, 'Original restores imported vertex color and transparency');
   assert.equal(result.metadataReleased, true); assert.equal(result.resourcesReleased, true);
@@ -527,6 +559,7 @@ test('shared model renderer produces real material, reflection, shader and deter
   assert.equal(result.liquid.chromeRestored, 0, 'switching to chrome does not retain liquid shader state');
   visible(result.liquid.chromeDifference, 'Liquid spectral finish differs from ordinary chrome');
   for (const { key, delta } of result.liquid.controls) visible(delta, 'Liquid ' + key);
+  assert.ok(result.liquid.zeroLimit.every(max => max <= 1), `zero dispersion or spread matches its continuous limit: ${result.liquid.zeroLimit}`);
   for (const [label, holographic] of [['Holographic glass', result.holographic], ['Holographic glass without UVs', result.holographicWithoutUv]]) {
     assert.ok(holographic.visible > 1000, `${label} must draw opaque environment glass`);
     assert.ok(holographic.studioLit > 1000, `${label} must visibly reflect the Holographic studio`);

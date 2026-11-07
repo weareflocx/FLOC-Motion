@@ -260,6 +260,13 @@ export function createModelMaterials(model, { spatial = false, bounds, surfaceNo
       glass.modelLiquidReflectance.value = style.liquidReflectance;
       glass.modelLiquidIorSpread.value = style.liquidIorSpread;
       glass.modelLiquidTint.value.set(style.liquidTint);
+      // Zero dispersion or spread makes every spectral sample identical: a cached
+      // program variant looks the environment up once instead of ten times.
+      for (const [name, active] of [['MODEL_LIQUID_DISPERSED', style.dispersion > 0], ['MODEL_LIQUID_SPREAD', style.liquidIorSpread > 0]]) {
+        if (active === name in material.defines) continue;
+        if (active) material.defines[name] = ''; else delete material.defines[name];
+        material.needsUpdate = true;
+      }
     }
     if (value.refractive || value.procedural || value.liquid) {
       // Dedicated dielectric shells ignore the generic PBR finish controls.

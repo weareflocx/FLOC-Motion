@@ -42,14 +42,30 @@ export const LIQUID_GLASS = `
   vec3 modelLiquidTangent = modelLiquidRay - geometryNormal * dot(modelLiquidRay, geometryNormal);
   modelLiquidTangent *= length(modelLiquidTangent);
   vec3 modelLiquidReflection = vec3(0.0), modelLiquidTransmission = vec3(0.0), modelLiquidWeights = vec3(0.0);
+  #ifndef MODEL_LIQUID_DISPERSED
+    vec3 modelLiquidReflected = modelGlassEnvironment(reflect(modelLiquidRay, normalize(geometryNormal)), material.roughness);
+  #endif
+  #ifndef MODEL_LIQUID_SPREAD
+    vec3 modelLiquidRefracted = refract(modelLiquidRay, geometryNormal, 1.0 / modelGlassIOR);
+    if (dot(modelLiquidRefracted, modelLiquidRefracted) < 0.5) modelLiquidRefracted = reflect(modelLiquidRay, geometryNormal);
+    vec3 modelLiquidTransmitted = modelGlassEnvironment(modelLiquidRefracted, material.roughness);
+  #endif
   for (int i = 0; i < 10; i++) {
     float x = (float(i) + 0.5) / 10.0;
     vec3 weight = modelLiquidSpectrum(x);
-    vec3 spectralNormal = normalize(geometryNormal + modelLiquidTangent * modelGlassDispersion * (x - 0.5));
-    modelLiquidReflection += modelGlassEnvironment(reflect(modelLiquidRay, spectralNormal), material.roughness) * weight;
-    vec3 direction = refract(modelLiquidRay, geometryNormal, 1.0 / (modelGlassIOR + modelLiquidIorSpread * (x - 0.5)));
-    if (dot(direction, direction) < 0.5) direction = reflect(modelLiquidRay, geometryNormal);
-    modelLiquidTransmission += modelGlassEnvironment(direction, material.roughness) * weight;
+    #ifdef MODEL_LIQUID_DISPERSED
+      vec3 spectralNormal = normalize(geometryNormal + modelLiquidTangent * modelGlassDispersion * (x - 0.5));
+      modelLiquidReflection += modelGlassEnvironment(reflect(modelLiquidRay, spectralNormal), material.roughness) * weight;
+    #else
+      modelLiquidReflection += modelLiquidReflected * weight;
+    #endif
+    #ifdef MODEL_LIQUID_SPREAD
+      vec3 direction = refract(modelLiquidRay, geometryNormal, 1.0 / (modelGlassIOR + modelLiquidIorSpread * (x - 0.5)));
+      if (dot(direction, direction) < 0.5) direction = reflect(modelLiquidRay, geometryNormal);
+      modelLiquidTransmission += modelGlassEnvironment(direction, material.roughness) * weight;
+    #else
+      modelLiquidTransmission += modelLiquidTransmitted * weight;
+    #endif
     modelLiquidWeights += weight;
   }
   // The reference deliberately allows F0 > 1 as an artistic chrome response.

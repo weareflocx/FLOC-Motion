@@ -3,7 +3,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LIQUID_STUDIO } from './model-liquid-material.js';
 
 // Reflection environments are generated locally from small scenes; nothing is
-// downloaded. Each is prefiltered once per model scene through PMREM.
+// downloaded. Each is prefiltered once per renderer through PMREM and shared by
+// every model scene that selects it; rotation and intensity stay per scene.
 const SKY_VERTEX = 'varying vec3 direction; void main() { direction = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 function dome(scene, fragment) {
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(12, 64, 32), new THREE.ShaderMaterial({ side: THREE.BackSide, vertexShader: SKY_VERTEX, fragmentShader: fragment })));
@@ -82,31 +83,50 @@ function disposeScene(scene) {
 }
 
 // PMREM is renderer/context-local: never share GPU targets through the source cache.
+// Context loss retires every cached target; holders release theirs on invalidate.
+const caches = new WeakMap();
+function rendererCache(renderer) {
+  let cache = caches.get(renderer);
+  if (!cache) {
+    caches.set(renderer, cache = new Map());
+    renderer.domElement.addEventListener('webglcontextlost', () => cache.clear());
+  }
+  return cache;
+}
+function prefilter(renderer, id) {
+  const { scene: source, sigma } = BUILDERS[id]();
+  let generator;
+  const previousTarget = renderer.getRenderTarget();
+  try {
+    generator = new THREE.PMREMGenerator(renderer);
+    return generator.fromScene(source, sigma);
+  } catch (error) {
+    // fromScene may fail while its output target is still bound.
+    const failedTarget = renderer.getRenderTarget();
+    if (failedTarget && failedTarget !== previousTarget) failedTarget.dispose();
+    throw error;
+  } finally { renderer.setRenderTarget(previousTarget); disposeScene(source); generator?.dispose(); }
+}
 export function createModelEnvironment(renderer, scene) {
-  let target, current;
-  function clear() { scene.environment = null; target?.dispose(); target = undefined; current = undefined; }
+  const cache = rendererCache(renderer);
+  let entry, current;
+  function clear() {
+    scene.environment = null;
+    if (entry && --entry.users === 0) { if (cache.get(current) === entry) cache.delete(current); entry.target.dispose(); }
+    entry = current = undefined;
+  }
   return {
     update(style) {
       const id = style.look === 'physical' ? style.environment : 'none';
       if (id !== current) {
         clear();
         if (id !== 'none') {
-          const { scene: source, sigma } = BUILDERS[id]();
-          let generator;
-          const previousTarget = renderer.getRenderTarget();
-          try {
-            generator = new THREE.PMREMGenerator(renderer);
-            target = generator.fromScene(source, sigma);
-          } catch (error) {
-            // fromScene may fail while its output target is still bound.
-            const failedTarget = renderer.getRenderTarget();
-            if (failedTarget && failedTarget !== previousTarget) failedTarget.dispose();
-            throw error;
-          } finally { renderer.setRenderTarget(previousTarget); disposeScene(source); generator?.dispose(); }
-          current = id;
+          entry = cache.get(id);
+          if (!entry) cache.set(id, entry = { target: prefilter(renderer, id), users: 0 });
+          entry.users++; current = id;
         }
       }
-      scene.environment = target?.texture ?? null;
+      scene.environment = entry?.target.texture ?? null;
       scene.environmentIntensity = style.environmentIntensity;
       scene.environmentRotation.set(0, THREE.MathUtils.degToRad(style.environmentRotation), 0);
     },
