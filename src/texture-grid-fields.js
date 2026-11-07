@@ -143,6 +143,12 @@ const noise = seed => {
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
+// (i, j, distance) for the 23×23 neighborhood within radius 11, in source order.
+const MAGNET_REACH = [];
+for (let i = -11; i <= 11; i++) for (let j = -11; j <= 11; j++) {
+  const distance = Math.hypot(i, j);
+  if (distance <= 11) MAGNET_REACH.push(i, j, distance);
+}
 
 export function createMagnetTexture(layout) {
   const columns = layout ? layout.columns : MAGNET_COLS;
@@ -212,34 +218,31 @@ export function createMagnetTexture(layout) {
         previous = key;
       }
       if (on) {
-        for (let i = -11; i <= 11; i++) {
-          for (let j = -11; j <= 11; j++) {
-            const c = cc + i;
-            const r = cr + j;
-            if (c < 0 || c >= columns || r < 0 || r >= rows) continue;
-            const distance = Math.hypot(i, j);
-            if (distance > 11) continue;
-            const cell = r * columns + c;
-            if (slotByCell[cell] < 0) {
-              slotByCell[cell] = nextFree;
-              cellBySlot[nextFree] = cell;
-              highWater = Math.max(highWater, nextFree + 1);
-              do { nextFree++; } while (nextFree < count && cellBySlot[nextFree] >= 0);
-              x[cell] = tx[cell] = hx[cell]; y[cell] = ty[cell] = hy[cell];
-              vx[cell] = vy[cell] = 0;
-            }
-            if (Math.abs(i) <= 2 && Math.abs(j) <= 2) {
-              tx[cell] = mx + i * 3.7 - 2;
-              ty[cell] = my + j * 3.7 - 2;
-            } else {
-              const ox = mx - 2 - hx[cell];
-              const oy = my - 2 - hy[cell];
-              const length = Math.hypot(ox, oy) || 1;
-              const u = clamp((11 - distance) / 9, 0, 1);
-              const lean = 5.5 * u * u * (3 - 2 * u);
-              tx[cell] = hx[cell] + ox / length * lean;
-              ty[cell] = hy[cell] + oy / length * lean;
-            }
+        for (let n = 0; n < MAGNET_REACH.length; n += 3) {
+          const i = MAGNET_REACH[n], j = MAGNET_REACH[n + 1], distance = MAGNET_REACH[n + 2];
+          const c = cc + i;
+          const r = cr + j;
+          if (c < 0 || c >= columns || r < 0 || r >= rows) continue;
+          const cell = r * columns + c;
+          if (slotByCell[cell] < 0) {
+            slotByCell[cell] = nextFree;
+            cellBySlot[nextFree] = cell;
+            highWater = Math.max(highWater, nextFree + 1);
+            do { nextFree++; } while (nextFree < count && cellBySlot[nextFree] >= 0);
+            x[cell] = tx[cell] = hx[cell]; y[cell] = ty[cell] = hy[cell];
+            vx[cell] = vy[cell] = 0;
+          }
+          if (Math.abs(i) <= 2 && Math.abs(j) <= 2) {
+            tx[cell] = mx + i * 3.7 - 2;
+            ty[cell] = my + j * 3.7 - 2;
+          } else {
+            const ox = mx - 2 - hx[cell];
+            const oy = my - 2 - hy[cell];
+            const length = Math.hypot(ox, oy) || 1;
+            const u = clamp((11 - distance) / 9, 0, 1);
+            const lean = 5.5 * u * u * (3 - 2 * u);
+            tx[cell] = hx[cell] + ox / length * lean;
+            ty[cell] = hy[cell] + oy / length * lean;
           }
         }
       }
@@ -251,11 +254,14 @@ export function createMagnetTexture(layout) {
         if (pointer.reduced) {
           x[cell] = tx[cell]; y[cell] = ty[cell]; vx[cell] = vy[cell] = 0;
         } else {
+          const k = stiffness[cell], b = damping[cell], gx = tx[cell], gy = ty[cell];
+          let px = x[cell], py = y[cell], qx = vx[cell], qy = vy[cell];
           for (let n = 0; n < steps; n++) {
-            vx[cell] += (-stiffness[cell] * (x[cell] - tx[cell]) - damping[cell] * vx[cell]) * h;
-            vy[cell] += (-stiffness[cell] * (y[cell] - ty[cell]) - damping[cell] * vy[cell]) * h;
-            x[cell] += vx[cell] * h; y[cell] += vy[cell] * h;
+            qx += (-k * (px - gx) - b * qx) * h;
+            qy += (-k * (py - gy) - b * qy) * h;
+            px += qx * h; py += qy * h;
           }
+          x[cell] = px; y[cell] = py; vx[cell] = qx; vy[cell] = qy;
         }
         if (Math.abs(x[cell] - tx[cell]) < 0.02 && Math.abs(y[cell] - ty[cell]) < 0.02 &&
             Math.abs(vx[cell]) < 0.5 && Math.abs(vy[cell]) < 0.5) {

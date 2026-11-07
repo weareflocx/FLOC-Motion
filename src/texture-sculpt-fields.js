@@ -7,7 +7,11 @@ const DEG = Math.PI / 180;
 const round2 = value => Math.round(value * 100) / 100;
 const round3 = value => Math.round(value * 1000) / 1000;
 const round4 = value => Math.round(value * 10000) / 10000;
-const arc = degrees => (((degrees % 180) + 270) % 180) - 90;
+// Wraps to [-90, 90); branches replace fmod where the subtraction is exact.
+const arc = degrees => {
+  const turned = (degrees > -180 && degrees < 180 ? degrees : degrees % 180) + 270;
+  return (turned >= 360 ? turned - 360 : turned >= 180 ? turned - 180 : turned) - 90;
+};
 const smooth = value => value <= 0 ? 0 : value >= 1 ? 1 : value * value * (3 - 2 * value);
 const spring = (velocity, from, to, dt, omega = 30) => velocity + (omega * omega * (to - from) - 2 * omega * velocity) * dt;
 
@@ -254,11 +258,13 @@ export function createTwistTexture(layout) {
     rotation.fill(0); drawScale.fill(1);
   }
   function step(pointer, dt) {
+    // Every element 260+ units from the pointer shares one easing factor.
+    const far = 1 - Math.exp(-dt / (pointer.active > 0 ? 0.035 + (0.06 - 0.035) * 1 : 0.16));
     for (let i = 0; i < count; i++) {
       const dx = pointer.x - cx[i], dy = pointer.y - cy[i];
-      const d = Math.sqrt(dx * dx + dy * dy), bearing = Math.atan2(dy, dx) / DEG - 90;
+      const d = Math.sqrt(dx * dx + dy * dy), theta = Math.atan2(dy, dx), bearing = theta / DEG - 90;
       const targetAngle = pointer.active > 0 ? arc(bearing) * pointer.active : 0;
-      const f = d < 1 ? 1 : Math.abs(Math.cos(2 * Math.atan2(dy, dx))) ** 3;
+      const c = Math.abs(Math.cos(2 * theta)), f = d < 1 ? 1 : c * c * c;
       const targetScale = 1 + (26.5 / 3.75 - 1) * f * pointer.active;
       const a = angle[i], s = thick[i];
       if (a === targetAngle && s === targetScale) continue;
@@ -266,8 +272,7 @@ export function createTwistTexture(layout) {
       if (pointer.reduced) {
         nextAngle = targetAngle; nextScale = targetScale;
       } else {
-        const tau = pointer.active > 0 ? 0.035 + (0.06 - 0.035) * Math.min(1, d / 260) : 0.16;
-        const k = 1 - Math.exp(-dt / tau);
+        const k = pointer.active > 0 && d < 260 ? 1 - Math.exp(-dt / (0.035 + (0.06 - 0.035) * (d / 260))) : far;
         nextAngle = a + arc(targetAngle - a) * k;
         nextScale = s + (targetScale - s) * k;
         if (Math.abs(arc(targetAngle - nextAngle)) < 0.6) nextAngle = targetAngle;
