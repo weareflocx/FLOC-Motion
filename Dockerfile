@@ -6,13 +6,15 @@ COPY . .
 RUN npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim AS runtime
+# Fly answers server-side exports with 503 (FLOC_PUBLIC_ORIGIN): Chrome capture runs on personal
+# renderers, so the image carries no browser. FFmpeg still verifies uploads and prepares media.
+# The HyperFrames opt-outs keep a misconfigured export from downloading a browser.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium ffmpeg ca-certificates fonts-liberation gosu \
+    ffmpeg ca-certificates gosu \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080 \
-    HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium \
     HYPERFRAMES_NO_UPDATE_CHECK=1 \
     HYPERFRAMES_NO_AUTO_INSTALL=1 \
     HYPERFRAMES_NO_TELEMETRY=1 \
@@ -23,7 +25,7 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/src ./src
 COPY --from=build --chown=node:node /app/server ./server
-COPY --from=build --chown=node:node /app/scripts/render-prepared.mjs /app/scripts/render-worker.mjs /app/scripts/renderer-runtime.mjs /app/scripts/renderer-update.mjs ./scripts/
+COPY --from=build --chown=node:node /app/scripts/render-worker.mjs /app/scripts/renderer-runtime.mjs /app/scripts/renderer-update.mjs ./scripts/
 COPY --from=build --chown=node:node /app/scripts/invite-first-user.mjs /app/scripts/reset-password.mjs /app/scripts/workspace-backup.mjs /app/scripts/workspace-backup-lib.mjs ./scripts/
 COPY --from=build --chown=node:node /app/.data/engine ./.data/engine
 RUN chown node:node /app /app/.data
