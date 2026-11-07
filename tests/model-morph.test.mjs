@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createMorphingSphere } from '../src/model-morph.js';
 import { DEFAULT_MODEL_STYLE } from '../src/model-style.js';
+import { morphHash, morphOracle } from './fixtures/morph-oracle.js';
 
 const DENSE_TOPOLOGY = { widthSegments: 192, heightSegments: 144 };
+const PALETTE_KEYS = ['morphColor1', 'morphColor2', 'morphColor3', 'morphColor4'];
 
 function sphere() {
   const geometry = new THREE.SphereGeometry(1, 24, 16);
@@ -20,109 +22,228 @@ function fixture(t, settings = {}, source = sphere(), options) {
   return { mesh, controller, source, material };
 }
 function snapshot(geometry) {
-  return Object.fromEntries(['position', 'normal', 'color'].map(key => [key, geometry.attributes[key].array.slice()]));
+  return Object.fromEntries(['position', 'normal'].map(key => [key, geometry.attributes[key].array.slice()]));
 }
 function versions(geometry) {
-  return ['position', 'normal', 'color'].map(key => geometry.attributes[key].version);
+  return ['position', 'normal'].map(key => geometry.attributes[key].version);
 }
 function probesGeometry(directions) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(new Float64Array(directions.flatMap(point => point.toArray())), 3));
   return geometry;
 }
-function assertSurface(geometry, radius) {
-  const point = new THREE.Vector3(), normal = new THREE.Vector3();
-  const position = geometry.attributes.position;
-  for (let i = 0; i < position.count; i++) {
-    point.fromBufferAttribute(position, i);
-    normal.fromBufferAttribute(geometry.attributes.normal, i);
-    assert.ok(Number.isFinite(point.length()) && Number.isFinite(normal.length()), `finite vertex ${i}`);
-    assert.ok(Math.abs(normal.length() - 1) < 1e-6, `normalized normal ${i}`);
-    assert.ok(normal.dot(point) > 0, `outward normal ${i}`);
-    assert.ok(point.length() <= radius + 2e-7, `envelope contains vertex ${i}`);
-    assert.ok(geometry.boundingBox.containsPoint(point), `box contains vertex ${i}`);
-    assert.ok(geometry.boundingSphere.containsPoint(point), `sphere contains vertex ${i}`);
+const probeDirections = Array.from({ length: 48 }, (_, i) => new THREE.Vector3().setFromSphericalCoords(1, (i % 7 + 1) * Math.PI / 8, i * 2.399963229728653))
+  .concat([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(axis => new THREE.Vector3(...axis)));
+const paletteOf = style => PALETTE_KEYS.map(key => new THREE.Color(style[key]));
+const fract = value => value - Math.floor(value);
+const smooth = (low, high, value) => { const t = Math.max(0, Math.min(1, (value - low) / (high - low))); return t * t * (3 - 2 * t); };
+
+// Double-precision mirror of the GLSL that reads only the shader descriptor: proves the
+// uniforms and CPU-hashed lattices encode the style and clock the oracle defines.
+function latticeNoise(texture, x, y, z) {
+  const image = texture.image, ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  const cell = (dx, dy, dz) => {
+    const cx = ix + dx, cy = iy + dy, cz = iz + dz;
+    assert.ok(cx >= 0 && cx < image.width && cy >= 0 && cy < image.height && cz >= 0 && cz < image.depth, 'all eight field corners lie within the texture');
+    return image.data[cx + image.width * (cy + image.height * cz)];
+  };
+  const fade = value => value ** 3 * (value * (value * 6 - 15) + 10);
+  const u = fade(x - ix), v = fade(y - iy), w = fade(z - iz);
+  let value = 0;
+  for (let dz = 0; dz <= 1; dz++) for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) value += cell(dx, dy, dz) * (dx ? u : 1 - u) * (dy ? v : 1 - v) * (dz ? w : 1 - w);
+  return Math.max(0, Math.min(1, value));
+}
+function evaluate(uniforms, direction) {
+  const value = name => uniforms[name].value, warp = value('flocMorphWarp'), d = direction.clone().normalize();
+  const p = d.clone().multiplyScalar(.4);
+  let frequency = value('flocMorphFrequency'), power = value('flocMorphPower');
+  for (let iteration = 0; iteration < value('flocMorphDetail'); iteration++) {
+    const phase = value('flocMorphPhase');
+    const step = new THREE.Vector3(Math.sin(p.y * power + phase + frequency * .18), Math.sin(p.z * power + phase + frequency * .21), Math.sin(p.x * power + phase + frequency * .24));
+    p.addScaledVector(step, warp / power);
+    frequency++; power *= value('flocMorphFalloff');
+  }
+  const contrast = value('flocMorphContrast'), drift = value('flocMorphDrift');
+  const level = latticeNoise(value('flocMorphLattice'), p.x * 3.1 + drift, p.y * 3.1 + drift, p.z * 3.1 + drift) ** contrast;
+  const position = d.clone().multiplyScalar(1 + value('flocMorphAmplitude') * smooth(.2, .8, level));
+  if (!value('flocMorphPainted')) return { position, color: null };
+  const chromaDrift = value('flocMorphChromaDrift');
+  const chroma = latticeNoise(value('flocMorphChromaLattice'), p.x * 1.5 + chromaDrift, p.y * 1.5 + chromaDrift, p.z * 1.5 + chromaDrift) ** contrast;
+  const factor = fract(d.x * .27 + d.y * .27 + d.z * .27 + chroma ** 4.6) * 4, band = Math.floor(factor), palette = value('flocMorphPalette');
+  const color = palette[band].clone().lerp(palette[(band + 1) % 4], smooth(0, 1.4, fract(factor))).multiplyScalar(.4 + smooth(.4, .8, level) * 1.3);
+  return { position, color, factor };
+}
+function assertMatchesOracle(controller, style, time, message) {
+  const { uniforms } = controller.surfaceDisplacement, flat = probeDirections.flatMap(direction => direction.toArray());
+  const expected = morphOracle(flat, style, time, style.base === 'custom' ? null : paletteOf(style));
+  for (const [i, direction] of probeDirections.entries()) {
+    const { position, color, factor } = evaluate(uniforms, direction);
+    assert.ok(position.distanceTo(new THREE.Vector3().fromArray(expected.positions, i * 3)) < 1e-6, `${message}: position ${i}`);
+    if (!color || Math.abs(factor - Math.round(factor)) < 1e-6) continue;
+    for (const [axis, channel] of ['r', 'g', 'b'].entries()) assert.ok(Math.abs(color[channel] - expected.colors[i * 3 + axis]) < 1e-6, `${message}: color ${i}`);
   }
 }
+function uniformState(uniforms) {
+  return Object.fromEntries(Object.entries(uniforms).map(([key, { value }]) => [key, value?.isTexture ? value.image.data.slice() : Array.isArray(value) ? value.map(color => color.toArray()) : value]));
+}
 
-test('elapsed time changes the real surface and normals, and reverse seeking is exact', t => {
-  const { mesh, controller } = fixture(t);
-  controller.update(.375);
-  const first = snapshot(mesh.geometry);
-  controller.update(2.25);
-  assert.notDeepEqual(mesh.geometry.attributes.position.array, first.position);
-  assert.notDeepEqual(mesh.geometry.attributes.normal.array, first.normal);
-  assert.notDeepEqual(mesh.geometry.attributes.color.array, first.color);
-  controller.update(.375);
-  assert.deepEqual(snapshot(mesh.geometry), first);
-  controller.update(0);
-  const zero = snapshot(mesh.geometry);
-  controller.update(-100);
-  assert.deepEqual(snapshot(mesh.geometry), zero, 'negative layer-local elapsed clamps to zero');
-  controller.update(60 * 60 * 24 + .375);
-  assert.notDeepEqual(mesh.geometry.attributes.position.array, first.position, 'clock is not periodically wrapped');
-});
-
-test('speed zero freezes every buffer, negative speed reverses the field clock', t => {
-  const { mesh, controller } = fixture(t, { morphSpeed: 0 }, sphere(), DENSE_TOPOLOGY);
-  controller.update(1);
-  const frozen = snapshot(mesh.geometry), frozenVersions = versions(mesh.geometry);
-  controller.update(100);
-  assert.deepEqual(snapshot(mesh.geometry), frozen);
-  assert.deepEqual(versions(mesh.geometry), frozenVersions);
-  controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphSpeed: -2 });
-  controller.update(.75);
-  const backwards = snapshot(mesh.geometry);
-  controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphSpeed: -1 });
-  controller.update(1.5);
-  assert.deepEqual(snapshot(mesh.geometry), backwards, 'equal signed times have identical geometry/color');
-  controller.setStyle(DEFAULT_MODEL_STYLE);
-  controller.update(1.5);
-  assert.notDeepEqual(mesh.geometry.attributes.position.array, backwards.position);
-});
-
-test('zero amplitude is a smooth unit sphere while palette animation remains live', t => {
-  const { mesh, controller } = fixture(t, { morphAmplitude: 0 });
-  controller.update(.5);
-  const first = snapshot(mesh.geometry), initialVersions = versions(mesh.geometry);
-  assert.equal(controller.radius, 1);
-  for (let i = 0; i < mesh.geometry.attributes.position.count; i++) {
-    const position = new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.position, i);
-    const normal = new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.normal, i);
-    assert.ok(Math.abs(position.length() - 1) < 1e-7);
-    assert.ok(position.distanceTo(normal) < 1e-7);
+test('owned geometry is the canonical unit sphere inside conservative whole-animation bounds', t => {
+  const { mesh, controller } = fixture(t, {}, sphere(), DENSE_TOPOLOGY);
+  const geometry = mesh.geometry, point = new THREE.Vector3(), normal = new THREE.Vector3();
+  assert.equal(geometry.attributes.color, undefined, 'colors come from the shader, not a CPU buffer');
+  for (let i = 0; i < geometry.attributes.position.count; i++) {
+    point.fromBufferAttribute(geometry.attributes.position, i);
+    normal.fromBufferAttribute(geometry.attributes.normal, i);
+    assert.ok(Math.abs(point.length() - 1) < 1e-7 && point.equals(normal), `unit direction ${i}`);
   }
-  controller.update(3);
-  assert.deepEqual(mesh.geometry.attributes.position.array, first.position);
-  assert.deepEqual(mesh.geometry.attributes.normal.array, first.normal);
-  assert.notDeepEqual(mesh.geometry.attributes.color.array, first.color);
-  assert.deepEqual(versions(mesh.geometry).slice(0, 2), initialVersions.slice(0, 2));
-});
-
-test('extreme controls retain finite outward normals and truthful bounds', t => {
-  const { mesh, controller } = fixture(t);
+  const directions = geometry.attributes.position.array;
   const extremes = [
     { morphAmplitude: 0, morphWarp: 0, morphFrequency: 1, morphFalloff: 1, morphDetail: 1, morphContrast: .2, morphSpeed: -4 },
     { morphAmplitude: .75, morphWarp: 1.5, morphFrequency: 10, morphFalloff: 1.6, morphDetail: 16, morphContrast: 2, morphSpeed: 4 },
     { morphAmplitude: .75, morphWarp: 1.5, morphFrequency: 1, morphFalloff: 1, morphDetail: 16, morphContrast: .2, morphSpeed: -4 }
   ];
   for (const settings of extremes) {
-    controller.setStyle({ ...DEFAULT_MODEL_STYLE, ...settings });
+    const style = { ...DEFAULT_MODEL_STYLE, ...settings };
+    controller.setStyle(style);
     assert.equal(controller.radius, 1 + settings.morphAmplitude);
+    assert.ok(Number.isFinite(geometry.boundingSphere.radius) && geometry.boundingSphere.radius >= controller.radius);
+    assert.ok(geometry.boundingSphere.radius < controller.radius + 1e-5, 'bounds stay tight to the analytic envelope');
+    assert.deepEqual(geometry.boundingSphere.center.toArray(), [0, 0, 0]);
     for (const time of [0, .25, 3.5]) {
       controller.update(time);
-      assertSurface(mesh.geometry, controller.radius);
+      const { positions } = morphOracle(directions, style, time * style.morphSpeed);
+      let reach = 0;
+      for (let i = 0; i < positions.length; i += 3) {
+        point.fromArray(positions, i);
+        reach = Math.max(reach, point.length());
+        assert.ok(geometry.boundingBox.containsPoint(point) && geometry.boundingSphere.containsPoint(point), `bounds contain displaced vertex ${i / 3}`);
+      }
+      if (settings.morphAmplitude) assert.ok(reach > 1 + settings.morphAmplitude * .9, 'the envelope is reached by the actual surface');
     }
   }
 });
 
-test('UV seam and every duplicate pole have matching positions, colors and normals', t => {
-  const { mesh, controller, source } = fixture(t);
-  controller.update(1.234);
+test('the CPU never rewrites vertex buffers: frames, styles and palettes only touch uniforms', t => {
+  const { mesh, controller } = fixture(t, {}, sphere(), DENSE_TOPOLOGY);
+  controller.update(.75);
+  const initial = snapshot(mesh.geometry), initialVersions = versions(mesh.geometry), positions = mesh.geometry.attributes.position.array;
+  const { uniforms } = controller.surfaceDisplacement;
+  controller.update(2);
+  controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphAmplitude: .7, morphWarp: 1.2, morphColor1: '#ff0000', base: 'tinted' });
+  controller.update(3);
+  assert.deepEqual(snapshot(mesh.geometry), initial);
+  assert.deepEqual(versions(mesh.geometry), initialVersions);
+  assert.equal(mesh.geometry.attributes.position.array, positions);
+  assert.equal(uniforms.flocMorphAmplitude.value, .7);
+  assert.equal(uniforms.flocMorphWarp.value, 1.2);
+});
+
+test('the shader field reproduces the double-precision surface and palette from its uniforms', t => {
+  const { controller } = fixture(t, {}, probesGeometry(probeDirections));
+  const settings = [
+    { morphSpeed: -1 },
+    { morphWarp: 0, morphContrast: 2, morphSpeed: 1, morphAmplitude: .75 },
+    { morphDetail: 1, morphContrast: .2, morphAmplitude: .75, base: 'tinted', morphColor1: '#ff0000', morphColor3: '#ffffff' },
+    { morphWarp: 1.5, morphFrequency: 1, morphFalloff: 1, morphDetail: 16, morphContrast: .2, morphSpeed: -4 },
+    { base: 'custom' }
+  ];
+  for (const patch of settings) {
+    const style = { ...DEFAULT_MODEL_STYLE, ...patch };
+    controller.setStyle(style);
+    for (const elapsed of [0, 2.75, 1000.125]) {
+      controller.update(elapsed);
+      assertMatchesOracle(controller, style, elapsed * style.morphSpeed, `${JSON.stringify(patch)} at ${elapsed}`);
+    }
+  }
+});
+
+test('seeks are exact, negative elapsed clamps and the clock is never wrapped', t => {
+  const { controller } = fixture(t);
+  const { uniforms } = controller.surfaceDisplacement;
+  controller.update(.375);
+  const first = uniformState(uniforms);
+  controller.update(2.25);
+  assert.notDeepEqual(uniformState(uniforms), first);
+  controller.update(.375);
+  assert.deepEqual(uniformState(uniforms), first, 'reverse seek recovers the exact shader state');
+  controller.update(0);
+  const zero = uniformState(uniforms);
+  controller.update(-100);
+  assert.deepEqual(uniformState(uniforms), zero, 'negative layer-local elapsed clamps to zero');
+  const day = 60 * 60 * 24 + .375;
+  controller.update(day);
+  assert.notDeepEqual(uniformState(uniforms), first, 'clock is not periodically wrapped');
+  assertMatchesOracle(controller, DEFAULT_MODEL_STYLE, day, 'one day later');
+  assert.throws(() => controller.update(Infinity), RangeError);
+});
+
+test('speed zero freezes the shader state, negative speed reverses the field clock', t => {
+  const { controller } = fixture(t, { morphSpeed: 0 });
+  const { uniforms } = controller.surfaceDisplacement;
+  controller.update(1);
+  const frozen = uniformState(uniforms), textures = [uniforms.flocMorphLattice.value, uniforms.flocMorphChromaLattice.value], textureVersions = textures.map(texture => texture.version);
+  controller.update(100);
+  assert.deepEqual(uniformState(uniforms), frozen);
+  assert.deepEqual(textures.map(texture => texture.version), textureVersions);
+  controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphSpeed: -2 });
+  controller.update(.75);
+  const backwards = uniformState(uniforms);
+  controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphSpeed: -1 });
+  controller.update(1.5);
+  assert.deepEqual(uniformState(uniforms), backwards, 'equal signed times have identical shader state');
+  assertMatchesOracle(controller, DEFAULT_MODEL_STYLE, -1.5, 'reversed clock');
+  controller.setStyle(DEFAULT_MODEL_STYLE);
+  controller.update(1.5);
+  assert.notDeepEqual(uniformState(uniforms), backwards);
+});
+
+test('each shape control changes the displaced surface and restoring it is exact', t => {
+  const { controller } = fixture(t, {}, probesGeometry(probeDirections));
+  const { uniforms } = controller.surfaceDisplacement;
+  const surface = () => probeDirections.map(direction => evaluate(uniforms, direction).position.toArray());
+  controller.update(.9);
+  const original = surface(), originalState = uniformState(uniforms);
+  const changedFields = { morphAmplitude: .65, morphWarp: 1.3, morphFrequency: 9, morphFalloff: 1.5, morphDetail: 3, morphContrast: 1.8 };
+  for (const [key, value] of Object.entries(changedFields)) {
+    const style = { ...DEFAULT_MODEL_STYLE, [key]: value };
+    controller.setStyle(style);
+    controller.update(.9);
+    assert.notDeepEqual(surface(), original, key);
+    assertMatchesOracle(controller, style, .9, key);
+    controller.setStyle(DEFAULT_MODEL_STYLE);
+    controller.update(.9);
+    assert.deepEqual(uniformState(uniforms), originalState, `restore ${key}`);
+  }
+});
+
+test('palette hex values become linear shader colors; Custom stops painting and Imported recovers it', t => {
+  const { controller } = fixture(t, {}, probesGeometry(probeDirections));
+  const { uniforms } = controller.surfaceDisplacement, palette = uniforms.flocMorphPalette.value;
+  const style = { ...DEFAULT_MODEL_STYLE, morphColor1: '#808080', morphColor2: '#ff8800', morphColor3: '#00ff44', morphColor4: '#ffffff' };
+  controller.setStyle(style);
+  controller.update(.4);
+  assert.equal(uniforms.flocMorphPalette.value, palette, 'palette colors are edited in place');
+  assert.ok(Math.abs(palette[0].r - new THREE.Color('#808080').r) < 1e-12 && palette[0].r < .25, 'sRGB hex converts to linear');
+  assert.equal(uniforms.flocMorphPainted.value, true);
+  assertMatchesOracle(controller, style, .4, 'palette');
+  const chroma = uniforms.flocMorphChromaLattice.value, chromaVersion = chroma.version, chromaDrift = uniforms.flocMorphChromaDrift.value;
+  controller.setStyle({ ...style, base: 'custom' });
+  controller.update(25);
+  assert.equal(uniforms.flocMorphPainted.value, false, 'Custom keeps vertex colors untouched');
+  assert.equal(chroma.version, chromaVersion, 'Custom skips the color lattice');
+  assert.equal(uniforms.flocMorphChromaDrift.value, chromaDrift);
+  controller.setStyle(style);
+  controller.update(25);
+  assert.equal(uniforms.flocMorphPainted.value, true);
+  assertMatchesOracle(controller, style, 25, 'returning to Imported paints the current palette');
+});
+
+test('UV seam and every duplicate pole share bit-identical shader inputs', t => {
+  const { mesh, source } = fixture(t);
   assert.deepEqual(mesh.geometry.attributes.uv.array, source.attributes.uv.array);
   const width = 24, height = 16;
   const equalVertex = (a, b) => {
-    for (const key of ['position', 'normal', 'color']) {
+    for (const key of ['position', 'normal']) {
       const values = mesh.geometry.attributes[key].array;
       assert.deepEqual(values.slice(a * 3, a * 3 + 3), values.slice(b * 3, b * 3 + 3), `${key}: ${a}/${b}`);
     }
@@ -135,14 +256,13 @@ test('UV seam and every duplicate pole have matching positions, colors and norma
 });
 
 test('requested runtime sphere preserves generated UVs, closed fine triangles and smooth seams/poles', t => {
-  const source = sphere(), original = snapshot(source);
+  const source = sphere(), original = Object.fromEntries(['position', 'normal', 'color'].map(key => [key, source.attributes[key].array.slice()]));
   const sourceUV = source.attributes.uv.array.slice(), sourceIndex = source.index.array.slice();
-  const { mesh, controller } = fixture(t, { morphWarp: 0 }, source, DENSE_TOPOLOGY);
-  controller.update(1.234);
+  const { mesh } = fixture(t, { morphWarp: 0 }, source, DENSE_TOPOLOGY);
   const geometry = mesh.geometry, uv = geometry.attributes.uv, p = geometry.attributes.position;
   const seams = new Map(), poles = [[], []], point = new THREE.Vector3(), expected = new THREE.Vector3();
   const equalVertex = (a, b) => {
-    for (const key of ['position', 'normal', 'color']) {
+    for (const key of ['position', 'normal']) {
       const values = geometry.attributes[key].array;
       assert.deepEqual(values.slice(a * 3, a * 3 + 3), values.slice(b * 3, b * 3 + 3), `${key}: ${a}/${b}`);
     }
@@ -174,39 +294,34 @@ test('requested runtime sphere preserves generated UVs, closed fine triangles an
   }
   assert.ok(longestEdge > .03 && longestEdge < .041, 'actual triangles resolve the requested fine angular surface');
   assert.ok(Math.abs(solidAngle - 4 * Math.PI) < 1e-8, 'indexed triangles cover the complete sphere without openings');
-  assertSurface(geometry, controller.radius);
-  assert.deepEqual(snapshot(source), original, 'runtime density never mutates the published source');
+  for (const [key, values] of Object.entries(original)) assert.deepEqual(source.attributes[key].array, values, 'runtime density never mutates the published source');
   assert.deepEqual(source.attributes.uv.array, sourceUV);
   assert.deepEqual(source.index.array, sourceIndex);
 });
 
-test('analytic normals follow dense independent finite-difference surface tangents', t => {
+test('analytic surface normals follow dense independent finite-difference tangents', () => {
   const epsilon = 1e-4, probes = [];
   for (let row = 1; row < 10; row++) {
     for (let column = 0; column < 16; column++) {
       const direction = new THREE.Vector3().setFromSphericalCoords(1, row * Math.PI / 10, column * Math.PI / 8);
       const tangent = new THREE.Vector3().crossVectors(direction, new THREE.Vector3(0, 1, 0)).normalize();
       const bitangent = new THREE.Vector3().crossVectors(direction, tangent).normalize();
-      probes.push(direction, direction.clone().addScaledVector(tangent, epsilon), direction.clone().addScaledVector(tangent, -epsilon),
-        direction.clone().addScaledVector(bitangent, epsilon), direction.clone().addScaledVector(bitangent, -epsilon));
+      for (const point of [direction, direction.clone().addScaledVector(tangent, epsilon), direction.clone().addScaledVector(tangent, -epsilon),
+        direction.clone().addScaledVector(bitangent, epsilon), direction.clone().addScaledVector(bitangent, -epsilon)]) probes.push(...point.toArray());
     }
   }
-  const { mesh, controller } = fixture(t, {}, probesGeometry(probes));
   for (const settings of [{}, { morphWarp: 0 }, { morphWarp: 1.3, morphFalloff: 1.2, morphDetail: 8 }]) {
-    controller.setStyle({ ...DEFAULT_MODEL_STYLE, ...settings });
-    controller.update(.625);
-    const p = mesh.geometry.attributes.position;
-    for (let i = 0; i < probes.length; i += 5) {
-      const du = new THREE.Vector3().fromBufferAttribute(p, i + 1).sub(new THREE.Vector3().fromBufferAttribute(p, i + 2));
-      const dv = new THREE.Vector3().fromBufferAttribute(p, i + 3).sub(new THREE.Vector3().fromBufferAttribute(p, i + 4));
+    const { positions, normals } = morphOracle(probes, { ...DEFAULT_MODEL_STYLE, ...settings }, .625);
+    for (let i = 0; i < probes.length / 3; i += 5) {
+      const du = new THREE.Vector3().fromArray(positions, (i + 1) * 3).sub(new THREE.Vector3().fromArray(positions, (i + 2) * 3));
+      const dv = new THREE.Vector3().fromArray(positions, (i + 3) * 3).sub(new THREE.Vector3().fromArray(positions, (i + 4) * 3));
       const finiteDifference = new THREE.Vector3().crossVectors(du, dv).normalize();
-      const actual = new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.normal, i);
-      assert.ok(actual.dot(finiteDifference) > .999, `normal follows deformed tangents at probe ${i / 5}`);
+      assert.ok(new THREE.Vector3().fromArray(normals, i * 3).dot(finiteDifference) > .999, `normal follows deformed tangents at probe ${i / 5}`);
     }
   }
 });
 
-test('surface gradients and curvature stay continuous through all noise lattice axes', t => {
+test('surface gradients and curvature stay continuous through all noise lattice axes', () => {
   const probes = [], centers = [], h = .006;
   // With warp zero and speed one, the noise lattice coordinate is 1.24*d + .3*t.
   // At t=2.3, a direction component of .25 therefore lies on lattice plane 1.
@@ -218,16 +333,14 @@ test('surface gradients and curvature stay continuous through all noise lattice 
       direction.setComponent((axis + 1) % 3, Math.sqrt(1 - .25 ** 2) * Math.cos(angle));
       direction.setComponent((axis + 2) % 3, Math.sqrt(1 - .25 ** 2) * Math.sin(angle));
       const tangent = new THREE.Vector3().setComponent(axis, 1).addScaledVector(direction, -.25).normalize();
-      centers.push({ start: probes.length, axis });
-      for (let step = -3; step <= 3; step++) probes.push(direction.clone().addScaledVector(tangent, h * step).normalize());
+      centers.push({ start: probes.length / 3, axis });
+      for (let step = -3; step <= 3; step++) probes.push(...direction.clone().addScaledVector(tangent, h * step).normalize().toArray());
     }
   }
-  const { mesh, controller } = fixture(t, { morphWarp: 0, morphSpeed: 1, morphContrast: 1, morphAmplitude: .75, base: 'custom' }, probesGeometry(probes));
-  controller.update(2.3);
-  const p = mesh.geometry.attributes.position, point = new THREE.Vector3();
-  const activeProbes = [0, 0, 0];
+  const { positions, normals } = morphOracle(probes, { ...DEFAULT_MODEL_STYLE, morphWarp: 0, morphContrast: 1, morphAmplitude: .75 }, 2.3);
+  const point = new THREE.Vector3(), activeProbes = [0, 0, 0];
   for (const { start, axis } of centers) {
-    const radii = Array.from({ length: 7 }, (_, i) => point.fromBufferAttribute(p, start + i).length());
+    const radii = Array.from({ length: 7 }, (_, i) => point.fromArray(positions, (start + i) * 3).length());
     const height = (radii[3] - 1) / .75;
     // Stay away from the separate height smoothstep's flat/clamped endpoints.
     if (height < .15 || height > .85) continue;
@@ -239,71 +352,17 @@ test('surface gradients and curvature stay continuous through all noise lattice 
     const leftCurvature = (2 * center - 5 * m1 + 4 * m2 - m3) / (h * h);
     const rightCurvature = (2 * center - 5 * p1 + 4 * p2 - p3) / (h * h);
     assert.ok(Math.abs(leftCurvature - rightCurvature) < .25, `continuous curvature at probe ${start}`);
-    const leftNormal = new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.normal, start + 2);
-    const rightNormal = new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.normal, start + 4);
-    const centerNormal = new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.normal, start + 3);
+    const leftNormal = new THREE.Vector3().fromArray(normals, (start + 2) * 3);
+    const rightNormal = new THREE.Vector3().fromArray(normals, (start + 4) * 3);
+    const centerNormal = new THREE.Vector3().fromArray(normals, (start + 3) * 3);
     assert.ok(centerNormal.dot(leftNormal.add(rightNormal).normalize()) > .99999, `no reflection crease at probe ${start}`);
   }
   for (const [axis, count] of activeProbes.entries()) assert.ok(count >= 3, `non-flat lattice probes exercise axis ${axis}`);
 });
 
-test('palette and material edits never regenerate or alter the geometry', t => {
-  const { mesh, controller } = fixture(t);
-  controller.update(1.2);
-  const first = snapshot(mesh.geometry), firstVersions = versions(mesh.geometry);
-  const palette = { ...DEFAULT_MODEL_STYLE, morphColor1: '#ff0000', morphColor2: '#00ff00', morphColor3: '#ffffff', morphColor4: '#ff8800' };
-  controller.setStyle(palette);
-  controller.update(1.2);
-  assert.deepEqual(mesh.geometry.attributes.position.array, first.position);
-  assert.deepEqual(mesh.geometry.attributes.normal.array, first.normal);
-  assert.deepEqual(versions(mesh.geometry).slice(0, 2), firstVersions.slice(0, 2));
-  assert.notDeepEqual(mesh.geometry.attributes.color.array, first.color);
-  const changedPalette = snapshot(mesh.geometry), paletteVersions = versions(mesh.geometry);
-  controller.setStyle({ ...palette, base: 'tinted', color: '#ff00ff', roughness: .9, metalness: 1, look: 'toon', environment: 'neon', motion: 'spin' });
-  controller.update(1.2);
-  assert.deepEqual(snapshot(mesh.geometry), changedPalette);
-  assert.deepEqual(versions(mesh.geometry), paletteVersions);
-});
-
-test('Custom skips color work and returning to Imported recovers the current palette', t => {
-  const { mesh, controller } = fixture(t);
-  const reference = fixture(t);
-  controller.update(.1);
-  const initialColorVersion = mesh.geometry.attributes.color.version;
-  const style = { ...DEFAULT_MODEL_STYLE, morphColor1: '#ff8800', morphColor3: '#00ff44' };
-  controller.setStyle({ ...style, base: 'custom' });
-  controller.update(2.5);
-  assert.equal(mesh.geometry.attributes.color.version, initialColorVersion);
-  const geometryVersions = versions(mesh.geometry).slice(0, 2);
-  controller.setStyle(style);
-  controller.update(2.5);
-  reference.controller.setStyle(style);
-  reference.controller.update(2.5);
-  assert.deepEqual(snapshot(mesh.geometry), snapshot(reference.mesh.geometry));
-  assert.deepEqual(versions(mesh.geometry).slice(0, 2), geometryVersions);
-});
-
-test('duplicate frames and equivalent styles do not touch buffers or upload versions', t => {
-  const { mesh, controller } = fixture(t, {}, sphere(), DENSE_TOPOLOGY);
-  controller.update(.75);
-  const initial = snapshot(mesh.geometry), initialVersions = versions(mesh.geometry);
-  const positions = mesh.geometry.attributes.position.array;
-  const normals = mesh.geometry.attributes.normal.array;
-  const colors = mesh.geometry.attributes.color.array;
-  for (let i = 0; i < 4; i++) {
-    controller.setStyle({ ...DEFAULT_MODEL_STYLE });
-    controller.update(.75);
-  }
-  assert.deepEqual(snapshot(mesh.geometry), initial);
-  assert.deepEqual(versions(mesh.geometry), initialVersions);
-  controller.update(2);
-  assert.equal(mesh.geometry.attributes.position.array, positions);
-  assert.equal(mesh.geometry.attributes.normal.array, normals);
-  assert.equal(mesh.geometry.attributes.color.array, colors);
-});
-
 test('layers sharing a decoded source own isolated geometry and dispose safely', t => {
-  const source = sphere(), original = snapshot(source), sourceVersions = versions(source);
+  const source = sphere(), original = Object.fromEntries(['position', 'normal', 'color'].map(key => [key, source.attributes[key].array.slice()]));
+  const sourceVersions = ['position', 'normal', 'color'].map(key => source.attributes[key].version);
   const first = fixture(t, {}, source, DENSE_TOPOLOGY), second = fixture(t, {}, source, DENSE_TOPOLOGY);
   let sourceDisposals = 0, materialDisposals = 0, ownedDisposals = 0;
   source.addEventListener('dispose', () => sourceDisposals++);
@@ -312,14 +371,17 @@ test('layers sharing a decoded source own isolated geometry and dispose safely',
   owned.addEventListener('dispose', () => ownedDisposals++);
   assert.notEqual(first.mesh.geometry, source);
   assert.notEqual(first.mesh.geometry, second.mesh.geometry);
+  assert.notEqual(first.controller.surfaceDisplacement.uniforms, second.controller.surfaceDisplacement.uniforms, 'shader state belongs to each controller');
   first.controller.update(.5);
   second.controller.update(2);
-  const secondBefore = snapshot(second.mesh.geometry);
+  const secondState = uniformState(second.controller.surfaceDisplacement.uniforms), secondRadius = second.mesh.geometry.boundingSphere.radius;
   first.controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphAmplitude: .7 });
   first.controller.update(3);
-  assert.deepEqual(snapshot(second.mesh.geometry), secondBefore);
-  assert.deepEqual(snapshot(source), original);
-  assert.deepEqual(versions(source), sourceVersions);
+  assert.ok(first.mesh.geometry.boundingSphere.radius > secondRadius);
+  assert.equal(second.mesh.geometry.boundingSphere.radius, secondRadius);
+  assert.deepEqual(uniformState(second.controller.surfaceDisplacement.uniforms), secondState);
+  for (const [key, values] of Object.entries(original)) assert.deepEqual(source.attributes[key].array, values);
+  assert.deepEqual(['position', 'normal', 'color'].map(key => source.attributes[key].version), sourceVersions);
   assert.equal(source.boundingBox, null);
   first.controller.dispose();
   first.controller.dispose();
@@ -328,8 +390,7 @@ test('layers sharing a decoded source own isolated geometry and dispose safely',
   assert.equal(materialDisposals, 0);
   assert.equal(ownedDisposals, 1);
   second.controller.update(4);
-  assert.notDeepEqual(snapshot(second.mesh.geometry), secondBefore);
-  assert.deepEqual(snapshot(source), original);
+  assert.notDeepEqual(uniformState(second.controller.surfaceDisplacement.uniforms), secondState);
   first.controller.update(5);
   assert.equal(ownedDisposals, 1);
 });
@@ -354,117 +415,28 @@ test('repeated meshes within one model share one owned geometry without disposin
   assert.equal(replacementDisposed, 0);
 });
 
-test('picking intersects the deformed shell instead of the immutable base sphere', t => {
+test('CPU raycasts hit the undisplaced input sphere inside the conservative bounds', t => {
   const { mesh, controller } = fixture(t, { morphAmplitude: .75 }, sphere(), DENSE_TOPOLOGY);
   controller.update(.8);
   mesh.updateMatrixWorld(true);
-  const positions = mesh.geometry.attributes.position, index = mesh.geometry.index;
-  const center = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), target = new THREE.Vector3();
-  let furthest = 0;
-  for (let i = 0; i < index.count; i += 3) {
-    a.fromBufferAttribute(positions, index.getX(i));
-    b.fromBufferAttribute(positions, index.getX(i + 1));
-    c.fromBufferAttribute(positions, index.getX(i + 2));
-    center.copy(a).add(b).add(c).multiplyScalar(1 / 3);
-    if (center.lengthSq() > furthest) { furthest = center.lengthSq(); target.copy(center); }
-  }
-  const direction = target.clone().normalize();
-  const ray = new THREE.Raycaster(direction.clone().multiplyScalar(4), direction.clone().negate());
-  const hit = ray.intersectObject(mesh)[0];
+  const direction = new THREE.Vector3(.3, .5, -.8).normalize();
+  const hit = new THREE.Raycaster(direction.clone().multiplyScalar(4), direction.clone().negate()).intersectObject(mesh)[0];
   assert.ok(hit, 'real indexed geometry is raycastable');
-  assert.ok(hit.point.length() > 1.01, 'hit is outside the original unit sphere');
-  controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphAmplitude: 0 });
-  controller.update(.8);
-  const smoothHit = ray.intersectObject(mesh)[0];
-  assert.ok(smoothHit.point.length() <= 1 + 1e-6);
-  assert.ok(smoothHit.point.length() > .97);
+  assert.ok(hit.point.length() <= 1 + 1e-6 && hit.point.length() > .99);
+  assert.ok(mesh.geometry.boundingSphere.radius >= 1.75, 'the GPU shell lies inside the CPU bounds');
 });
 
-test('palette hex values are converted from sRGB to linear vertex colors', t => {
-  const white = fixture(t, { morphColor1: '#ffffff', morphColor2: '#ffffff', morphColor3: '#ffffff', morphColor4: '#ffffff' });
-  const gray = fixture(t, { morphColor1: '#808080', morphColor2: '#808080', morphColor3: '#808080', morphColor4: '#808080' });
-  white.controller.update(.4);
-  gray.controller.update(.4);
-  const expected = new THREE.Color('#808080').r;
-  const whiteColors = white.mesh.geometry.attributes.color.array, grayColors = gray.mesh.geometry.attributes.color.array;
-  for (let i = 0; i < grayColors.length; i++) assert.ok(Math.abs(grayColors[i] / whiteColors[i] - expected) < 1e-7);
+test('shader descriptors share one stable uniform set and their GLSL entry points', t => {
+  const { controller } = fixture(t);
+  const displacement = controller.surfaceDisplacement, normals = controller.surfaceNormals;
+  assert.equal(controller.surfaceDisplacement, displacement, 'descriptor is stable');
+  assert.equal(normals.uniforms, displacement.uniforms, 'vertex and fragment passes read the same field state');
+  assert.match(displacement.pars, /vec3 flocDisplace\(vec3 position, inout vec3 normal, inout vec3 color\)/);
+  assert.match(normals.pars, /vec3 flocSurfaceNormal\(vec3 localPosition\)/);
+  assert.equal(typeof displacement.key, 'string');
 });
 
-test('each shape field invalidates the surface while amplitude-only edits reuse the palette', t => {
-  const { mesh, controller } = fixture(t);
-  controller.update(.9);
-  const original = snapshot(mesh.geometry);
-  const changedFields = { morphAmplitude: .65, morphWarp: 1.3, morphFrequency: 9, morphFalloff: 1.5, morphDetail: 3, morphContrast: 1.8 };
-  for (const [key, value] of Object.entries(changedFields)) {
-    controller.setStyle({ ...DEFAULT_MODEL_STYLE, [key]: value });
-    controller.update(.9);
-    assert.notDeepEqual(mesh.geometry.attributes.position.array, original.position, key);
-    assertSurface(mesh.geometry, controller.radius);
-    controller.setStyle(DEFAULT_MODEL_STYLE);
-    controller.update(.9);
-    assert.deepEqual(snapshot(mesh.geometry), original, `restore ${key}`);
-  }
-  const colorVersion = mesh.geometry.attributes.color.version;
-  controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphAmplitude: .7 });
-  controller.update(.9);
-  assert.deepEqual(mesh.geometry.attributes.color.array, original.color);
-  assert.equal(mesh.geometry.attributes.color.version, colorVersion);
-});
-
-test('fragment-normal lattice stores CPU hash cells and encloses the actual signed-time field', t => {
-  const directions = Array.from({ length: 48 }, (_, i) => new THREE.Vector3().setFromSphericalCoords(1, (i % 7 + 1) * Math.PI / 8, i * 2.399963229728653));
-  directions.push(new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1));
-  const { mesh, controller } = fixture(t, {}, probesGeometry(directions));
-  const settings = [
-    { ...DEFAULT_MODEL_STYLE, morphSpeed: -1 },
-    { ...DEFAULT_MODEL_STYLE, morphWarp: 0, morphContrast: 2, morphSpeed: 1 },
-    { ...DEFAULT_MODEL_STYLE, morphWarp: 1.5, morphFrequency: 1, morphFalloff: 1, morphDetail: 16, morphContrast: .2, morphSpeed: -4 }
-  ];
-  for (const style of settings) {
-    controller.setStyle(style);
-    controller.update(2.75);
-    const { uniforms } = controller.surfaceNormals;
-    const texture = uniforms.flocMorphLattice.value, image = texture.image, origin = uniforms.flocMorphOrigin.value;
-    const hash = (x, y, z) => {
-      const value = Math.sin(x * 12.9898 + y * 78.283 + z * 37.919) * 43758.7053;
-      return Math.fround(value - Math.floor(value));
-    };
-    const cell = (x, y, z) => {
-      const ix = x - origin.x, iy = y - origin.y, iz = z - origin.z;
-      assert.ok(ix >= 0 && ix < image.width && iy >= 0 && iy < image.height && iz >= 0 && iz < image.depth, 'all eight field corners lie within the texture');
-      const value = image.data[ix + image.width * (iy + image.height * iz)];
-      assert.equal(value, hash(x, y, z), 'lattice uses the mesh CPU hash, not GLSL sin hashing');
-      return value;
-    };
-    const signedTime = 2.75 * style.morphSpeed;
-    for (let i = 0; i < directions.length; i++) {
-      const p = directions[i].clone().multiplyScalar(.4);
-      let frequency = style.morphFrequency, power = style.morphFalloff ** frequency;
-      for (let iteration = 0; iteration < style.morphDetail; iteration++) {
-        const displacement = new THREE.Vector3(
-          Math.sin(p.y * power - signedTime * .4 + frequency * .18),
-          Math.sin(p.z * power - signedTime * .4 + frequency * .21),
-          Math.sin(p.x * power - signedTime * .4 + frequency * .24));
-        p.addScaledVector(displacement, style.morphWarp / power);
-        frequency++; power *= style.morphFalloff;
-      }
-      p.multiplyScalar(3.1).addScalar(signedTime * .3);
-      const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z);
-      const fade = value => value ** 3 * (value * (value * 6 - 15) + 10);
-      const u = fade(p.x - x), v = fade(p.y - y), w = fade(p.z - z);
-      let noise = 0;
-      for (let dz = 0; dz <= 1; dz++) for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) {
-        noise += cell(x + dx, y + dy, z + dz) * (dx ? u : 1 - u) * (dy ? v : 1 - v) * (dz ? w : 1 - w);
-      }
-      const t = Math.max(0, Math.min(1, (noise ** style.morphContrast - .2) / .6));
-      const radius = 1 + style.morphAmplitude * t * t * (3 - 2 * t);
-      const actual = new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.position, i).length();
-      assert.ok(Math.abs(actual - radius) < 3e-7, 'texture field reproduces the actual mesh radius');
-    }
-  }
-});
-
-test('fragment-normal resources reuse cells between drift crossings and dispose per controller', t => {
+test('lattices reuse cells between drift crossings, refresh exactly and dispose per controller', t => {
   const first = fixture(t), second = fixture(t);
   first.controller.update(.25);
   const descriptor = first.controller.surfaceNormals;
@@ -472,6 +444,11 @@ test('fragment-normal resources reuse cells between drift crossings and dispose 
   const buffer = texture.image.data, initial = buffer.slice(), version = texture.version;
   assert.equal(first.controller.surfaceNormals, descriptor, 'descriptor is stable');
   assert.notEqual(second.controller.surfaceNormals.uniforms.flocMorphLattice.value, texture, 'textures belong to the controller');
+  const origin = Math.round(.25 * .3 - uniforms.flocMorphDrift.value);
+  for (let i = 0; i < 64; i++) {
+    const x = i % texture.image.width, y = (i * 7) % texture.image.height, z = (i * 13) % texture.image.depth;
+    assert.equal(buffer[x + texture.image.width * (y + texture.image.height * z)], Math.fround(morphHash(origin + x, origin + y, origin + z)), 'lattice stores the double-precision CPU hash');
+  }
   first.controller.update(.75);
   assert.equal(texture.version, version, 'fractional clock changes do not refill cells');
   first.controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphAmplitude: .7, morphContrast: 1.5 });
@@ -484,16 +461,18 @@ test('fragment-normal resources reuse cells between drift crossings and dispose 
   assert.notDeepEqual(buffer, initial);
   first.controller.update(.25);
   assert.deepEqual(buffer, initial, 'reverse seek recovers the exact CPU cells');
-  let oldDisposals = 0, newDisposals = 0;
-  texture.addEventListener('dispose', () => oldDisposals++);
+  const textures = [texture, uniforms.flocMorphChromaLattice.value], disposals = [0, 0, 0, 0];
+  textures.forEach((value, i) => value.addEventListener('dispose', () => disposals[i]++));
   first.controller.setStyle({ ...DEFAULT_MODEL_STYLE, morphWarp: 0 });
-  const replacement = uniforms.flocMorphLattice.value;
-  replacement.addEventListener('dispose', () => newDisposals++);
-  assert.notEqual(replacement, texture, 'field extent changes resize the owned texture');
-  assert.equal(oldDisposals, 1);
+  const replacements = [uniforms.flocMorphLattice.value, uniforms.flocMorphChromaLattice.value];
+  replacements.forEach((value, i) => value.addEventListener('dispose', () => disposals[i + 2]++));
+  assert.notEqual(replacements[0], textures[0], 'field extent changes resize the owned texture');
+  assert.notEqual(replacements[1], textures[1], 'the color lattice follows the same extent');
+  assert.deepEqual(disposals, [1, 1, 0, 0]);
   first.controller.dispose();
   first.controller.dispose();
-  assert.equal(newDisposals, 1);
+  assert.deepEqual(disposals, [1, 1, 1, 1]);
   assert.equal(first.controller.surfaceNormals, null, 'disposed getter cannot allocate a new texture');
+  assert.equal(first.controller.surfaceDisplacement, null);
   assert.ok(second.controller.surfaceNormals.uniforms.flocMorphLattice.value.image.data.length > 0);
 });

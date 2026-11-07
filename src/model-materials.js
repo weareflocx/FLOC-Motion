@@ -5,7 +5,7 @@ import { HOLOGRAPHIC_PARS, HOLOGRAPHIC_GLASS } from './model-holographic.js';
 import { PROCEDURAL_VERTEX_PARS, PROCEDURAL_VERTEX } from './model-procedural.js';
 import { QUANTUM_PARS, QUANTUM_GLASS } from './model-quantum.js';
 import { LIQUID_PARS, LIQUID_GLASS } from './model-liquid-material.js';
-import { bindSurfaceNormals } from './model-surface-normals.js';
+import { bindSurfaceDisplacement, bindSurfaceNormals } from './model-surface-normals.js';
 
 // Imported textures/geometry remain cache-owned. Only these per-instance materials
 // and the generated toon ramp belong to this controller.
@@ -124,7 +124,7 @@ function glass(material, kind, procedural) {
   }
   return uniforms;
 }
-export function createModelMaterials(model, { spatial = false, bounds, surfaceNormals, originalSurface } = {}) {
+export function createModelMaterials(model, { spatial = false, bounds, surfaceNormals, surfaceDisplacement, originalSurface } = {}) {
   const bindings = [], variants = new Map(), owned = new Set(), tint = new THREE.Color();
   // Brushing and a varying film need a UV frame; materials on meshes without UVs skip them.
   const withoutUv = new Set();
@@ -214,6 +214,7 @@ export function createModelMaterials(model, { spatial = false, bounds, surfaceNo
       refraction.attach(material, style.refractionSamples);
     }
     value = { source, material, originalVolume: kind === 'original-volume', refractive: kind === 'refractive', liquid: kind === 'liquid', procedural: kind === 'holographic' || kind === 'quantum', rim: kind === 'edge-glow' ? fresnel(material) : null, glass: ['see-through', 'environment', 'holographic', 'quantum', 'liquid'].includes(kind) ? glass(material, kind, kind === 'holographic' ? holographicUniforms() : kind === 'quantum' ? quantumUniforms() : undefined) : null };
+    if (mesh) bindSurfaceDisplacement(material, surfaceDisplacement);
     bindSurfaceNormals(material, surfaceNormals);
     bindScenePass(material, scenePass, { spatial, authoredOpaque: !['see-through', 'refractive'].includes(kind) && !material.transparent, lateAlpha: ['see-through', 'refractive'].includes(kind) || material.transmission > 0 });
     table.set(source, value); owned.add(material);

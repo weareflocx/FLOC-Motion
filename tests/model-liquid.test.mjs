@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
 import { createLiquidGeometry, createLiquidRibbons } from '../src/model-liquid.js';
 import { DEFAULT_MODEL_STYLE } from '../src/model-style.js';
+import { liquidCell, liquidPhase, liquidRadius, liquidRotation, projectLiquid } from './fixtures/liquid-oracle.mjs';
 
 const settings = overrides => ({ ...DEFAULT_MODEL_STYLE, liquidDetail: 32, ...overrides });
 function fixture(t, overrides = {}, source = new THREE.BoxGeometry()) {
@@ -13,44 +14,58 @@ function fixture(t, overrides = {}, source = new THREE.BoxGeometry()) {
   t.after(() => { controller.dispose(); source.dispose(); material.dispose(); });
   return { mesh, controller, source, material };
 }
-// Draw-order vertices of the active range: refined output is indexed, published
-// coarse output is not; both read as consecutive triangle corners here.
-function drawn(geometry) {
-  if (!geometry.index) return geometry;
-  const count = geometry.drawRange.count, index = geometry.index.array, result = new THREE.BufferGeometry();
-  for (const name of ['position', 'normal']) {
-    const source = geometry.attributes[name].array, array = new Float32Array(count * 3);
+const vertexCount = geometry => geometry.index.array.subarray(0, geometry.drawRange.count).reduce((count, index) => Math.max(count, index + 1), 0);
+// The runtime mesh holds unprojected samples; its vertex shader projects them.
+// Draw-order corners of that projection, evaluated by the float64 oracle that
+// model-liquid-gpu-pixels.test.mjs holds the GPU to.
+function projected(geometry, style, elapsed) {
+  const count = geometry.drawRange.count, index = geometry.index.array;
+  const { positions, normals } = projectLiquid(geometry.attributes.position.array, vertexCount(geometry), style, elapsed);
+  const result = new THREE.BufferGeometry();
+  for (const [name, source] of [['position', positions], ['normal', normals]]) {
+    const array = new Float64Array(count * 3);
     for (let i = 0; i < count; i++) array.set(source.subarray(index[i] * 3, index[i] * 3 + 3), i * 3);
     result.setAttribute(name, new THREE.BufferAttribute(array, 3));
   }
   result.setDrawRange(0, count);
-  result.boundingBox = geometry.boundingBox; result.boundingSphere = geometry.boundingSphere;
   return result;
 }
-function snapshot(geometry) {
-  const { attributes, drawRange } = drawn(geometry), end = drawRange.count * 3;
-  return {
-    position: attributes.position.array.slice(0, end),
-    normal: attributes.normal.array.slice(0, end)
-  };
+// Everything the GPU projection reads: draw-order samples plus every uniform.
+function state(mesh, controller) {
+  const geometry = mesh.geometry, count = geometry.drawRange.count, index = geometry.index.array, source = geometry.attributes.position.array;
+  const position = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) position.set(source.subarray(index[i] * 3, index[i] * 3 + 3), i * 3);
+  const uniforms = Object.entries(controller.surfaceDisplacement.uniforms).map(([name, { value }]) => [name, value.toArray()]);
+  return { position, uniforms };
 }
-const versions = geometry => ['position', 'normal'].map(key => geometry.attributes[key].version);
-function assertSurface(source, radius) {
-  const geometry = drawn(source);
+const versions = geometry => [...Object.values(geometry.attributes).map(attribute => attribute.version), geometry.index?.version];
+// CPU bounds must contain every projected vertex; they are the active samples
+// widened by the trust radius, never the inactive buffer capacity.
+function assertSurface(mesh, style, elapsed, radius) {
+  const geometry = mesh.geometry, surface = projected(geometry, style, elapsed);
   assert.ok(Number.isFinite(geometry.boundingSphere.radius));
-  const point = new THREE.Vector3(), normal = new THREE.Vector3();
-  const activeBounds = new THREE.Box3();
-  for (let i = 0; i < geometry.drawRange.count; i++) {
+  const point = new THREE.Vector3(), normal = new THREE.Vector3(), samples = new THREE.Box3();
+  let sampleRadius = 0;
+  for (let i = 0, count = vertexCount(geometry); i < count; i++) {
     point.fromBufferAttribute(geometry.attributes.position, i);
-    normal.fromBufferAttribute(geometry.attributes.normal, i);
-    activeBounds.expandByPoint(point);
+    samples.expandByPoint(point); sampleRadius = Math.max(sampleRadius, point.length());
+  }
+  for (let i = 0; i < surface.drawRange.count; i++) {
+    point.fromBufferAttribute(surface.attributes.position, i);
+    normal.fromBufferAttribute(surface.attributes.normal, i);
     assert.ok(Number.isFinite(point.length()) && Number.isFinite(normal.length()), `finite vertex ${i}`);
     assert.ok(Math.abs(normal.length() - 1) < 2e-6, `unit normal ${i}`);
-    assert.ok(geometry.boundingBox.containsPoint(point), `active bounds contain vertex ${i}`);
-    assert.ok(geometry.boundingSphere.containsPoint(point), `sphere contains vertex ${i}`);
+    assert.ok(geometry.boundingBox.containsPoint(point), `bounds contain projected vertex ${i}`);
+    assert.ok(geometry.boundingSphere.containsPoint(point), `sphere contains projected vertex ${i}`);
     assert.ok(point.length() <= radius + 2e-6, `conservative envelope contains vertex ${i}`);
   }
-  if (geometry.drawRange.count > 0) assert.ok(geometry.boundingBox.equals(activeBounds), 'bounds exclude inactive buffer capacity and stale vertices');
+  if (surface.drawRange.count === 0) return;
+  const margin = liquidCell(style) * .35 + liquidRadius(style) / (1 - 4 / style.liquidDetail) * 1e-5;
+  for (const axis of ['x', 'y', 'z']) {
+    assert.ok(Math.abs(geometry.boundingBox.min[axis] - (samples.min[axis] - margin)) < 1e-9, `active ${axis} minimum`);
+    assert.ok(Math.abs(geometry.boundingBox.max[axis] - (samples.max[axis] + margin)) < 1e-9, `active ${axis} maximum`);
+  }
+  assert.ok(Math.abs(geometry.boundingSphere.radius - (sampleRadius + margin)) < 1e-9, 'sphere follows the active samples');
 }
 
 // Independent zero-warp oracle: both octaves still rotate q even at warp=0.
@@ -145,57 +160,91 @@ test('published coarse geometry preserves dense reference interpolation and grid
 test('loop endpoints, repeat seeks, reverse playback and paused clocks are deterministic', t => {
   const { mesh, controller } = fixture(t, { liquidDuration: 8 });
   controller.update(0);
-  const first = snapshot(mesh.geometry);
+  const first = state(mesh, controller);
   controller.update(8);
-  assert.deepEqual(snapshot(mesh.geometry), first);
+  assert.deepEqual(state(mesh, controller), first);
   controller.update(2);
-  const quarter = snapshot(mesh.geometry);
+  const quarter = state(mesh, controller);
   assert.notDeepEqual(quarter.position, first.position);
+  assert.notDeepEqual(quarter.uniforms, first.uniforms);
   controller.update(5);
   controller.update(2);
-  assert.deepEqual(snapshot(mesh.geometry), quarter);
+  assert.deepEqual(state(mesh, controller), quarter);
   controller.update(-100);
-  assert.deepEqual(snapshot(mesh.geometry), first, 'negative elapsed clamps before signed speed');
+  assert.deepEqual(state(mesh, controller), first, 'negative elapsed clamps before signed speed');
   controller.setStyle(settings({ liquidDuration: 8, liquidSpeed: -1 }));
   controller.update(6);
-  assert.deepEqual(snapshot(mesh.geometry), quarter, 'reverse cycle has the same phase');
+  assert.deepEqual(state(mesh, controller), quarter, 'reverse cycle has the same phase');
   controller.setStyle(settings({ liquidDuration: 8, liquidSpeed: 0 }));
   controller.update(3);
-  const paused = snapshot(mesh.geometry), pausedVersions = versions(mesh.geometry);
+  const paused = state(mesh, controller), pausedVersions = versions(mesh.geometry);
   controller.update(1000);
-  assert.deepEqual(snapshot(mesh.geometry), paused);
+  assert.deepEqual(state(mesh, controller), paused);
   assert.deepEqual(versions(mesh.geometry), pausedVersions);
 });
 
 test('equivalent styles, surface-only edits and repeated frames retain buffers and upload versions', t => {
   const { mesh, controller } = fixture(t);
   controller.update(1);
-  const geometry = mesh.geometry, positions = geometry.attributes.position.array, normals = geometry.attributes.normal.array;
-  const original = snapshot(geometry), originalVersions = versions(geometry);
+  const geometry = mesh.geometry, positions = geometry.attributes.position.array, indices = geometry.index.array;
+  const original = state(mesh, controller), originalVersions = versions(geometry);
+  assert.equal(geometry.attributes.normal, undefined, 'the shader derives every normal; none is uploaded');
   controller.setStyle(settings({ color: '#ff0000', liquidReflectance: .5, liquidTint: '#ffcc00', roughness: .9 }));
   controller.update(1);
-  assert.deepEqual(snapshot(geometry), original);
+  assert.deepEqual(state(mesh, controller), original);
   assert.deepEqual(versions(geometry), originalVersions);
   controller.update(2);
   assert.equal(mesh.geometry, geometry);
   assert.equal(geometry.attributes.position.array, positions);
-  assert.equal(geometry.attributes.normal.array, normals);
+  assert.equal(geometry.index.array, indices);
+  const ranges = [geometry.attributes.position, geometry.index].map(attribute => attribute.updateRanges);
+  assert.deepEqual(ranges, [[{ start: 0, count: vertexCount(geometry) * 3 }], [{ start: 0, count: geometry.drawRange.count }]], 'uploads only active ranges');
+});
+
+test('GPU projection descriptors share stable uniforms that follow the drawn samples', t => {
+  const { mesh, controller } = fixture(t);
+  const displacement = controller.surfaceDisplacement, normals = controller.surfaceNormals;
+  assert.equal(displacement.uniforms, normals.uniforms, 'vertex projection and fragment normals evaluate one field');
+  assert.match(displacement.pars, /vec3 flocDisplace\(vec3 position, inout vec3 normal, inout vec3 color\)/);
+  assert.match(normals.pars, /vec3 flocSurfaceNormal\(vec3 localPosition\)/);
+  assert.notEqual(displacement.key, normals.key);
+  const values = Object.fromEntries(Object.entries(displacement.uniforms).map(([name, uniform]) => [name, uniform.value]));
+  const check = (style, elapsed) => {
+    const phase = liquidPhase(style, elapsed), cell = liquidCell(style);
+    const opening = style.liquidOpen + (style.liquidClosed - style.liquidOpen) * (.5 - .5 * Math.cos(phase));
+    const close = (actual, expected, label) => actual.forEach((value, i) => assert.ok(Math.abs(value - expected[i]) < 1e-12, `${label}[${i}] ${value} versus ${expected[i]}`));
+    close(displacement.uniforms.flocLiquidShape.value.toArray(), [style.liquidRadius, style.liquidInnerRadius, style.liquidWarp, style.liquidFrequency], 'shape');
+    close(displacement.uniforms.flocLiquidCycle.value.toArray(), [phase, opening], 'cycle');
+    close(displacement.uniforms.flocLiquidNewton.value.toArray(), [style.liquidThickness, cell * .35, cell * .2, Math.max(1e-8, style.liquidThickness * 1e-5)], 'newton');
+    close(displacement.uniforms.flocLiquidRotation.value.clone().transpose().toArray(), liquidRotation(phase), 'rotation');
+    for (const [name, uniform] of Object.entries(displacement.uniforms)) assert.equal(uniform.value, values[name], `${name} is updated in place`);
+  };
+  controller.update(1.5);
+  check(settings(), 1.5);
+  const before = state(mesh, controller);
+  const edited = settings({ liquidThickness: .4, liquidRadius: 1.6, liquidDetail: 40, liquidSpeed: -2 });
+  controller.setStyle(edited);
+  assert.deepEqual(state(mesh, controller).uniforms, before.uniforms, 'uniforms change only together with the samples they project');
+  controller.update(4.25);
+  check(edited, 4.25);
+  assert.equal(controller.surfaceDisplacement, displacement);
+  assert.equal(controller.surfaceNormals, normals);
 });
 
 test('duration, speed and easing affect the cycle clock rather than accumulating frame state', t => {
   const { mesh, controller } = fixture(t, { liquidDuration: 8, liquidEase: 0 });
   controller.update(1);
-  const eighth = snapshot(mesh.geometry);
+  const eighth = state(mesh, controller);
   controller.setStyle(settings({ liquidDuration: 16, liquidSpeed: 2, liquidEase: 0 }));
   controller.update(1);
-  assert.deepEqual(snapshot(mesh.geometry), eighth, 'equal cycle fractions have identical surfaces');
+  assert.deepEqual(state(mesh, controller), eighth, 'equal cycle fractions have identical surfaces');
   controller.setStyle(settings({ liquidDuration: 8, liquidEase: .15 }));
   controller.update(1);
-  assert.notDeepEqual(snapshot(mesh.geometry).position, eighth.position, 'easing changes phase inside a loop');
+  assert.notDeepEqual(state(mesh, controller).position, eighth.position, 'easing changes phase inside a loop');
   controller.update(8);
-  const endpoint = snapshot(mesh.geometry);
+  const endpoint = state(mesh, controller);
   controller.update(0);
-  assert.deepEqual(snapshot(mesh.geometry), endpoint, 'easing keeps the loop seamless');
+  assert.deepEqual(state(mesh, controller), endpoint, 'easing keeps the loop seamless');
 });
 
 test('published coarse output stays compact and deterministic independently of runtime refinement', t => {
@@ -203,9 +252,42 @@ test('published coarse output stays compact and deterministic independently of r
   t.after(() => { first.dispose(); second.dispose(); });
   assert.equal(first.attributes.position.count, first.drawRange.count);
   assert.equal(first.attributes.normal.count, first.drawRange.count);
-  assert.deepEqual(snapshot(first), snapshot(second));
+  for (const name of ['position', 'normal']) assert.deepEqual(first.attributes[name].array, second.attributes[name].array);
   assert.ok(first.boundingBox.equals(second.boundingBox));
   assert.ok(first.boundingSphere.equals(second.boundingSphere));
+});
+
+test('runtime samples are the welded coarse corners and edge midpoints, so shared edges share one vertex', t => {
+  const { mesh, controller } = fixture(t);
+  controller.update(.75);
+  const coarse = createLiquidGeometry(settings(), .75);
+  t.after(() => coarse.dispose());
+  const geometry = mesh.geometry, index = geometry.index.array, edges = new Map();
+  const point = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
+  assert.equal(geometry.drawRange.count, coarse.drawRange.count * 4, 'four sub-triangles per coarse triangle');
+  let shared = 0, midpointError = 0;
+  for (let triangle = 0; triangle < coarse.drawRange.count / 3; triangle++) {
+    // REFINEMENT_ORDER puts corners 0, 1, 2 at slots 0, 4, 8 and the 0-1, 1-2, 2-0 midpoints at 1, 5, 2.
+    const corners = [0, 4, 8].map(slot => index[triangle * 12 + slot]), keys = [];
+    for (let corner = 0; corner < 3; corner++) {
+      a.fromBufferAttribute(coarse.attributes.position, triangle * 3 + corner);
+      point.fromBufferAttribute(geometry.attributes.position, corners[corner]);
+      assert.ok(point.equals(a), 'corner samples are the exact unprojected coarse vertices');
+      keys.push(a.toArray().join(','));
+    }
+    for (const [from, to, slot] of [[0, 1, 1], [1, 2, 5], [2, 0, 2]]) {
+      const vertex = index[triangle * 12 + slot], key = [keys[from], keys[to]].sort().join('|');
+      a.fromBufferAttribute(coarse.attributes.position, triangle * 3 + from);
+      b.fromBufferAttribute(coarse.attributes.position, triangle * 3 + to);
+      midpointError = Math.max(midpointError, point.fromBufferAttribute(geometry.attributes.position, vertex).distanceTo(a.add(b).multiplyScalar(.5)));
+      if (edges.has(key)) {
+        assert.equal(vertex, edges.get(key), 'shared edges reuse one sample: no geometric or shading cracks after projection');
+        shared++;
+      } else edges.set(key, vertex);
+    }
+  }
+  assert.ok(midpointError < 1e-6, `midpoint samples are unprojected edge midpoints: ${midpointError}`);
+  assert.ok(shared > 100, 'checks shared edges belonging to distinct parent triangles');
 });
 
 test('projected vertices and refined triangle interiors better approximate the zero-warp zero set', t => {
@@ -230,11 +312,11 @@ test('projected vertices and refined triangle interiors better approximate the z
     }
     return { vertices: vertices / geometry.drawRange.count, interiors: interiors / (geometry.drawRange.count / 3), maxVertex };
   }
-  const before = residuals(coarse), after = residuals(drawn(mesh.geometry));
+  const before = residuals(coarse), after = residuals(projected(mesh.geometry, style, 0));
   assert.ok(after.vertices < before.vertices * .1, `vertex residual ${after.vertices} versus coarse ${before.vertices}`);
   assert.ok(after.interiors < before.interiors * .5, `triangle residual ${after.interiors} versus coarse ${before.interiors}`);
   assert.ok(after.maxVertex < before.maxVertex, 'projection does not merely redistribute the worst surface error');
-  assertSurface(mesh.geometry, controller.radius);
+  assertSurface(mesh, style, 0, controller.radius);
 });
 
 test('analytic outward normals agree with independent finite differences through warped and rotated fields', t => {
@@ -257,7 +339,7 @@ test('analytic outward normals agree with independent finite differences through
   ]) {
     controller.setStyle(style); controller.update(elapsed);
     let checked = 0, probes = 0;
-    const geometry = drawn(mesh.geometry);
+    const geometry = projected(mesh.geometry, style, elapsed);
     for (let i = 0; i < geometry.drawRange.count; i += 37) {
       point.fromBufferAttribute(geometry.attributes.position, i);
       normal.fromBufferAttribute(geometry.attributes.normal, i);
@@ -270,69 +352,42 @@ test('analytic outward normals agree with independent finite differences through
       checked++;
     }
     assert.ok(checked > probes * .95, 'almost all samples have a stable independently measured derivative');
-    assertSurface(mesh.geometry, controller.radius);
+    assertSurface(mesh, style, elapsed, controller.radius);
   }
 });
 
-test('neighboring coarse triangles share exactly the same projected edge midpoint and normal', t => {
+test('radius, inner radius, thickness, opening, warp and frequency alter the actual surface', t => {
   const { mesh, controller } = fixture(t);
   controller.update(0);
-  const coarse = createLiquidGeometry(settings());
-  t.after(() => coarse.dispose());
-  const edges = new Map(), point = new THREE.Vector3(), refined = drawn(mesh.geometry);
-  let shared = 0;
-  for (let triangle = 0; triangle < coarse.drawRange.count / 3; triangle++) {
-    const keys = [];
-    for (let corner = 0; corner < 3; corner++) {
-      point.fromBufferAttribute(coarse.attributes.position, triangle * 3 + corner);
-      keys.push(point.toArray().join(','));
-    }
-    for (const [a, b, midpoint] of [[0, 1, 1], [1, 2, 5], [2, 0, 2]]) {
-      const key = [keys[a], keys[b]].sort().join('|'), vertex = triangle * 12 + midpoint;
-      const sample = [
-        ...point.fromBufferAttribute(refined.attributes.position, vertex).toArray(),
-        ...point.fromBufferAttribute(refined.attributes.normal, vertex).toArray()
-      ];
-      if (edges.has(key)) {
-        assert.deepEqual(sample, edges.get(key), 'shared projected edges have no geometric or shading cracks');
-        shared++;
-      } else edges.set(key, sample);
-    }
-  }
-  assert.ok(shared > 100, 'checks shared edges belonging to distinct parent triangles');
-});
-
-test('radius, inner radius, thickness, opening, warp and frequency alter the actual mesh', t => {
-  const { mesh, controller } = fixture(t);
-  controller.update(0);
-  const original = snapshot(mesh.geometry);
+  const original = projected(mesh.geometry, settings(), 0).attributes.position.array;
   for (const overrides of [
     { liquidRadius: 1.7 }, { liquidInnerRadius: 1.3 }, { liquidThickness: .1 },
     { liquidOpen: 1.2 }, { liquidWarp: 0 }, { liquidFrequency: 3.2 }
   ]) {
-    controller.setStyle(settings(overrides));
+    const style = settings(overrides);
+    controller.setStyle(style);
     controller.update(0);
-    assert.notDeepEqual(snapshot(mesh.geometry).position, original.position, JSON.stringify(overrides));
-    assertSurface(mesh.geometry, controller.radius);
+    assert.notDeepEqual(projected(mesh.geometry, style, 0).attributes.position.array, original, JSON.stringify(overrides));
+    assertSurface(mesh, style, 0, controller.radius);
   }
 });
 
 test('open and closed widths independently change topology and can deliberately invert the cycle', t => {
   const { mesh, controller } = fixture(t, { liquidWarp: 0, liquidThickness: .08, liquidOpen: 0, liquidClosed: 1.2, liquidDuration: 8 });
   controller.update(0);
-  const open = snapshot(mesh.geometry);
+  const open = state(mesh, controller);
   controller.update(4);
-  const closed = snapshot(mesh.geometry);
+  const closed = state(mesh, controller);
   assert.notEqual(open.position.length, closed.position.length, 'triangle count changes with ribbon closure');
   controller.setStyle(settings({ liquidWarp: 0, liquidThickness: .08, liquidOpen: 1.2, liquidClosed: 0, liquidDuration: 8 }));
   controller.update(0);
-  assert.notEqual(snapshot(mesh.geometry).position.length, open.position.length, 'inverted open width starts closed');
+  assert.notEqual(state(mesh, controller).position.length, open.position.length, 'inverted open width starts closed');
   controller.update(4);
-  const inverted = snapshot(mesh.geometry);
+  const inverted = state(mesh, controller);
   assert.notEqual(inverted.position.length, closed.position.length, 'inverted closed width ends open');
   controller.setStyle(settings({ liquidWarp: 0, liquidThickness: .08, liquidOpen: 0, liquidClosed: 0, liquidDuration: 8 }));
   controller.update(4);
-  assert.deepEqual(snapshot(mesh.geometry), inverted, 'closed-width zero equals an always-open cycle at the same phase');
+  assert.deepEqual(state(mesh, controller), inverted, 'closed-width zero equals an always-open cycle at the same phase');
 });
 
 test('zero warp keeps two distinct rounded bands with outward SDF normals and real openings', t => {
@@ -340,7 +395,7 @@ test('zero warp keeps two distinct rounded bands with outward SDF normals and re
   const { mesh, controller, material } = fixture(t, style);
   material.side = THREE.DoubleSide;
   controller.update(0);
-  const geometry = drawn(mesh.geometry);
+  const geometry = projected(mesh.geometry, style, 0);
   const point = new THREE.Vector3(), normal = new THREE.Vector3();
   let inner = 0, outer = 0, checkedNormals = 0;
   for (let i = 0; i < geometry.drawRange.count; i++) {
@@ -361,6 +416,7 @@ test('zero warp keeps two distinct rounded bands with outward SDF normals and re
   }
   assert.ok(inner > 100 && outer > 100, 'both authored sheets survive extraction');
   assert.ok(checkedNormals > geometry.drawRange.count / 2);
+  // CPU picking raycasts the unprojected samples, within the trust radius of the surface.
   const direction = new THREE.Vector3(.8, 1, .6).normalize();
   const inverse = octave.clone().transpose();
   direction.applyMatrix3(inverse).applyMatrix3(inverse);
@@ -371,24 +427,24 @@ test('zero warp keeps two distinct rounded bands with outward SDF normals and re
   controller.update(0);
   mesh.updateMatrixWorld(true);
   assert.ok(ray.intersectObject(mesh).length > 0, 'the same ray intersects the closed sheets');
-  assertSurface(mesh.geometry, Math.max(style.liquidRadius, style.liquidInnerRadius) + style.liquidThickness);
+  assertSurface(mesh, { ...style, liquidOpen: 1.2 }, 0, Math.max(style.liquidRadius, style.liquidInnerRadius) + style.liquidThickness);
 });
 
 test('thin sheets preserve their authored thickness instead of expanding to the grid cell', t => {
   const style = settings({ liquidWarp: 0, liquidRadius: 1.4, liquidInnerRadius: .7, liquidThickness: .04, liquidOpen: 1.2 });
   const { mesh, controller } = fixture(t, style);
   controller.update(0);
-  const geometry = drawn(mesh.geometry);
+  const geometry = projected(mesh.geometry, style, 0);
   let outerMin = Infinity, outerMax = 0;
   for (let i = 0; i < geometry.drawRange.count; i++) {
     const r = new THREE.Vector3().fromBufferAttribute(geometry.attributes.position, i).length();
     if (r > 1) { outerMin = Math.min(outerMin, r); outerMax = Math.max(outerMax, r); }
   }
-  assert.ok(outerMax <= 1.441 && outerMin >= 1.34, 'interpolated surface stays within the thin shell');
+  assert.ok(outerMax <= 1.441 && outerMin >= 1.34, 'projected surface stays within the thin shell');
   assert.ok(outerMax - outerMin < .1, 'no artificial cell-sized inflation');
 });
 
-test('control extremes retain finite active bounds and unit normals at the declared grid resolution', t => {
+test('control extremes retain finite conservative bounds and unit normals at the declared grid resolution', t => {
   const { mesh, controller } = fixture(t);
   const extremes = [
     { liquidRadius: .3, liquidInnerRadius: .1, liquidThickness: .04, liquidWarp: 0, liquidFrequency: .2, liquidOpen: 0, liquidClosed: 0 },
@@ -396,10 +452,11 @@ test('control extremes retain finite active bounds and unit normals at the decla
     { liquidRadius: .3, liquidInnerRadius: 1.5, liquidThickness: .04, liquidWarp: 1.2, liquidFrequency: 4, liquidOpen: 0, liquidClosed: 1.2 }
   ];
   for (const overrides of extremes) {
-    controller.setStyle(settings(overrides));
+    const style = settings(overrides);
+    controller.setStyle(style);
     for (const elapsed of [0, 1.25]) {
       controller.update(elapsed);
-      assertSurface(mesh.geometry, controller.radius);
+      assertSurface(mesh, style, elapsed, controller.radius);
     }
   }
 });
@@ -414,14 +471,15 @@ test('quality changes replace only owned geometry and disposal restores shared s
   first.material.addEventListener('dispose', () => materialDisposals++);
   first.controller.update(.5);
   second.controller.update(2);
-  const secondBefore = snapshot(second.mesh.geometry), oldOwned = first.mesh.geometry;
+  const secondBefore = state(second.mesh, second.controller), oldOwned = first.mesh.geometry;
   oldOwned.addEventListener('dispose', () => ownedDisposals++);
   assert.notEqual(first.mesh.geometry, second.mesh.geometry);
+  assert.notEqual(first.controller.surfaceDisplacement.uniforms, second.controller.surfaceDisplacement.uniforms);
   first.controller.setStyle(settings({ liquidDetail: 33 }));
   first.controller.update(.5);
   assert.notEqual(first.mesh.geometry, oldOwned);
   assert.equal(ownedDisposals, 1);
-  assert.deepEqual(snapshot(second.mesh.geometry), secondBefore);
+  assert.deepEqual(state(second.mesh, second.controller), secondBefore);
   assert.deepEqual(source.attributes.position.array, original);
   assert.deepEqual(source.attributes.normal.array, originalNormals);
   assert.deepEqual(source.attributes.uv.array, originalUV);
@@ -456,8 +514,7 @@ test('every mesh binding shares one owned surface and externally replaced geomet
 test('nonfinite seeks fail explicitly without accepting a corrupt clock', t => {
   const { mesh, controller } = fixture(t);
   controller.update(0);
-  const original = snapshot(mesh.geometry);
+  const original = state(mesh, controller);
   for (const time of [NaN, Infinity, -Infinity]) assert.throws(() => controller.update(time), RangeError);
-  assert.deepEqual(snapshot(mesh.geometry), original);
+  assert.deepEqual(state(mesh, controller), original);
 });
-

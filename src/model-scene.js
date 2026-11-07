@@ -364,7 +364,7 @@ export async function createModelScene(canvas, layer, { compositionWidth = canva
       const radius = MODEL_STYLE_RANGES.octaRadius[1], height = radius * MODEL_STYLE_RANGES.octaHeight[1];
       materialBounds = new THREE.Box3(new THREE.Vector3(-radius, -height, -radius), new THREE.Vector3(radius, height, radius));
     }
-    materials = createModelMaterials(model, { spatial, bounds: materialBounds, surfaceNormals: deformation?.surfaceNormals, originalSurface: deformation?.originalSurface });
+    materials = createModelMaterials(model, { spatial, bounds: materialBounds, surfaceNormals: deformation?.surfaceNormals, surfaceDisplacement: deformation?.surfaceDisplacement, originalSurface: deformation?.originalSurface });
     const normalizer = new THREE.Group();
     model.position.sub(box.getCenter(new THREE.Vector3()));
     normalizer.add(model); normalizer.scale.setScalar(2 / extent); object.add(normalizer);

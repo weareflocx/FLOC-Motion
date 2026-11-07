@@ -3,15 +3,16 @@ import * as THREE from 'three';
 const AXIS_LENGTH = Math.hypot(.35, 1, .45);
 const AX = .35 / AXIS_LENGTH, AY = 1 / AXIS_LENGTH, AZ = .45 / AXIS_LENGTH;
 
-// The same derivative as model-liquid's CPU evaluator, evaluated at the actual
-// fragment rather than interpolating three vertex normals across each triangle.
-// True min-branch creases remain creases; this does not modify the zero set.
-const PARS = /* glsl */`
+// Distance minus thickness and its exact derivative in the unrotated field
+// domain. Reverse differentiation carries the rounded cut through direction
+// normalization and all three domain warps; the branch selects the min sheet.
+const FIELD = /* glsl */`
 uniform vec4 flocLiquidShape;
 uniform vec2 flocLiquidCycle;
 uniform mat3 flocLiquidRotation;
+uniform vec4 flocLiquidNewton;
 
-vec3 flocSurfaceNormal(vec3 localPosition) {
+float flocLiquidField(vec3 p, out vec3 gradient, out bool branchA) {
   float radiusA = flocLiquidShape.x;
   float radiusB = flocLiquidShape.y;
   float warp = flocLiquidShape.z;
@@ -21,7 +22,6 @@ vec3 flocSurfaceNormal(vec3 localPosition) {
   float phase2 = 2.0 * phase;
   float phase3 = 3.0 * phase;
   mat3 octave = mat3(0.0, .8, .6, -.8, .36, -.48, -.6, -.48, .64);
-  vec3 p = flocLiquidRotation * localPosition;
 
   vec3 args = p.yzx * frequency + vec3(phase, 2.1 + phase, 4.2 + phase);
   vec3 derivative1 = warp * frequency * cos(args);
@@ -52,7 +52,7 @@ vec3 flocSurfaceNormal(vec3 localPosition) {
   float cutA = max(0.0, (abs(a) - opening) * cutRadiusA);
   float cutB = max(0.0, (abs(b) - opening * .9) * cutRadiusB);
   float drA = r - radiusA, drB = r - radiusB;
-  bool branchA = drA * drA + cutA * cutA <= drB * drB + cutB * cutB;
+  branchA = drA * drA + cutA * cutA <= drB * drB + cutB * cutB;
   float dr = branchA ? drA : drB;
   float cut = branchA ? cutA : cutB;
   float distance = length(vec2(dr, cut));
@@ -67,36 +67,91 @@ vec3 flocSurfaceNormal(vec3 localPosition) {
         .9 * cos(b3) * cb2 + .6 * cos(b5), .6 + .45 * cos(b9));
     }
   }
+  // J(normalize(q))^T g; the clamped central divisor is constant below .001.
   float radial = r >= .001 ? dot(g, n) / divisor : 0.0;
   float radialDistance = r > 0.0 ? dr / r : 0.0;
   g = g / divisor + p * radialDistance - n * radial;
   if (distance > 0.0) g /= distance;
 
+  // Each warp is q + amplitude*sin(q.yzx*frequency+offset).
   g += derivative3.zxy * g.zxy;
   g = transpose(octave) * g;
   g += derivative2.zxy * g.zxy;
   g = transpose(octave) * g;
   g += derivative1.zxy * g.zxy;
-  return normalize(transpose(flocLiquidRotation) * g);
+  gradient = g;
+  return distance - flocLiquidNewton.x;
 }
 `;
 
-export function createLiquidSurfaceNormals() {
-  return {
-    key: 'liquid-analytic-v1', pars: PARS,
-    uniforms: {
-      flocLiquidShape: { value: new THREE.Vector4() },
-      flocLiquidCycle: { value: new THREE.Vector2() },
-      flocLiquidRotation: { value: new THREE.Matrix3() }
+// Evaluated at the actual fragment rather than interpolating three vertex
+// normals across each triangle. True min-branch creases remain creases.
+const NORMAL_PARS = FIELD + /* glsl */`
+vec3 flocSurfaceNormal(vec3 localPosition) {
+  vec3 gradient;
+  bool branchA;
+  flocLiquidField(flocLiquidRotation * localPosition, gradient, branchA);
+  return normalize(transpose(flocLiquidRotation) * gradient);
+}
+`;
+
+// Projects each welded marching-cubes sample onto the zero set. Bounded,
+// monotone Newton steps stay in the local sheet's basin: a branch switch or an
+// opposing derivative is rejected rather than jumping across folds, and no
+// step leaves the trust radius around the sample, which bounds the CPU box.
+const DISPLACEMENT_PARS = FIELD + /* glsl */`
+vec3 flocDisplace(vec3 position, inout vec3 normal, inout vec3 color) {
+  vec3 origin = flocLiquidRotation * position, p = origin, gradient, candidateGradient;
+  bool branch, candidateBranch;
+  float distance = flocLiquidField(p, gradient, branch);
+  vec3 initial = gradient;
+  float trust2 = flocLiquidNewton.y * flocLiquidNewton.y;
+  for (int iteration = 0; iteration < 3; iteration++) {
+    float length2 = dot(gradient, gradient);
+    if (abs(distance) <= flocLiquidNewton.w || length2 < 1e-20) break;
+    float step = distance / length2;
+    step *= min(1.0, flocLiquidNewton.z / (abs(step) * sqrt(length2)));
+    bool accepted = false;
+    for (int attempt = 0; attempt < 3; attempt++, step *= .5) {
+      vec3 candidate = p - step * gradient, offset = candidate - origin;
+      if (dot(offset, offset) > trust2) continue;
+      float candidateDistance = flocLiquidField(candidate, candidateGradient, candidateBranch);
+      if (candidateBranch == branch && abs(candidateDistance) < abs(distance) && dot(candidateGradient, initial) > 0.0) {
+        p = candidate; distance = candidateDistance; gradient = candidateGradient; accepted = true;
+        break;
+      }
     }
+    if (!accepted) break;
+  }
+  normal = normalize(transpose(flocLiquidRotation) * gradient);
+  return transpose(flocLiquidRotation) * p;
+}
+`;
+
+// One uniform set serves both descriptors, so the vertex projection and the
+// fragment normal always evaluate the same field.
+export function createLiquidSurface() {
+  const uniforms = {
+    flocLiquidShape: { value: new THREE.Vector4() },
+    flocLiquidCycle: { value: new THREE.Vector2() },
+    flocLiquidRotation: { value: new THREE.Matrix3() },
+    flocLiquidNewton: { value: new THREE.Vector4() }
+  };
+  return {
+    uniforms,
+    normals: { key: 'liquid-analytic-v2', pars: NORMAL_PARS, uniforms },
+    displacement: { key: 'liquid-newton-v1', pars: DISPLACEMENT_PARS, uniforms }
   };
 }
 
-export function syncLiquidSurfaceNormals(descriptor, style, phase) {
-  const uniforms = descriptor.uniforms;
+// `cell` is the marching-cubes grid spacing: Newton never moves a sample more
+// than .35 cells, nor more than .2 cells per step.
+export function syncLiquidSurface(surface, style, phase, cell) {
+  const uniforms = surface.uniforms;
   uniforms.flocLiquidShape.value.set(style.liquidRadius, style.liquidInnerRadius, style.liquidWarp, style.liquidFrequency);
   const opening = style.liquidOpen + (style.liquidClosed - style.liquidOpen) * (.5 - .5 * Math.cos(phase));
   uniforms.flocLiquidCycle.value.set(phase, opening);
+  uniforms.flocLiquidNewton.value.set(style.liquidThickness, cell * .35, cell * .2, Math.max(1e-8, style.liquidThickness * 1e-5));
   const c = Math.cos(phase), s = Math.sin(phase), v = 1 - c;
   uniforms.flocLiquidRotation.value.set(
     AX * AX * v + c, AX * AY * v - AZ * s, AX * AZ * v + AY * s,

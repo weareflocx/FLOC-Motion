@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { MarchingCubes, triTable } from 'three/addons/objects/MarchingCubes.js';
 import { DEFAULT_MODEL_STYLE } from './model-style.js';
-import { createLiquidSurfaceNormals, syncLiquidSurfaceNormals } from './model-liquid-normals.js';
+import { createLiquidSurface, syncLiquidSurface } from './model-liquid-normals.js';
 
 // Mesh adaptation of Sabo Sugi's Abstract Chrome Liquid:
 // https://codepen.io/editor/sabosugi/pen/01a1777c-c5ba-7db4-978a-e60cd0100f42
 // Positive field values are inside: MarchingCubes differentiates -field to
-// produce outward normals. Its vertices, rather than a shader proxy, are used
-// by rendering, bounds, exports and CPU raycasting.
+// produce outward normals. The runtime mesh holds welded, unprojected samples
+// of its zero set; the vertex shader projects them (model-liquid-normals.js).
 const SHAPE_KEYS = ['liquidRadius', 'liquidInnerRadius', 'liquidThickness', 'liquidWarp', 'liquidFrequency', 'liquidOpen', 'liquidClosed', 'liquidDetail', 'liquidDuration', 'liquidEase', 'liquidSpeed'];
 const TAU = Math.PI * 2;
 const AXIS_LENGTH = Math.hypot(.35, 1, .45);
@@ -177,8 +177,9 @@ function fillField(entry, style, phase, bound) {
   cubes.normal_cache.fill(0);
 }
 
-function finishGeometry(cubes, phase, bound) {
-  const geometry = cubes.geometry, positions = cubes.positionArray, normals = cubes.normalArray;
+// `margin` widens bounds by the farthest any shader projection moves a vertex.
+function finishGeometry(surface, phase, bound, margin = 0) {
+  const geometry = surface.geometry, positions = surface.positionArray, normals = surface.normalArray;
   // map(p) evaluates R(phase)*p, hence bake its inverse into the extracted
   // zero set. The phase rotation is computed once, never once per SDF sample.
   const c = Math.cos(phase), s = -Math.sin(phase), v = 1 - c;
@@ -186,108 +187,47 @@ function finishGeometry(cubes, phase, bound) {
   const yx = AY * AX * v + AZ * s, yy = AY * AY * v + c, yz = AY * AZ * v - AX * s;
   const zx = AZ * AX * v - AY * s, zy = AZ * AY * v + AX * s, zz = AZ * AZ * v + c;
   let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity, radius2 = 0;
-  for (let i = 0; i < cubes.count * 3; i += 3) {
+  for (let i = 0; i < surface.count * 3; i += 3) {
     const x = positions[i] * bound, y = positions[i + 1] * bound, z = positions[i + 2] * bound;
     positions[i] = xx * x + xy * y + xz * z;
     positions[i + 1] = yx * x + yy * y + yz * z;
     positions[i + 2] = zx * x + zy * y + zz * z;
-    const nx = normals[i], ny = normals[i + 1], nz = normals[i + 2];
-    const length = Math.hypot(nx, ny, nz);
-    if (!Number.isFinite(length) || length === 0) throw new Error('Liquid ribbons produced an invalid surface normal.');
-    normals[i] = (xx * nx + xy * ny + xz * nz) / length;
-    normals[i + 1] = (yx * nx + yy * ny + yz * nz) / length;
-    normals[i + 2] = (zx * nx + zy * ny + zz * nz) / length;
+    if (normals) {
+      const nx = normals[i], ny = normals[i + 1], nz = normals[i + 2];
+      const length = Math.hypot(nx, ny, nz);
+      if (!Number.isFinite(length) || length === 0) throw new Error('Liquid ribbons produced an invalid surface normal.');
+      normals[i] = (xx * nx + xy * ny + xz * nz) / length;
+      normals[i + 1] = (yx * nx + yy * ny + yz * nz) / length;
+      normals[i + 2] = (zx * nx + zy * ny + zz * nz) / length;
+    }
     const px = positions[i], py = positions[i + 1], pz = positions[i + 2];
     minX = Math.min(minX, px); minY = Math.min(minY, py); minZ = Math.min(minZ, pz);
     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py); maxZ = Math.max(maxZ, pz);
     radius2 = Math.max(radius2, px * px + py * py + pz * pz);
   }
-  if (cubes.count === 0) {
+  if (surface.count === 0) {
     geometry.boundingBox.min.set(0, 0, 0);
     geometry.boundingBox.max.set(0, 0, 0);
   } else {
-    geometry.boundingBox.min.set(minX, minY, minZ);
-    geometry.boundingBox.max.set(maxX, maxY, maxZ);
+    geometry.boundingBox.min.set(minX - margin, minY - margin, minZ - margin);
+    geometry.boundingBox.max.set(maxX + margin, maxY + margin, maxZ + margin);
   }
   geometry.boundingSphere.center.set(0, 0, 0);
-  geometry.boundingSphere.radius = Math.sqrt(radius2) * (1 + Number.EPSILON);
+  geometry.boundingSphere.radius = (Math.sqrt(radius2) + margin) * (1 + Number.EPSILON);
   if (!Number.isFinite(radius2)) throw new Error('Liquid ribbons produced nonfinite bounds.');
 }
 
-// Distance and exact outward derivative in the unrotated field domain. Reverse
-// differentiation carries the rounded cut through direction normalization and
-// all three domain warps; no grid-normal interpolation is used at runtime.
-function createEvaluator(style, phase) {
-  const w1 = style.liquidWarp, w2 = w1 * .85, w3 = w1 * .15;
-  const f1 = style.liquidFrequency, f2 = f1 * 2.2, f3 = f1 * 4.5;
-  const opening = style.liquidOpen + (style.liquidClosed - style.liquidOpen) * (.5 - .5 * Math.cos(phase));
-  const radiusA = style.liquidRadius, radiusB = style.liquidInnerRadius;
-  const cutRadiusA = radiusA * .6, cutRadiusB = radiusB * .6;
-  const thickness = style.liquidThickness, phase2 = 2 * phase, phase3 = 3 * phase;
-  return (x, y, z, out) => {
-    let ax = y * f1 + phase, ay = z * f1 + 2.1 + phase, az = x * f1 + 4.2 + phase;
-    const dx1 = w1 * f1 * Math.cos(ax), dy1 = w1 * f1 * Math.cos(ay), dz1 = w1 * f1 * Math.cos(az);
-    let nx = x + w1 * Math.sin(ax), ny = y + w1 * Math.sin(ay), nz = z + w1 * Math.sin(az);
-    let qx = -.8 * ny - .6 * nz, qy = .8 * nx + .36 * ny - .48 * nz, qz = .6 * nx - .48 * ny + .64 * nz;
-    ax = qy * f2 + 1.3 - phase2; ay = qz * f2 + 3.7 - phase2; az = qx * f2 + 5.1 - phase2;
-    const dx2 = w2 * f2 * Math.cos(ax), dy2 = w2 * f2 * Math.cos(ay), dz2 = w2 * f2 * Math.cos(az);
-    nx = qx + w2 * Math.sin(ax); ny = qy + w2 * Math.sin(ay); nz = qz + w2 * Math.sin(az);
-    qx = -.8 * ny - .6 * nz; qy = .8 * nx + .36 * ny - .48 * nz; qz = .6 * nx - .48 * ny + .64 * nz;
-    ax = qy * f3 + 4 + phase3; ay = qz * f3 + .7 + phase3; az = qx * f3 + 2.9 + phase3;
-    const dx3 = w3 * f3 * Math.cos(ax), dy3 = w3 * f3 * Math.cos(ay), dz3 = w3 * f3 * Math.cos(az);
-    x = qx + w3 * Math.sin(ax); y = qy + w3 * Math.sin(ay); z = qz + w3 * Math.sin(az);
-    const r = Math.sqrt(x * x + y * y + z * z), divisor = Math.max(r, .001);
-    nx = x / divisor; ny = y / divisor; nz = z / divisor;
-    const a3 = 3 * nx + phase, a2 = 2 * nz - phase, a5 = 5 * nz + phase2, a9 = 9 * nx - phase3;
-    const b3 = 3 * ny - phase, b2 = 2 * nx + phase, b5 = 5 * ny - phase2, b9 = 9 * nz + phase3;
-    const sa3 = Math.sin(a3), ca2 = Math.cos(a2), sb3 = Math.sin(b3), cb2 = Math.cos(b2);
-    const a = ny + .30 * sa3 * ca2 + .12 * Math.sin(a5) + .05 * Math.sin(a9);
-    const b = .8 * nx + .6 * nz + .30 * sb3 * cb2 + .12 * Math.sin(b5) + .05 * Math.sin(b9);
-    const cutA = Math.max(0, (Math.abs(a) - opening) * cutRadiusA);
-    const cutB = Math.max(0, (Math.abs(b) - opening * .9) * cutRadiusB);
-    const drA = r - radiusA, drB = r - radiusB;
-    const branch = drA * drA + cutA * cutA <= drB * drB + cutB * cutB ? 0 : 1;
-    const dr = branch === 0 ? drA : drB, cut = branch === 0 ? cutA : cutB;
-    const distance = Math.sqrt(dr * dr + cut * cut);
-    let gx = 0, gy = 0, gz = 0;
-    if (cut > 0) {
-      const factor = cut * (branch === 0 ? cutRadiusA * Math.sign(a) : cutRadiusB * Math.sign(b));
-      if (branch === 0) {
-        gx = factor * (.9 * Math.cos(a3) * ca2 + .45 * Math.cos(a9));
-        gy = factor;
-        gz = factor * (-.6 * sa3 * Math.sin(a2) + .6 * Math.cos(a5));
-      } else {
-        gx = factor * (.8 - .6 * sb3 * Math.sin(b2));
-        gy = factor * (.9 * Math.cos(b3) * cb2 + .6 * Math.cos(b5));
-        gz = factor * (.6 + .45 * Math.cos(b9));
-      }
-    }
-    // J(normalize(q))^T g; the clamped central divisor is constant below .001.
-    const radial = r >= .001 ? (gx * nx + gy * ny + gz * nz) / divisor : 0;
-    const radialDistance = r > 0 ? dr / r : 0;
-    gx = gx / divisor + x * radialDistance - nx * radial;
-    gy = gy / divisor + y * radialDistance - ny * radial;
-    gz = gz / divisor + z * radialDistance - nz * radial;
-    if (distance > 0) { gx /= distance; gy /= distance; gz /= distance; }
-    // Each warp is q + amplitude*sin(q.yzx*frequency+offset).
-    qx = gx + dz3 * gz; qy = gy + dx3 * gx; qz = gz + dy3 * gy;
-    gx = .8 * qy + .6 * qz; gy = -.8 * qx + .36 * qy - .48 * qz; gz = -.6 * qx - .48 * qy + .64 * qz;
-    qx = gx + dz2 * gz; qy = gy + dx2 * gx; qz = gz + dy2 * gy;
-    gx = .8 * qy + .6 * qz; gy = -.8 * qx + .36 * qy - .48 * qz; gz = -.6 * qx - .48 * qy + .64 * qz;
-    out[0] = distance - thickness;
-    out[1] = gx + dz1 * gz; out[2] = gy + dx1 * gx; out[3] = gz + dy1 * gy;
-    out[4] = branch;
-  };
-}
+// The GPU projects each welded sample in float32; rounding of the rotation and
+// of the trust test stays far below this fraction of `bound`.
+const TRUST_SLACK = 1e-5;
 
 // Welded samples are drawn once through an index, so each frame uploads only the
 // active vertex and index ranges instead of twelve copies per coarse triangle.
 function createRefinement(capacity) {
   const geometry = new THREE.BufferGeometry();
   // At most six distinct samples per coarse triangle, before edge welding.
-  const positionArray = new Float32Array(capacity * 6 * 3), normalArray = new Float32Array(positionArray.length);
+  const positionArray = new Float32Array(capacity * 6 * 3);
   geometry.setAttribute('position', new THREE.BufferAttribute(positionArray, 3).setUsage(THREE.DynamicDrawUsage));
-  geometry.setAttribute('normal', new THREE.BufferAttribute(normalArray, 3).setUsage(THREE.DynamicDrawUsage));
   geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(capacity * 12), 1).setUsage(THREE.DynamicDrawUsage));
   geometry.boundingBox = new THREE.Box3();
   geometry.boundingSphere = new THREE.Sphere();
@@ -295,19 +235,15 @@ function createRefinement(capacity) {
   while (hashSize < capacity * 12) hashSize *= 2;
   const scratch = new Float32Array(3);
   return {
-    geometry, positionArray, normalArray, capacity, count: 0,
-    keys: new Float32Array(capacity * 6 * 3),
-    corners: new Uint32Array(6),
-    hash: new Uint32Array(hashSize), scratch, bits: new Uint32Array(scratch.buffer), value: new Float64Array(5)
+    geometry, positionArray, capacity, count: 0, corners: new Uint32Array(6),
+    hash: new Uint32Array(hashSize), scratch, bits: new Uint32Array(scratch.buffer)
   };
 }
 
-function refineSurface(entry, refined, style, phase, bound) {
-  const { keys, positionArray, normalArray, corners, hash, scratch, bits, value } = refined;
-  const mask = hash.length - 1;
-  const evaluate = createEvaluator(style, phase), source = entry.cubes.positionArray;
-  const cell = 2 * bound / entry.cubes.size, trust = cell * .35, maxStep = cell * .2;
-  const tolerance = Math.max(1e-8, style.liquidThickness * 1e-5);
+// Until finishGeometry rotates them, the active positions are the hash keys.
+function refineSurface(entry, refined, phase, bound) {
+  const { positionArray: keys, corners, hash, scratch, bits } = refined;
+  const mask = hash.length - 1, source = entry.cubes.positionArray;
   hash.fill(0);
   let sampleCount = 0;
   function sample(x, y, z) {
@@ -323,39 +259,10 @@ function refineSurface(entry, refined, style, phase, bound) {
     const k = id * 3;
     keys[k] = scratch[0]; keys[k + 1] = scratch[1]; keys[k + 2] = scratch[2];
     hash[slot] = id + 1;
-    const ox = scratch[0] * bound, oy = scratch[1] * bound, oz = scratch[2] * bound;
-    x = ox; y = oy; z = oz;
-    evaluate(x, y, z, value);
-    const branch = value[4], initialX = value[1], initialY = value[2], initialZ = value[3];
-    // Bounded, monotone Newton steps stay in this local sheet's basin. Reject a
-    // branch switch or an opposing derivative rather than jumping across folds.
-    for (let iteration = 0; iteration < 3 && Math.abs(value[0]) > tolerance; iteration++) {
-      const distance = value[0], gx = value[1], gy = value[2], gz = value[3];
-      const length2 = gx * gx + gy * gy + gz * gz;
-      if (length2 < 1e-20) break;
-      let step = distance / length2;
-      step *= Math.min(1, maxStep / (Math.abs(step) * Math.sqrt(length2)));
-      let accepted = false;
-      for (let attempt = 0; attempt < 3; attempt++, step *= .5) {
-        const px = x - step * gx, py = y - step * gy, pz = z - step * gz;
-        if ((px - ox) ** 2 + (py - oy) ** 2 + (pz - oz) ** 2 > trust * trust) continue;
-        evaluate(px, py, pz, value);
-        if (value[4] === branch && Math.abs(value[0]) < Math.abs(distance)
-          && value[1] * initialX + value[2] * initialY + value[3] * initialZ > 0) {
-          x = px; y = py; z = pz; accepted = true;
-          break;
-        }
-      }
-      if (!accepted) { evaluate(x, y, z, value); break; }
-    }
-    const length = Math.hypot(value[1], value[2], value[3]);
-    if (!Number.isFinite(length) || length === 0) throw new Error('Liquid ribbons produced an invalid analytic normal.');
-    positionArray[k] = x; positionArray[k + 1] = y; positionArray[k + 2] = z;
-    normalArray[k] = value[1] / length; normalArray[k + 1] = value[2] / length; normalArray[k + 2] = value[3] / length;
     return id;
   }
-  // Shared endpoints and midpoints have one projected value and one normal.
-  // Welding precedes projection, so neighboring triangles cannot open cracks.
+  // Shared endpoints and midpoints are one vertex, hence one projected value
+  // and one normal: neighboring triangles cannot open cracks.
   const index = refined.geometry.index, indices = index.array;
   let count = 0;
   for (let i = 0; i < entry.cubes.count * 3; i += 9) {
@@ -369,17 +276,18 @@ function refineSurface(entry, refined, style, phase, bound) {
   }
   refined.count = sampleCount;
   refined.geometry.setDrawRange(0, count);
-  for (const [attribute, length] of [[refined.geometry.attributes.position, sampleCount * 3], [refined.geometry.attributes.normal, sampleCount * 3], [index, count]]) {
+  for (const [attribute, length] of [[refined.geometry.attributes.position, sampleCount * 3], [index, count]]) {
     attribute.clearUpdateRanges();
     attribute.addUpdateRange(0, length);
     attribute.needsUpdate = true;
   }
-  finishGeometry(refined, phase, 1);
+  const cell = 2 * bound / entry.cubes.size;
+  finishGeometry(refined, phase, bound, cell * .35 + bound * TRUST_SLACK);
 }
 
 function createSurface(refine = false) {
-  const style = {};
-  let entry, refined, normalDescriptor, dirty = true, lastPhase = NaN, lastElapsed = 0, disposed = false;
+  const style = {}, shader = refine ? createLiquidSurface() : null;
+  let entry, refined, dirty = true, lastPhase = NaN, disposed = false;
   function setStyle(input = DEFAULT_MODEL_STYLE) {
     if (disposed) return;
     for (const key of SHAPE_KEYS) {
@@ -387,24 +295,18 @@ function createSurface(refine = false) {
       if (style[key] !== value) dirty = true;
       style[key] = value;
     }
-    if (normalDescriptor) syncLiquidSurfaceNormals(normalDescriptor, style, phaseAt(style, lastElapsed));
   }
   setStyle();
+  // Uniforms change only together with the samples they project, in update().
   return {
     setStyle,
     get geometry() { return refine ? refined?.geometry : entry?.cubes.geometry; },
     get radius() { return radiusOf(style); },
-    get surfaceNormals() {
-      if (!normalDescriptor) {
-        normalDescriptor = createLiquidSurfaceNormals();
-        syncLiquidSurfaceNormals(normalDescriptor, style, phaseAt(style, lastElapsed));
-      }
-      return normalDescriptor;
-    },
+    get surfaceNormals() { return shader?.normals; },
+    get surfaceDisplacement() { return shader?.displacement; },
     update(elapsed) {
       if (disposed) return;
       const phase = phaseAt(style, elapsed);
-      lastElapsed = elapsed;
       if (!dirty && phase === lastPhase) return;
       if (!entry || entry.cubes.size !== style.liquidDetail) {
         entry?.cubes.geometry.dispose();
@@ -438,12 +340,12 @@ function createSurface(refine = false) {
           refined?.geometry.dispose();
           refined = createRefinement(entry.capacity);
         }
-        refineSurface(entry, refined, style, phase, bound);
+        refineSurface(entry, refined, phase, bound);
+        syncLiquidSurface(shader, style, phase, 2 * bound / style.liquidDetail);
       } else {
         finishGeometry(entry.cubes, phase, bound);
       }
       lastPhase = phase;
-      if (normalDescriptor) syncLiquidSurfaceNormals(normalDescriptor, style, phase);
       dirty = false;
     },
     dispose() {
@@ -485,6 +387,7 @@ export function createLiquidRibbons(model) {
     setStyle: surface.setStyle,
     get radius() { return surface.radius; },
     get surfaceNormals() { return surface.surfaceNormals; },
+    get surfaceDisplacement() { return surface.surfaceDisplacement; },
     update(elapsed) {
       if (disposed) return;
       surface.update(elapsed);
