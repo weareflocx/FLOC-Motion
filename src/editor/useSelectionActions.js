@@ -11,8 +11,9 @@ export function useSelectionActions({ project, projectRef, clock, time, setPlayi
   const distribution = useDistribution({ project, projectRef, clock, time, selection, positionPreview, previewPosition, distributeLayers });
   const selectAll = useCallback(() => { setPlaying(false); setSelection(selectAllIds(projectRef.current, clock.get().time)); }, [projectRef, clock, setPlaying, setSelection]);
   const collapseSelection = useCallback(() => setSelected(selected), [selected, setSelected]);
-  const selectCanvasLayer = useCallback(id => { setSelected(id); setPlaying(false); }, [setPlaying, setSelected]);
-  const toggleCanvasLayer = useCallback(id => { selectLayer(id, 'toggle'); setPlaying(false); }, [selectLayer, setPlaying]);
+  // Selecting keeps the preview playing; a drag pauses at the frame it started on.
+  const selectCanvasLayer = useCallback(id => setSelected(id), [setSelected]);
+  const toggleCanvasLayer = useCallback(id => selectLayer(id, 'toggle'), [selectLayer]);
   const moveGroup = useCallback(positions => { setPlaying(false); positionLayers(positions, clock.get().time); }, [positionLayers, clock, setPlaying]);
   const arrange = useCallback(mode => { setPlaying(false); arrangeLayers(mode, selection, clock.get().time, document.querySelector('.workspace .stage[aria-busy="false"]')); }, [arrangeLayers, selection, clock, setPlaying]);
   const selectedLayers = useMemo(() => project.layers.filter(item => selection.includes(item.id)), [project.layers, selection]);

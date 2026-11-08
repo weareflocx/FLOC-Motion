@@ -78,7 +78,8 @@ function editor() {
       return null;
     }
   };
-  let props = { root, engine: { current: scene }, project, sceneKey: project, selected: 'headline', time: 1, clock: { get: () => ({ time: props.time }) },
+  const playback = [];
+  let props = { root, engine: { current: scene }, project, sceneKey: project, selected: 'headline', time: 1, clock: { get: () => ({ time: props.time }), setPlaying: value => playback.push(['playing', value]), setTime: value => playback.push(['time', value]) },
     onSelect() {}, onPatch(id, patch) { patches.push({ id, ...patch }); },
     onPreview(value) { previews.push(value); }, onPendingEdit(commit) { pending = commit; }, onDepthGesture() { gestures.push(true); } };
   function render(next = {}) {
@@ -96,7 +97,7 @@ function editor() {
   const flush = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
   const unmount = () => { for (const slot of slots) slot?.cleanup?.(); };
   render();
-  return { render, scroll, press, flush, unmount, patches, previews, gestures, node, root, rect, project, scene, timers, commit: (...args) => pending?.(...args) };
+  return { render, scroll, press, flush, unmount, patches, previews, gestures, playback, node, root, rect, project, scene, timers, commit: (...args) => pending?.(...args) };
 }
 
 test('canvas focus leaves Space for playback and Enter selects the focused layer', () => {
@@ -211,6 +212,26 @@ test('dragging uses the displayed frame size at different zoom levels and commit
     assert.equal(h.patches[0].y, 5);
     h.unmount();
   }
+});
+
+test('a click only selects while playing; a drag stops playback on the frame it measured', () => {
+  const h = editor(), selected = [];
+  Object.assign(h.rect, { left: 100, top: 100, width: 1080, height: 1080, right: 1180, bottom: 1180 });
+  h.node.getBoundingClientRect = () => ({ left: 154, top: 154, right: 370, bottom: 208, width: 216, height: 54 });
+  h.node.focus = () => {};
+  const target = { setPointerCapture() {}, hasPointerCapture: () => true, releasePointerCapture() {} };
+  const event = { button: 0, pointerId: 1, clientX: 208, clientY: 181, target: { closest: () => null }, currentTarget: target, preventDefault() {} };
+  let { handlers } = h.render({ time: 2.5, onSelect: id => selected.push(id) });
+  handlers.onPointerDown(event); handlers.onPointerUp(event);
+  assert.deepEqual(selected, ['headline']);
+  assert.deepEqual(h.playback, [], 'selecting does not touch playback');
+  ({ handlers } = h.render({ time: 2.5 }));
+  handlers.onPointerDown(event);
+  h.render({ time: 2.75 }); // the playhead keeps moving until the pointer travels
+  handlers.onPointerMove({ ...event, clientX: event.clientX + 40 });
+  handlers.onPointerMove({ ...event, clientX: event.clientX + 60 });
+  assert.deepEqual(h.playback, [['playing', false], ['time', 2.5]]);
+  h.unmount();
 });
 
 test('rotation handle previews one text edit, commits on release and cancels with Escape', () => {

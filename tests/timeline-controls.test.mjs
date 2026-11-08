@@ -75,9 +75,10 @@ test('expanded timeline edits Start and Duration directly in a row and moving St
   assert.equal(h.find(node => node.props.className === 'transport'), undefined);
   const original = h.layer();
   assert.equal(h.field('Duration').props.value, Number((original.end - original.start).toFixed(4)));
+  const playbackCalls = h.playing.length;
   h.field('Duration').props.onChange(2.25);
   assert.equal(h.layer().end, original.start + 2.25);
-  assert.equal(h.playing.at(-1), false);
+  assert.equal(h.playing.length, playbackCalls, 'clip timing does not depend on the playhead, so playback continues');
   h.field('Start').props.onChange(1.5);
   assert.equal(h.layer().start, 1.5);
   assert.equal(h.layer().end, 3.75);

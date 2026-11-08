@@ -26,10 +26,11 @@ export function TimelinePanel({ project, selected, clock, time, timelineOpen, on
   useEffect(() => { setContext(current => current.layerId === selected ? current : { layerId: selected, mode: 'timing', anchor: null }); }, [selected]);
   const layer = project.layers.find(item => item.id === selected);
   const mode = context.layerId === layer?.id && supportsChoreography(layer) ? context.mode : 'timing';
-  const editTiming = (id, fields) => { onSetPlaying(false); onPatch(id, fields); };
+  // Clip timing and track selection do not depend on the playhead; state edits do.
+  const editTiming = (id, fields) => onPatch(id, fields);
   const editState = (id, fields) => { onSetPlaying(false); onEditLayer(id, fields); };
   const seekState = value => { onSeek(value); onSetPlaying(false); };
-  const selectLayer = id => { setContext({ layerId: id, mode: 'timing', anchor: null }); onSelect(id); onSetPlaying(false); };
+  const selectLayer = id => { setContext({ layerId: id, mode: 'timing', anchor: null }); onSelect(id); };
   const selectState = id => { setContext(current => ({ layerId: id, mode: 'choreography', anchor: current.layerId === id ? current.anchor : null })); onSelect(id); onSetPlaying(false); };
   const openControls = (id, anchor) => {
     setContext(current => ({ layerId: id, mode: 'choreography', anchor: current.layerId === id && current.anchor ? null : anchor }));

@@ -179,7 +179,7 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
     const visualBounds = { x: (shown.left - box.left) / box.width * 100, y: (shown.top - box.top) / box.height * 100, width: shown.width / box.width * 100, height: shown.height / box.height * 100 };
     const pointer = engine.current?.projectPointer((event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height, l.id);
     if (!orient && !resizing && l.type !== 'background' && !pointer) return;
-    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, pointer, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: visualBounds.width, height: visualBounds.height, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false, toggle };
+    gesture.current = { id: event.pointerId, layer: l, project, box, initial, visualBounds, targets, latest: initial, orient, spatial, rollDrag, center, bounds, resize: resizing, pointer, vector: { x: event.clientX - center.x, y: event.clientY - center.y }, ring: !!ring, x: event.clientX, y: event.clientY, width: visualBounds.width, height: visualBounds.height, angle: Math.atan2(event.clientY - center.y, event.clientX - center.x), delta: 0, moved: false, toggle, at };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function members(at) {
@@ -193,13 +193,15 @@ export function useCanvasInteraction({ nudge, root, engine, project, sceneKey, s
   function beginGroup(event, l, toggle) {
     const at = playhead(), box = root.current.getBoundingClientRect(), group = members(at);
     const others = project.layers.filter(other => !selectedIds.includes(other.id) && other.visible && at >= other.start && at < other.end).map(other => evaluateChoreography(other, at));
-    gesture.current = { id: event.pointerId, group: true, toggle, layer: l, project, box, members: group.members, bounds: selectionBounds(measureLayerBounds(root.current, group.layers, engine.current)), targets: measureLayerBounds(root.current, others, engine.current), latest: null, x: event.clientX, y: event.clientY, moved: false };
+    gesture.current = { id: event.pointerId, group: true, toggle, layer: l, project, box, members: group.members, bounds: selectionBounds(measureLayerBounds(root.current, group.layers, engine.current)), targets: measureLayerBounds(root.current, others, engine.current), latest: null, x: event.clientX, y: event.clientY, moved: false, at };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event) {
     const g = gesture.current; if (!enabled || !g || g.id !== event.pointerId) return;
     const dx = event.clientX - g.x, dy = event.clientY - g.y;
     if (!g.moved && Math.hypot(dx, dy) < 3) return;
+    // A click only selects; a drag edits the frame it measured, so playback stops there.
+    if (!g.moved) { clock.setPlaying(false); clock.setTime(g.at); }
     g.moved = true;
     if (g.group) {
       if (!g.members.length) return;
