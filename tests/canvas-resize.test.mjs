@@ -199,3 +199,22 @@ test('inspector size edits center the evaluated data flow pose and save one play
     registerStageScene(root, null);
   }
 });
+
+test('static inspector edits keep playing; edits that save a playhead keyframe stop exactly on it', () => {
+  const source = readFileSync(new URL('../src/editor/useLayerEditing.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '').replace('export function', 'function');
+  const deps = { useCallback: fn => fn, useMemo: fn => fn(), evaluateChoreography, choreographyPatch, centeredResize, layerResizeBounds, document: { querySelector: () => null } };
+  const hook = new Function(...Object.keys(deps), `${source}\nreturn useLayerEditing;`)(...Object.values(deps));
+  const project = demoProject(), text = project.layers.find(layer => layer.type === 'text');
+  const animated = { ...text, id: 'animated', choreography: captureState(text, 0, project.fps, {}, 'start') };
+  project.layers.push(animated);
+  const patches = [], playback = [], seeks = [];
+  const api = hook({ project, projectRef: { current: project }, clock: { get: () => ({ time: 1.25 }) }, time: 1.25,
+    patch(id, fields) { patches.push({ id, fields }); }, setTime: value => seeks.push(value), setPlaying: value => playback.push(value), setError: error => { throw error; } });
+  api.editLayer(text.id, { color: '#ff0000', x: text.x + 5 });
+  api.editLayer('animated', { color: '#00ff00' });
+  assert.deepEqual(playback, [], 'values without a keyframe update the playing scene');
+  api.editLayer('animated', { x: animated.x + 5 });
+  assert.deepEqual(playback, [false]);
+  assert.deepEqual(seeks, [1.25], 'the playhead stops on the keyframe time it saved');
+  assert.ok(patches.at(-1).fields.choreography.some(state => Math.abs(state.time - 1.25) < 1e-9));
+});
