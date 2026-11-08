@@ -23,14 +23,49 @@ test('playback advances from the current time, pauses on the shown frame and res
   assert.ok(Math.abs(h.clock.get().time - 1.4) < 1e-9);
 });
 
-test('reaching the composition duration rewinds to zero and stops scheduling frames', () => {
+test('reaching the composition duration repeats without stopping and preserves elapsed time', () => {
+  const h = harness({ time: 11.5, duration: 12 });
+  h.clock.setPlaying(true);
+  h.frame(500);
+  assert.deepEqual(h.clock.get(), { time: 0, playing: true, origin: 0 });
+  assert.equal(h.pending(), 1);
+  h.frame(12250);
+  assert.deepEqual(h.clock.get(), { time: 0.25, playing: true, origin: 0 });
+  assert.equal(sampleTime(h.clock.get(), Infinity), 0, 'React readers restart at the loop origin');
+  h.frame(500);
+  assert.equal(h.clock.get().time, 0.75, 'the next frame continues from the wrapped time');
+  h.clock.setPlaying(false);
+  assert.equal(h.pending(), 0, 'Pause still cancels the next frame after a repeat');
+});
+
+test('delayed frames can cross several loops without drift or extra scheduled callbacks', () => {
+  const h = harness({ time: 0.5, duration: 12 });
+  h.clock.setPlaying(true);
+  h.frame(36500);
+  assert.deepEqual(h.clock.get(), { time: 1, playing: true, origin: 0 });
+  h.frame(250);
+  assert.equal(h.clock.get().time, 1.25);
+  assert.equal(h.pending(), 1);
+});
+
+test('shortening the composition while playing repeats within the new duration', () => {
   const h = harness({ time: 3.5 });
   h.clock.setPlaying(true);
   h.frame(400);
   h.setDuration(3.8);
   h.frame(100);
-  assert.deepEqual(h.clock.get(), { time: 0, playing: false, origin: 0 });
-  assert.equal(h.pending(), 0);
+  assert.ok(Math.abs(h.clock.get().time - 0.2) < 1e-9);
+  assert.equal(h.clock.get().playing, true);
+  h.frame(100);
+  assert.ok(Math.abs(h.clock.get().time - 0.3) < 1e-9);
+});
+
+test('Play from the end of the timeline repeats from the beginning', () => {
+  const h = harness({ time: 12, duration: 12 });
+  h.clock.setPlaying(true);
+  h.frame(16);
+  assert.ok(Math.abs(h.clock.get().time - 0.016) < 1e-9);
+  assert.equal(h.clock.get().playing, true);
 });
 
 test('seeking while playing continues from the new time instead of snapping back', () => {

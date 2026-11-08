@@ -8,9 +8,14 @@ export function createPlaybackClock({ time = 0, duration, now = () => performanc
   const publish = next => { state = next; for (const listener of [...listeners]) listener(); };
   const tick = at => {
     frame = null;
-    const next = (at - start) / 1000;
-    if (next >= duration()) publish({ time: 0, playing: false, origin: 0 });
-    else { frame = request(tick); publish({ ...state, time: next }); }
+    const elapsed = (at - start) / 1000, length = duration();
+    frame = request(tick);
+    if (elapsed >= length) {
+      // Keep the fractional frame after the boundary, even if a delayed RAF spans several loops.
+      const time = elapsed % length;
+      start = at - time * 1000;
+      publish({ time, playing: true, origin: 0 });
+    } else publish({ ...state, time: elapsed });
   };
   return {
     get: () => state,

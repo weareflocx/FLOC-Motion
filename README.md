@@ -296,6 +296,8 @@ Every visual layer's **Transform** section edits X/Y percentages, size where app
 
 ### Preview continuity
 
+Play repeats the composition continuously: reaching its duration returns to the beginning without pausing. Pause (or Space) stops at the current frame. This only repeats the preview; a 12-second composition still exports 12 seconds. Repetition does not make mismatched beginning and end frames seamless.
+
 The editor retains the active animation while preparing a replacement scene. Parameter edits (effects, carousel motion, size and appearance, colors, timing, text, procedural backgrounds, and model materials, lighting, automatic motion and clip selection) update the live scene in place. Only structural edits rebuild it: adding, removing, reordering or retyping layers, changing the format, a carousel template, card count or card sources, a media, model or background source/mode, or an adjustment scope; changing a font face rebuilds when the face is not loaded yet.
 
 Inspector edits that do not create a keyframe (static layers, and values no choreography state holds) apply while the preview keeps playing, so colors, typography, effects or materials can be tuned on the moving animation. Selecting a layer (on the canvas, in Layers or on its timeline track) and changing a clip's Start or Duration also keep it playing. Edits that save a state at the playhead (an animated pose, or a value a state already holds) and inspector resizes measured on screen stop the playhead exactly on that instant; a canvas drag stops it on the frame where the pointer went down, which is the frame the drag measured. Wheel and depth gestures, deleting layers and opening dialogs still pause first.
