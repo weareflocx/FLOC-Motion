@@ -38,7 +38,7 @@ const base = (name, format) => ({ version: 1, name, format, duration: DURATION, 
 const span = { visible: true, start: 0, end: DURATION };
 const colorBackground = color => ({ id: 'background', type: 'background', name: 'Background', ...span, color, mode: 'color', src: '', fit: 'cover', offset: 0, loop: true });
 const text = (id, values) => ({ id, type: 'text', name: id, ...span, x: 6, y: 6, size: 48, color: '#ffffff', font: 'geist', weight: 700, width: 80, fadeIn: 0, fadeOut: 0, rise: false, ...values });
-const PLANAR = ['zoom-through', 'sweep-reveal', 'window-push'];
+const PLANAR = ['zoom-through', 'sweep-reveal', 'window-push', 'kinetic-mosaic'];
 // Slot N (group × 3 + column) sets the corner style; the Nth carousel in group
 // order gets EFFECTS[N % 10], so every effect renders on a carousel.
 function carousel(templateId, index, x, effect = index) {
@@ -50,7 +50,7 @@ function carousel(templateId, index, x, effect = index) {
     cornerRadius: index % 3 ? 12 : 0, cardShape: index % 2 ? 'squircle' : 'rounded' };
 }
 // Slot 14 belonged to the retired Twist; a second Circular keeps the slot order.
-const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'circular'], ['window-push', 'wheel']];
+const CAROUSEL_GROUPS = [['circular'], ['horizontal', 'flip', 'showcase'], ['zoom-through', 'sweep-reveal'], ['stack-shuffle', 'sphere', 'spinner'], ['stack', 'stickers', 'circular'], ['window-push', 'wheel'], ['kinetic-mosaic']];
 
 // The Horizontal carousel (slot 1, Blur) also covers Optical Warp before a CSS effect.
 function carouselFixtures() {

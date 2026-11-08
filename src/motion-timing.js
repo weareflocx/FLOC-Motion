@@ -50,14 +50,15 @@ export function evaluateMotionClock(motion, count, local, speed, loopDuration, t
     const period = motion.action + motion.pause;
     const beat = local / period;
     const progress = Math.min((beat - Math.floor(beat)) * period / motion.action, 1);
-    const eased = template === 'sweep-reveal' ? sweepProgress(progress, motion) : motionEase(progress, motion, template === 'window-push' ? 1 - (1 - progress) ** 3 : progress);
+    // Mosaic tiles ease their own delayed progress, never the shared clock.
+    const eased = template === 'kinetic-mosaic' ? progress : template === 'sweep-reveal' ? sweepProgress(progress, motion) : motionEase(progress, motion, template === 'window-push' ? 1 - (1 - progress) ** 3 : progress);
     cycle = speed === 0 ? 0 : (Math.floor(beat) + eased) * Math.sign(speed) / count;
   } else {
     cycle = loopDuration > 0 ? (speed === 0 ? 0 : local / loopDuration * Math.sign(speed)) : local * speed / 360;
     // These families historically measure speed in card advances, not degrees.
     if (!loopDuration && template === 'horizontal') cycle = local * speed / 35 / count;
     // These families shape each card's transition rather than the whole clock.
-    if (template !== 'flip' && template !== 'stickers' && template !== 'zoom-through' && template !== 'stack-shuffle' && template !== 'sweep-reveal' && template !== 'window-push' && motion.curve !== 'native') {
+    if (template !== 'flip' && template !== 'stickers' && template !== 'zoom-through' && template !== 'stack-shuffle' && template !== 'sweep-reveal' && template !== 'window-push' && template !== 'kinetic-mosaic' && motion.curve !== 'native') {
       const advance = Math.abs(cycle * count);
       cycle = (Math.floor(advance) + motionEase(advance % 1, motion)) * Math.sign(cycle) / count;
     }

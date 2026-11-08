@@ -30,14 +30,15 @@ const KEYFRAMED = ['text', 'logo', 'media', 'model', 'dataflow', 'carousel', 'ef
 const playsSource = layer => layer.type === 'music' || (layer.type === 'media' && /\.(mp4|webm|gif)$/i.test(layer.src));
 
 // Fixed ratios crop every card to one shape; per-image fits keep each image's
-// proportions. Window Push only has a window ratio.
+// proportions. Window Push and Kinetic Mosaic always share a fixed ratio.
 function CardRatioField({ layer, onPatch }) {
   const windowPush = layer.template === 'window-push';
+  const fixedOnly = windowPush || layer.template === 'kinetic-mosaic';
   const label = windowPush ? 'Window ratio' : 'Card ratio';
-  const perImage = !windowPush && FIT_OPTIONS.some(([fit]) => fit === layer.cardFit);
-  const choose = value => onPatch(layer.id, value.startsWith('fit:') ? { cardFit: value.slice(4) } : { ...(!windowPush && { cardFit: 'fixed' }), cardAspect: Number(value) });
+  const perImage = !fixedOnly && FIT_OPTIONS.some(([fit]) => fit === layer.cardFit);
+  const choose = value => onPatch(layer.id, value.startsWith('fit:') ? { cardFit: value.slice(4) } : { cardFit: 'fixed', cardAspect: Number(value) });
   return <Field label={label}><select className="card-ratio-select" aria-label={label} value={perImage ? `fit:${layer.cardFit}` : layer.cardAspect} onChange={event => choose(event.target.value)}>
-    {!windowPush && FIT_OPTIONS.map(([fit, name]) => <option key={fit} value={`fit:${fit}`}>{name}</option>)}
+    {!fixedOnly && FIT_OPTIONS.map(([fit, name]) => <option key={fit} value={`fit:${fit}`}>{name}</option>)}
     {CARD_RATIOS.map(([ratio, name]) => <option key={ratio} value={ratio}>{name}</option>)}
     {!CARD_RATIOS.some(([ratio]) => ratio === layer.cardAspect) && <option value={layer.cardAspect}>Custom</option>}
   </select></Field>;
@@ -59,6 +60,12 @@ function CarouselDesign({ layer, images, uploading, cards, onPatch, onPick, onRe
       {layer.template === 'window-push' && <>
         <Range label="Zoom" value={layer.windowZoom ?? 0.5} min={0} max={1} step={0.01} onChange={windowZoom => onPatch(layer.id, { windowZoom })}/>
         <Range label="Spacing" value={layer.windowSpacing ?? 0} min={0} max={160} suffix="px" onChange={windowSpacing => onPatch(layer.id, { windowSpacing })}/>
+      </>}
+      {layer.template === 'kinetic-mosaic' && <>
+        <NumberField label="Grid columns" value={layer.mosaicColumns ?? 5} min={1} max={12} onChange={mosaicColumns => onPatch(layer.id, { mosaicColumns })}/>
+        <NumberField label="Grid rows" value={layer.mosaicRows ?? 5} min={1} max={12} onChange={mosaicRows => onPatch(layer.id, { mosaicRows })}/>
+        <Range label="Zoom" value={layer.mosaicZoom ?? 0.8} min={0} max={1} step={0.01} onChange={mosaicZoom => onPatch(layer.id, { mosaicZoom })}/>
+        <Range label="Stagger" value={layer.mosaicStagger ?? 0.35} min={0} max={1} step={0.01} onChange={mosaicStagger => onPatch(layer.id, { mosaicStagger })}/>
       </>}
       {layer.template === 'stack-shuffle' && <Range label="Stack spacing" value={layer.shuffleGap ?? 36} min={0} max={160} suffix="px" onChange={shuffleGap => onPatch(layer.id, { shuffleGap })}/>}
       {layer.template === 'circular' && ['default', 'wrapped'].includes(layer.motionVariant) && <Range label="Curvature" value={layer.curve} min={0} max={1} step={0.05} onChange={value => onPatch(layer.id, { curve: value })}/>}

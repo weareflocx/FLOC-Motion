@@ -1,6 +1,6 @@
 {
   "captureWidth": 360,
-  "browser": "Chrome/156.0.8078.76",
+  "browser": "Chrome/156.0.8078.81",
   "baselineTolerance": {
     "channel": 16,
     "ratio": 0.002
@@ -56,6 +56,14 @@
       "frames": [
         "carousels-window-push-wheel-0.50s.png",
         "carousels-window-push-wheel-1.70s.png"
+      ]
+    },
+    "carousels-kinetic-mosaic": {
+      "hash": "dde3aa7fe3f21408",
+      "format": "landscape",
+      "frames": [
+        "carousels-kinetic-mosaic-0.50s.png",
+        "carousels-kinetic-mosaic-1.70s.png"
       ]
     },
     "backgrounds-fonts": {

@@ -14,7 +14,8 @@ export const MOTION_VARIANTS = {
   'zoom-through': [],
   'stack-shuffle': [['down', 'Down'], ['up', 'Up'], ['left', 'Left'], ['right', 'Right']],
   'sweep-reveal': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']],
-  'window-push': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']]
+  'window-push': [['right', 'Right'], ['left', 'Left'], ['up', 'Up'], ['down', 'Down']],
+  'kinetic-mosaic': [['outward', 'Outward'], ['inward', 'Inward'], ['left', 'Left'], ['right', 'Right'], ['up', 'Up'], ['down', 'Down']]
 };
 const TAU = Math.PI * 2;
 const mod = (v, n) => ((v % n) + n) % n;
@@ -28,9 +29,9 @@ export function motionVariant(layer) {
 export const CARD_FITS = ['fixed', 'height', 'width'];
 // Per-card widths and aspects in scene units for `mediaAspects` (one per card).
 // The shared side equals that side of the fixed card, so switching modes keeps
-// the scale. Window Push always uses its window ratio.
+// the scale. Window Push and Kinetic Mosaic always use their fixed window ratio.
 export function cardMetrics(layer, mediaAspects) {
-  const fit = layer.template === 'window-push' ? 'fixed' : layer.cardFit ?? 'fixed';
+  const fit = layer.template === 'window-push' || layer.template === 'kinetic-mosaic' ? 'fixed' : layer.cardFit ?? 'fixed';
   const perCard = fit !== 'fixed';
   const aspects = mediaAspects.map(aspect => perCard && Number.isFinite(aspect) && aspect > 0 ? Math.max(0.25, Math.min(4, aspect)) : layer.cardAspect);
   const widths = aspects.map(aspect => fit === 'height' ? layer.size / layer.cardAspect * aspect : layer.size);
@@ -69,6 +70,46 @@ export function ringRadius(layer, count, metrics, minimum = 1.45) {
   if (layer.radius > 0) return layer.radius;
   const ring = metrics?.perCard && metrics.widths.length === count ? cardPath(metrics, 1, layer.gap) : null;
   return Math.max(minimum, (ring ? ring.length : count * (layer.size + layer.gap)) / TAU);
+}
+
+function mosaicTransition(layer, count, advance, out) {
+  const rawBeat = Math.abs(advance), nearest = Math.round(rawBeat);
+  const beat = Math.abs(rawBeat - nearest) < 1e-10 ? nearest : rawBeat;
+  const direction = layer.speed < 0 ? -1 : 1;
+  out.outgoing = count > 1 ? mod(Math.floor(beat) * direction, count) : 0;
+  out.incoming = count > 1 ? mod(out.outgoing + direction, count) : 0;
+  out.progress = count > 1 && layer.speed !== 0 ? beat - Math.floor(beat) : 0;
+  return out;
+}
+
+// Linear transition time; each tile applies its delay and curve afterwards.
+// Stepped clocks promote the incoming image at action end, then hold it.
+export function kineticMosaicState(layer, count, time, out = {}) {
+  return mosaicTransition(layer, count, motionClock(layer, count, time, out).advance, out);
+}
+
+// Columns run left to right; rows run bottom to top, matching the shader UVs.
+export function kineticMosaicCellProgress(layer, column, row, progress) {
+  const columns = layer.mosaicColumns ?? 5, rows = layer.mosaicRows ?? 5;
+  const variant = motionVariant(layer);
+  let rank = 0;
+  if (variant === 'left' || variant === 'right') {
+    rank = columns > 1 ? column / (columns - 1) : 0;
+    if (variant === 'left' && columns > 1) rank = 1 - rank;
+  } else if (variant === 'up' || variant === 'down') {
+    rank = rows > 1 ? row / (rows - 1) : 0;
+    if (variant === 'down' && rows > 1) rank = 1 - rank;
+  } else {
+    const minimum = Math.hypot(columns % 2 ? 0 : 0.5, rows % 2 ? 0 : 0.5);
+    const maximum = Math.hypot((columns - 1) / 2, (rows - 1) / 2);
+    if (maximum > minimum) {
+      rank = (Math.hypot(column - (columns - 1) / 2, row - (rows - 1) / 2) - minimum) / (maximum - minimum);
+      if (variant === 'inward') rank = 1 - rank;
+    }
+  }
+  const stagger = Math.min(0.9, clamp(layer.mosaicStagger ?? 0.35));
+  const local = clamp((progress - rank * stagger) / (1 - stagger));
+  return clamp(motionEase(local, layer.motion ?? DEFAULT_MOTION, 1 - (1 - local) ** 3));
 }
 // `metrics` (from cardMetrics) spaces per-image cards by their own widths;
 // without it, or for fixed cards, every card measures layer.size.
@@ -168,6 +209,11 @@ export function carouselCard(layer, index, count, time, metrics) {
       state.push[horizontal ? 0 : 1] = sign * (progress - Math.min(slot, 1));
       state.push[2] = 1 + (layer.windowZoom ?? 0.5) * (slot === 0 ? progress : 1 - progress);
     }
+  } else if (layer.template === 'kinetic-mosaic') {
+    mosaicTransition(layer, count, clock.advance, state);
+    state.mosaic = 1;
+    state.opacity = index === state.outgoing ? 1 : 0;
+    state.renderOrder = 1;
   } else if (layer.template === 'sweep-reveal') {
     const beat = phase * count;
     const progress = clock.stepped ? beat % 1 : sweepProgress(beat % 1, motion);

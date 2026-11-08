@@ -1,7 +1,7 @@
 import { createModelScene } from './model-scene.js';
 import { createDataFlowScene } from './data-flow-scene.js';
 import { cardMediaKind, cardVideoSource, cardMediaTime, cardFrameIndex, videoFrameIndex, videoFrameSource, waitForVideo, seekCardVideo, playMedia, pauseMedia } from './card-media.js';
-import { carouselCard, motionVariant, elasticState, cardMetrics, ringRadius } from './carousel-motion.js';
+import { carouselCard, motionVariant, elasticState, cardMetrics, ringRadius, kineticMosaicCellProgress } from './carousel-motion.js';
 import * as THREE from 'three';
 import { fontFamily, fontStack } from './fonts.js';
 import { FORMATS, escapeHtml, layerAlpha, audioTime, demoProject, carouselImages } from './project.js';
@@ -66,6 +66,7 @@ const stretched = layer => layer.stretch > 0 || animatedFields(layer).includes('
 const vertex = `varying vec2 vUv; uniform float uTorsion; uniform float uElastic; uniform float uSide; uniform float uCardSize;
 void main(){vUv=uv;vec3 p=position; if(uElastic>0.0){float edge=pow(clamp(0.5+(uv.x-0.5)*uSide,0.0,1.0),3.0);p.x+=uSide*uElastic*uCardSize*3.5*edge;p.y*=1.0+uElastic*3.0*edge;}float a=p.y*uTorsion; p.xz=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}`;
 const fragment = `${SCENE_PASS_PARS}\nvarying vec2 vUv; uniform sampler2D uMap; uniform float uDepth; uniform vec2 uCrop; uniform vec4 uClip; uniform vec2 uWindow; uniform vec2 uCanvasPixels; uniform vec4 uPush; uniform float uImageAspect; uniform float uOpacity; uniform float uCorner; uniform float uAspect; uniform float uShape; uniform float uElastic; uniform float uSide;
+uniform float uMosaic; uniform sampler2D uMosaicMap; uniform vec2 uMosaicGrid; uniform vec2 uMosaicCrop; uniform float uMosaicZoom; uniform vec4 uMosaicCells[36];
 void main(){
 if(vUv.x<uClip.x||vUv.y<uClip.y||vUv.x>uClip.z||vUv.y>uClip.w)discard;
 float mask=1.0;
@@ -93,6 +94,19 @@ if(uWindow.x>0.0){
 vec2 uv=(imageUv-0.5)*crop/uPush.z+0.5;
 if(uElastic>0.0){float edge=pow(clamp(0.5+(vUv.x-0.5)*uSide,0.0,1.0),2.0);float anchor=uSide>0.0?0.12:0.88;uv.x=mix(uv.x,(anchor-0.5)*uCrop.x+0.5,uElastic*edge*0.85);}
 vec4 c=texture2D(uMap,uv);
+if(uMosaic>0.0){
+  vec2 cell=min(floor(vUv*uMosaicGrid),uMosaicGrid-1.0);
+  int index=int(cell.x)+int(cell.y)*int(uMosaicGrid.x);
+  float progress=uMosaicCells[index/4][index-index/4*4];
+  vec2 tileUv=vUv*uMosaicGrid-cell;
+  vec2 assembledUv=mix(tileUv,vUv,1.0-(1.0-progress)*uMosaicZoom);
+  vec4 incoming=texture2D(uMosaicMap,(assembledUv-0.5)*uMosaicCrop+0.5);
+  // Crossfade premultiplied samples before compositing the layer, so transparent
+  // incoming pixels replace (rather than permanently expose) the outgoing image.
+  float alpha=mix(c.a,incoming.a,progress);
+  vec3 premultiplied=mix(c.rgb*c.a,incoming.rgb*incoming.a,progress);
+  c=vec4(alpha>0.0?premultiplied/alpha:vec3(0.0),alpha);
+}
 if(!gl_FrontFacing)c.rgb*=0.28;c.rgb*=uDepth;gl_FragColor=vec4(c.rgb,c.a*uOpacity*mask);
 #include <tonemapping_fragment>
 #include <colorspace_fragment>
@@ -103,7 +117,16 @@ ${SCENE_PASS_FRAGMENT}
 // share one geometry; each card copies these into the material just before it is drawn.
 function cardUniforms(texture, imageAspect) {
   return { uMap: { value: texture }, uImageAspect: { value: imageAspect }, uAspect: { value: 1 }, uCrop: { value: new THREE.Vector2(1, 1) }, uCorner: { value: 0 }, uElastic: { value: 0 }, uSide: { value: 0 },
-    uClip: { value: new THREE.Vector4(0, 0, 1, 1) }, uPush: { value: new THREE.Vector4(0, 0, 1, 0) }, uDepth: { value: 1 }, uOpacity: { value: 1 }, uTorsion: { value: 0 } };
+    uClip: { value: new THREE.Vector4(0, 0, 1, 1) }, uPush: { value: new THREE.Vector4(0, 0, 1, 0) }, uDepth: { value: 1 }, uOpacity: { value: 1 }, uTorsion: { value: 0 },
+    uMosaic: { value: 0 }, uMosaicMap: { value: texture }, uMosaicGrid: { value: new THREE.Vector2(1, 1) }, uMosaicCrop: { value: new THREE.Vector2(1, 1) }, uMosaicZoom: { value: 0 }, uMosaicCells: { value: new Float32Array(144) } };
+}
+function resetMosaicUniforms(card) {
+  card.uMosaic.value = 0;
+  card.uMosaicMap.value = card.uMap.value;
+  card.uMosaicGrid.value.set(1, 1);
+  card.uMosaicCrop.value.set(1, 1);
+  card.uMosaicZoom.value = 0;
+  card.uMosaicCells.value.fill(0);
 }
 function unloadVideo(video) { pauseMedia(video); video.removeAttribute('src'); video.load(); }
 async function loadCardVideo(src) {
@@ -314,6 +337,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     const windowAspect = layer.template === 'window-push' ? width / height : 0;
     meshes.forEach((mesh, i) => {
       const card = mesh.userData.uniforms;
+      resetMosaicUniforms(card);
       const imageRatio = card.uImageAspect.value, cardRatio = cards.aspects[i];
       if (imageRatio > cardRatio) card.uCrop.value.set(cardRatio / imageRatio, 1); else card.uCrop.value.set(1, imageRatio / cardRatio);
       card.uAspect.value = windowAspect || cardRatio;
@@ -465,7 +489,7 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
     }
     group.position.set((position.x / 100 - 0.5) * viewHeight * width / height, (0.5 - position.y / 100) * viewHeight, layer.space === 'spatial' ? (position.z ?? 0) / 100 * viewHeight : 0);
     // Planar carousels size their largest card as a fraction of the canvas.
-    const planar = ['zoom-through', 'sweep-reveal'].includes(layer.template);
+    const planar = ['zoom-through', 'sweep-reveal', 'kinetic-mosaic'].includes(layer.template);
     const shuffle = layer.template === 'stack-shuffle';
     const windowPush = layer.template === 'window-push';
     const canvasSize = windowPush ? viewHeight * width / height : planar ? Math.min(viewHeight * width / height, viewHeight * sampled.cardAspect) : shuffle ? viewHeight : 1;
@@ -491,6 +515,24 @@ async function createLayerScene(root, p, { renderMode = false, rendering, onMedi
       mesh.renderOrder = state.renderOrder ?? 0;
       card.uClip.value.set(...(state.clip ?? [0, 0, 1, 1]));
       card.uPush.value.set(...(state.push ?? [0, 0, 1, 0]));
+      if (state.mosaic) {
+        const aspect = cards.aspects[i], imageAspect = card.uImageAspect.value;
+        card.uAspect.value = aspect;
+        card.uCrop.value.set(imageAspect > aspect ? aspect / imageAspect : 1, imageAspect > aspect ? 1 : imageAspect / aspect);
+      }
+      if (state.mosaic && state.opacity > 0 && meshes.length > 1) {
+        const incoming = meshes[state.incoming].userData.uniforms;
+        const columns = sampled.mosaicColumns ?? 5, rows = sampled.mosaicRows ?? 5;
+        const aspect = cards.aspects[i], imageAspect = incoming.uImageAspect.value;
+        card.uMosaic.value = 1;
+        card.uMosaicMap.value = incoming.uMap.value;
+        card.uMosaicGrid.value.set(columns, rows);
+        card.uMosaicCrop.value.set(imageAspect > aspect ? aspect / imageAspect : 1, imageAspect > aspect ? 1 : imageAspect / aspect);
+        card.uMosaicZoom.value = sampled.mosaicZoom ?? 0.8;
+        for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+          card.uMosaicCells.value[row * columns + column] = kineticMosaicCellProgress(sampled, column, row, state.progress);
+        }
+      } else if (card.uMosaic.value) resetMosaicUniforms(card);
       if (shuffle) {
         const side = cards.perCard ? Math.min(cards.widths[i], cards.widths[i] / cards.aspects[i]) * height : sampled.size * height * Math.min(1, 1 / sampled.cardAspect);
         card.uCorner.value = Math.min(1, 2 * (sampled.shuffleCorner ?? 15) / (side * state.scale));

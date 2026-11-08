@@ -273,6 +273,14 @@ Card silhouettes support a corner radius of 0–100% of half the shorter edge, w
 
 **Card ratio** either crops every card to one fixed ratio (9:16, 4:5, 7:8, 1:1, 4:3, 16:9) or keeps each image's own proportions, uncropped: **Each image · same height** or **Each image · same width** (`cardFit` `height`/`width`; absent or `fixed` keeps the fixed ratio). The shared side equals that side of the fixed card at the current card size and ratio, so switching modes keeps the overall scale. Proportions come from the loaded media (video and GIF cards from their frames; ratios beyond 1:4 and 4:1 are cropped to that limit), so preview and export lay cards out identically. Horizontal, Flip slider and Showcase space neighbours by their real widths with the same edge-to-edge gap; Circular and Wheel give each card an angular share proportional to its width, and wrapped cards curve over their own width; the rocking Wheel fans by width. The other families keep their layout and only resize each card. Window Push keeps its window ratio. The fit is shared by linked formats and updates the preview in place.
 
+## Kinetic Mosaic
+
+Choose **Add layer → Carousel → Kinetic Mosaic**, then add photos. Each transition assembles tiled copies into the next whole image; the default is a 5 × 5 grid, an 800 ms action and a 2000 ms hold.
+
+In **Design**, adjust **Grid columns**, **Grid rows** (1–12), **Zoom**, **Stagger** and **Motion variant** (Outward, Inward, Left, Right, Up or Down). All images share the selected fixed **Card ratio**. In **Motion**, change the action/hold durations, playback direction or progress curve. A single image stays still.
+
+The shared scene evaluates tile timing and texture blending from absolute time, including reverse playback and backward seeks. Preview, library samples and exports use that same implementation; transparent images retain their alpha.
+
 ## Flip slider and elastic optics
 
 Flip slider is an additional original carousel: each step holds for 60% of its interval and eases through the next card for 40%. Transition turn (0–360°) controls the Y-axis turn independently; at a full turn the settled center and side cards face forward. **Edge stretch** is a carousel motion property: its lateral wing geometry and texture stretching follow distance from the local center, vanish at center and remain neutral at zero. Projects saved before the unified catalog migrate Elastic shader intensity to Edge stretch (schema v8).

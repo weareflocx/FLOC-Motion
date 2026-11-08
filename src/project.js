@@ -30,6 +30,7 @@ export const TEMPLATES = [
   { id: 'stack-shuffle', name: 'Stack Shuffle', description: 'The front card drops away as the next card advances through the deck', kind: 'stack', defaults: { cardCount: 6, cardAspect: 1, loopDuration: 9.6, speed: 37.5, motionVariant: 'down', motion: { ...DEFAULT_MOTION }, size: 0.58, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, shuffleGap: 36, shuffleRotation: 28, shuffleCorner: 15, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
   { id: 'sweep-reveal', name: 'Sweep Reveal', description: 'A clean directional wipe reveals each stationary photograph', kind: 'stack', defaults: { cardCount: 6, cardAspect: 4 / 3, loopDuration: 10.2, speed: 360 / 10.2, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.7 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
   { id: 'window-push', name: 'Window Push', description: 'Synchronized sliding images fill the canvas and a fixed central window', kind: 'stack', defaults: { cardCount: 6, cardAspect: 3 / 5, loopDuration: 7.2, speed: 50, motionVariant: 'right', motion: { ...DEFAULT_MOTION, action: 1.2 }, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, windowZoom: 0.5, windowSpacing: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
+  { id: 'kinetic-mosaic', name: 'Kinetic Mosaic', description: 'Staggered image tiles assemble into each photograph with a settled hold', kind: 'stack', defaults: { cardCount: 0, cardFit: 'fixed', cardAspect: 4 / 3, loopDuration: 0, speed: 18, motionVariant: 'outward', motion: { ...DEFAULT_MOTION, mode: 'steps', action: 0.8, pause: 2, curve: 'native', intensity: 0.5 }, mosaicColumns: 5, mosaicRows: 5, mosaicZoom: 0.8, mosaicStagger: 0.35, size: 1, x: 50, y: 50, tilt: 0, yaw: 0, roll: 0, cornerRadius: 0, cardShape: 'rounded', frontface: 'show', backface: 'show', stretch: 0 } },
   ...['showcase', 'sphere', 'spinner', 'stack', 'stickers', 'wheel'].map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), description: MOTION_VARIANTS[id].map(v => v[1]).join(' / '), kind: id }))
 ];
 export function blankProject(name = 'Untitled') {
@@ -98,7 +99,7 @@ const LAYER_KEYS = Object.fromEntries(Object.entries({
   dataflow: ['x', 'y', 'size', 'flowStyle'],
   carousel: ['images', 'template', 'speed', 'cardCount', 'cardAspect', 'cardFit', 'radius', 'loopDuration', 'motion', 'motionBaseline', 'motionVariant', 'fade', 'transitionTurn',
     'cornerRadius', 'cardShape', 'frontface', 'backface', 'tilt', 'yaw', 'roll', 'size', 'gap', 'curve', 'x', 'y', 'perspective', 'stretch',
-    'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing'],
+    'zoomRotation', 'shuffleGap', 'shuffleRotation', 'shuffleCorner', 'windowZoom', 'windowSpacing', 'mosaicColumns', 'mosaicRows', 'mosaicZoom', 'mosaicStagger'],
   background: ['color', 'mode', 'src', 'fit', 'offset', 'loop', 'x', 'y', 'roll', ...Object.keys(DEFAULT_PROCEDURAL_BACKGROUND), ...Object.keys(TEXTURE_LAYOUT_DEFAULTS)],
   music: ['src', 'volume', 'offset', 'fade', 'loop'],
   effect: []
@@ -236,6 +237,16 @@ export function validateProject(input) {
       if (l.template === 'window-push') { l.windowZoom ??= 0.5; l.windowSpacing ??= 0; }
       if (l.windowZoom !== undefined) finite(l.windowZoom, 0, 1, 'Window zoom');
       if (l.windowSpacing !== undefined) finite(l.windowSpacing, 0, 160, 'Window spacing');
+      if (l.template === 'kinetic-mosaic') {
+        for (const [field, value] of Object.entries({ mosaicColumns: 5, mosaicRows: 5, mosaicZoom: 0.8, mosaicStagger: 0.35 })) if (l[field] === undefined) l[field] = value;
+      }
+      for (const field of ['mosaicColumns', 'mosaicRows']) {
+        if (l[field] === undefined) continue;
+        if (!Number.isInteger(l[field])) fail('Mosaic columns and rows must be integers.');
+        finite(l[field], 1, 12, 'Mosaic grid count');
+      }
+      if (l.mosaicZoom !== undefined) finite(l.mosaicZoom, 0, 1, 'Mosaic zoom');
+      if (l.mosaicStagger !== undefined) finite(l.mosaicStagger, 0, 1, 'Mosaic stagger');
       l.cornerRadius ??= 0; l.cardShape ??= 'rounded'; l.frontface ??= 'show'; l.backface ??= 'show';
       finite(l.cornerRadius, 0, 100, 'Corner radius');
       if (!['rounded', 'squircle'].includes(l.cardShape)) fail('Unknown card shape.');

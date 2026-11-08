@@ -28,6 +28,10 @@ for (const template of items) {
     project.format = 'landscape43';
     project.fps = 30;
   }
+  if (template.id === 'kinetic-mosaic') {
+    project.duration = (project.layers[1].motion.action + project.layers[1].motion.pause) * project.images.length;
+    project.layers.forEach(layer => { layer.end = project.duration; });
+  }
   // A light front card makes the deck silhouette readable against the black sample.
   if (template.id === 'stack-shuffle') project.images.push(project.images.shift());
   const folder = path.join(work, template.id);
